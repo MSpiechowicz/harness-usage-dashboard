@@ -1,0 +1,22 @@
+{
+  "name": "omp-usage-dashboard",
+  "owner": {
+    "name": "MSpiechowicz"
+  },
+  "metadata": {
+    "description": "Account-usage sidebar for Oh My Pi"
+  },
+  "plugins": [
+    {
+      "name": "oh-my-pi-usage-dashboard",
+      "description": "Persistent provider account-usage sidebar with ordinary omp shell integration",
+      "version": "1.0.0",
+      "source": {
+        "source": "github",
+        "repo": "MSpiechowicz/oh-my-pi-usage-dashboard",
+        "ref": "v1.0.0"
+      },
+      "homepage": "https://github.com/MSpiechowicz/oh-my-pi-usage-dashboard"
+    }
+  ]
+}
