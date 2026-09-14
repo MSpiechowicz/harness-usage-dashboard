@@ -1,45 +1,48 @@
 # Oh My Pi Usage Dashboard
 
-Monitor session tokens, provider allowances, reset times, and API credit balances without leaving [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi).
+Live token charts, persistent session history, and provider allowances in a tmux sidebar for [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi).
 
-The dashboard adds a compact sidebar beside your OMP session. It shows **provider-reported account usage** alongside a live token chart and persistent current/previous-session summaries. Choose which account providers to display, inspect usage by provider and model, and keep your history and layout across sessions.
+See how quickly your current session is using tokens, what your previous session consumed, and how much account allowance remains—without leaving the terminal. Token usage stays attributed to the provider and model that handled each request, even when you switch models. Session history and dashboard preferences persist across restarts.
 
 [Install](#installation) · [Use](#usage) · [Update](#updating) · [Uninstall](#uninstalling) · [Troubleshoot](#troubleshooting)
 
-[![Real OMP terminal capture showing Codex remaining allowances on the right and the grouped dashboard controls on the left](docs/assets/dashboard.png)](docs/assets/dashboard.png)
+[![Compact and Details dashboard views showing populated token-rate charts, current and previous session totals, per-model token and cache breakdowns, observed quota changes, and provider allowances](docs/assets/dashboard.png)](docs/assets/dashboard.png)
 
-*Rendered from a real OMP/tmux terminal capture, with live Codex usage and no conversation content or credentials. Values vary by account and time. Click the image to enlarge.*
+*Compact (left) and Details (right), arranged side by side for comparison. Rendered from actual curses/tmux captures using **mock usage data**, not live account readings. No real conversation content, credentials, or account identifiers are included. Click to enlarge.*
+
+Use `/usage-dashboard view compact` for the overview, or `/usage-dashboard view details` for per-model accounting and sample information.
 
 ## What it does
 
-- **Shows remaining allowance and reset times** for usage windows reported by your provider.
-- **Displays multiple providers together**, independently of the model selected for your conversation.
-- **Charts reported tokens per minute** over the current session's last 20 minutes, across all models.
-- **Keeps current and previous session summaries** with provider totals, per-model details, and observed allowance changes.
-- **Preserves recorded token history** across restarts and resumes without counting inherited fork context as new usage.
-- **Shows reported API credit balances** where supported, without inventing a percentage or starting quota.
-- **Keeps the display compact:** one row per allowance, with color applied only to the remaining percentage.
-- **Remembers your preferences:** provider selection, hidden rows, position, density, polling interval, and visibility.
-- **Checks for new dashboard releases** and uses OMP's native marketplace manager to install updates.
+- **Live token-rate chart:** the last 20 minutes of reported usage across all models, with solid bars, a labelled scale, and an idle state.
+- **Current and previous sessions:** cumulative token totals and recorded allowance changes survive `/new`, restarts, and resumes. Inherited fork context is not counted as new consumption.
+- **Provider and model breakdowns:** Compact mode groups tokens by provider; Details adds per-model input/output and cache-read/write counts. Unattributed task aggregates remain explicitly labelled.
+- **Observed quota changes:** separate comparisons for each account and allowance window, in percentage points. Rows appear only when comparable samples exist; these are observations, not exact session billing.
+- **Account allowances and balances:** remaining percentages, reset times, and reported API credit balances where supported. Multiple providers can be monitored independently of the current conversation model.
+- **A quieter sidebar:** aligned values, section dividers, and spacing; no pending-sample rows or redundant single-provider totals in Compact mode. Detailed explanations stay in Details.
+- **Persistent local state:** profile-local token history and saved provider selection, hidden rows, position, density, polling interval, and visibility.
+- **Native managed updates:** release checks and upgrades through OMP's marketplace manager.
 
 ### When it is useful
 
 | Use case | How the dashboard helps |
 | --- | --- |
+| Follow token activity while working | Watch the reported tokens-per-minute chart and the current session total. |
+| Compare this session with the last one | Keep the previous session's token totals and available quota comparisons after `/new`. |
+| Work across models and providers | Preserve each request's provider/model attribution and inspect input/output/cache breakdowns. |
 | Plan work around subscription limits | See remaining allowance and when each reported window resets. |
-| Work across several providers | Keep selected account views visible while switching conversation models. |
-| Reduce unnecessary information | Hide an entire provider or individual windows, such as Codex Spark rows. |
+| Reduce unnecessary information | Use Compact mode, hide providers or account windows, and omit quota comparisons that have no data yet. |
 | Monitor prepaid API accounts | Read the provider's reported credit balance alongside other account views. |
 
-**What it is not:** a billing forecast, a universal quota API, or a replacement for OMP authentication. Being able to chat with a provider does not guarantee that the provider exposes account-usage data. Missing data is shown as unavailable, never as an invented zero.
+**What it is not:** exact subscription billing attribution, a billing forecast, a universal quota API, or a replacement for OMP authentication. Token totals and account percentages are different measurements; percentages are never added across providers or distinct allowance windows. Unsupported account usage is shown as unavailable, and unmeasured session quota changes stay hidden—not presented as an invented zero.
 
 ## Requirements
 
 | Component | Requirement |
 | --- | --- |
 | Operating system | Linux or macOS. Linux is verified; macOS has not been verified here. |
-| OMP | Installed on `PATH`, with `omp usage` support. Managed updates require native marketplace commands; verified with OMP 18.1.19. |
-| Python | Python 3.10+ with the standard-library `curses` module. |
+| OMP | Installed on `PATH`, with `omp usage` support. Session accounting verified with OMP 18.1.21; managed updates require native marketplace commands. |
+| Python | Python 3.10+ with the standard-library `curses` and `sqlite3` modules. |
 | tmux | Version 3.3 or later. |
 | Git | Required for marketplace Git sources and source-checkout installation. |
 | Terminal application | No specific application required; it must support tmux and curses. |
@@ -197,7 +200,7 @@ All commands below are entered inside OMP.
 | Command | Effect |
 | --- | --- |
 | `/usage-dashboard view list` | Show the current configuration. |
-| `/usage-dashboard view compact` | Show dense allowance rows. |
+| `/usage-dashboard view compact` | Show the token chart, concise session/provider totals, measured quota changes, and dense allowance rows. |
 | `/usage-dashboard view details` | Show per-model token/cache breakdowns, quota sample age, source age, and window IDs. |
 | `/usage-dashboard position left` | Place the sidebar on the left. |
 | `/usage-dashboard position right` | Place the sidebar on the right. |
@@ -225,7 +228,7 @@ Click the sidebar to focus it; click the OMP pane to return to your prompt. In t
 | --- | --- |
 | **Refresh** button or **r** | Request fresh usage data. |
 | **Hide** button or **q** | Close the sidebar and save the off state. |
-| Mouse wheel or **Up/Down** | Scroll the provider views. |
+| Mouse wheel or **Up/Down** | Scroll session history, model breakdowns, and provider views. |
 
 With default tmux bindings, **Ctrl-b**, then **o**, switches panes. Your terminal may allow **Shift**-selection to bypass tmux mouse handling.
 
