@@ -44,10 +44,56 @@ const themeOptions = [
   { value: "custom", label: "custom  (override individual colors)" },
   { value: "reset", label: "reset   (restore green and remove custom colors)" },
 ];
-const help = "Sections: view (compact, details; list remains available as a command for showing settings); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, cyan, magenta, orange, red, custom TOKEN COLOR, reset); window (on, off, focus, refresh, interval SECONDS, hide/show PROVIDER FILTER); update (check, install).";
+const help = "Sections: view (compact, details; list remains available as a command for showing settings); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, cyan, magenta, orange, red, custom TOKEN COLOR, reset); window (on, off, focus, refresh, interval, hide/show PROVIDER FILTER); update (check, install).";
 const menuSections = {...sections, view: ["compact", "details"]};
 const MENU_BACK = Symbol("menu-back");
-const MENU_HELP = "↑/↓ navigate  Enter select  ← back  Esc cancel";
+const MENU_CURSOR = "›";
+const MENU_HELP = {
+  root: "↑/↓ navigate  Enter select  Esc cancel",
+  nested: "↑/↓ navigate  Enter select  ← back  Esc cancel",
+};
+
+function capitalizeLabel(label) {
+  return String(label).replace(/^(\s*)([a-z])/, (_match, whitespace, letter) =>
+    `${whitespace}${letter.toUpperCase()}`);
+}
+
+function displayChoice(choice, index) {
+  return `${index + 1}. ${capitalizeLabel(choice.label)}`;
+}
+
+function safeVisibleText(text, width) {
+  return text.slice(0, Math.max(1, width)).padEnd(Math.max(1, width));
+}
+
+function menuColor(theme, name, text) {
+  return theme?.fg ? theme.fg(name, text) : text;
+}
+
+function menuBackground(theme, text) {
+  return theme?.bg ? theme.bg("selectedBg", text)
+    : theme?.inverse ? theme.inverse(text) : text;
+}
+
+function menuBorder(theme, text) {
+  return menuColor(theme, "borderMuted", text);
+}
+
+function menuTopBorder(theme, title, width) {
+  const topLeft = "┌─ ";
+  const topRight = "┐";
+  const titleSuffix = " ";
+  const titleWidth = Math.max(1, width - topLeft.length - topRight.length - titleSuffix.length - 1);
+  if (width < topLeft.length + topRight.length + titleSuffix.length + 2) {
+    return menuBorder(theme, `┌${"─".repeat(Math.max(1, width - 2))}┐`);
+  }
+  const visibleTitle = title.slice(0, titleWidth);
+  const remaining = Math.max(1, width - topLeft.length - visibleTitle.length
+    - titleSuffix.length - topRight.length);
+  return menuBorder(theme, topLeft)
+    + menuColor(theme, "accent", visibleTitle)
+    + menuBorder(theme, `${titleSuffix}${"─".repeat(remaining)}${topRight}`);
+}
 
 function isArrow(data, direction) {
   const code = { up: "A", down: "B", right: "C", left: "D" }[direction];
@@ -55,27 +101,40 @@ function isArrow(data, direction) {
     || new RegExp(`^\\x1b\\[[0-9;]*${code}$`).test(data);
 }
 
-async function menuSelect(ctx, title, options) {
+async function menuSelect(ctx, title, options, { nested = false } = {}) {
   const choices = options.map(option => typeof option === "string"
     ? { value: option, label: option }
     : option);
+  const labels = choices.map((choice, index) => displayChoice(choice, index));
   if (typeof ctx.ui.custom !== "function") {
-    const selected = await ctx.ui.select(title, choices.map(choice => choice.label));
-    return choices.find(choice => choice.label === selected)?.value ?? selected;
+    const selected = await ctx.ui.select(title, labels);
+    return choices.find((choice, index) => labels[index] === selected)?.value ?? selected;
   }
   const custom = ctx.ui.custom((_tui, theme, _keybindings, done) => {
     let selected = 0;
-    const color = (name, text) => theme?.fg ? theme.fg(name, text) : text;
+    const cursor = theme?.nav?.cursor ?? MENU_CURSOR;
     return {
       render(width) {
-        const clamp = text => text.slice(0, Math.max(1, width));
+        const actualWidth = Math.max(8, width);
+        const contentWidth = Math.max(1, actualWidth - 4);
+        const frame = (text, style = "text") => {
+          const content = safeVisibleText(text, contentWidth);
+          return menuBorder(theme, "│ ")
+            + (style === "selected"
+              ? menuBackground(theme, menuColor(theme, "accent", content))
+              : menuColor(theme, style, content))
+            + menuBorder(theme, " │");
+        };
         return [
-          color("accent", clamp(title)),
-          ...choices.map((option, index) => {
-            const line = `${index === selected ? "> " : "  "}${option.label}`;
-            return index === selected ? color("accent", clamp(line)) : clamp(line);
-          }),
-          color("muted", clamp(MENU_HELP)),
+          menuTopBorder(theme, title, actualWidth),
+          frame(""),
+          ...labels.map((label, index) => frame(
+            `${index === selected ? cursor : " "} ${label}`,
+            index === selected ? "selected" : "text")),
+          frame(""),
+          frame(MENU_HELP[nested ? "nested" : "root"], "muted"),
+          frame(""),
+          menuBorder(theme, `└${"─".repeat(actualWidth - 2)}┘`),
         ];
       },
       handleInput(data) {
@@ -100,7 +159,7 @@ async function menuSelect(ctx, title, options) {
       invalidate() {},
     };
   });
-  return custom === undefined ? ctx.ui.select(title, choices.map(choice => choice.label)) : custom;
+  return custom === undefined ? ctx.ui.select(title, labels) : custom;
 }
 
 export default function usageDashboard(pi) {
@@ -261,7 +320,7 @@ export default function usageDashboard(pi) {
             return;
           }
           const options = words[0] === "theme" ? themeOptions : menuSections[words[0]];
-          const action = await menuSelect(ctx, `Usage dashboard / ${words[0]}`, options);
+          const action = await menuSelect(ctx, `Usage dashboard / ${capitalizeLabel(words[0])}`, options, { nested: true });
           if (!action) return;
           if (action === MENU_BACK) {
             words.length = 0;
@@ -296,7 +355,7 @@ export default function usageDashboard(pi) {
         const windowFilter = section === "window" && ["hide", "show"].includes(action);
         if ((section === "providers" || windowFilter) && words.length === 2) {
           const providers = [...new Set([...popular, ...ctx.models.list().map(model => model.provider)])];
-          const provider = await menuSelect(ctx, "Provider (availability depends on OMP login and usage support)", providers);
+          const provider = await menuSelect(ctx, "Provider (availability depends on OMP login and usage support)", providers, { nested: true });
           if (!provider) return;
           if (provider === MENU_BACK) {
             words.pop();

@@ -136,7 +136,7 @@ print(json.dumps(summary(owner=None)))
   }
 });
 
-test("view menu uses compact/details and left arrow navigation", async () => {
+test("command menu uses numbered rows and left arrow navigation", async () => {
   let command;
   let menu;
   let execArgs;
@@ -161,7 +161,10 @@ test("view menu uses compact/details and left arrow navigation", async () => {
             menu = undefined;
             resolve(value);
           };
-          menu = factory({}, { fg: (_name, text) => text }, {}, done);
+          menu = factory({}, {
+            fg: (name, text) => `<fg:${name}>${text}</fg>`,
+            bg: (name, text) => `<bg:${name}>${text}</bg>`,
+          }, {}, done);
         });
       },
       notify() {},
@@ -171,15 +174,23 @@ test("view menu uses compact/details and left arrow navigation", async () => {
   const run = command.handler("", ctx);
   await tick();
   assert.ok(menu);
+  const rootMenu = menu.render(80).join("\n");
+  assert.match(rootMenu, /<fg:accent>Usage dashboard/);
+  assert.match(rootMenu, /┌─/);
+  assert.match(rootMenu, /<bg:selectedBg><fg:accent>› 1\. View/);
+  assert.match(rootMenu, /Esc cancel/);
+  assert.doesNotMatch(rootMenu, /← back/);
+
   menu.handleInput("\r");
   await tick();
   assert.ok(menu);
   const viewMenu = menu.render(80).join("\n");
-  assert.match(viewMenu, /compact/);
-  assert.match(viewMenu, /details/);
+  assert.match(viewMenu, /<fg:accent>Usage dashboard \/ View/);
+  assert.match(viewMenu, /<bg:selectedBg><fg:accent>› 1\. Compact/);
+  assert.match(viewMenu, /2\. Details/);
   assert.doesNotMatch(viewMenu, /\blist\b/);
   assert.match(viewMenu, /Enter select/);
-  assert.doesNotMatch(viewMenu, /\bBack\b/);
+  assert.match(viewMenu, /← back/);
 
   menu.handleInput("\x1b[D");
   await tick();
@@ -235,9 +246,9 @@ test("theme menu lists palettes and explains custom token colors", async () => {
   await tick();
   assert.ok(menu);
   const themeMenu = menu.render(120).join("\n");
-  assert.match(themeMenu, /cyan\s+\(clear cyan accent\)/);
-  assert.match(themeMenu, /magenta\s+\(bold magenta accent\)/);
-  assert.match(themeMenu, /custom\s+\(override individual colors\)/);
+  assert.match(themeMenu, /Cyan\s+\(clear cyan accent\)/);
+  assert.match(themeMenu, /Magenta\s+\(bold magenta accent\)/);
+  assert.match(themeMenu, /Custom\s+\(override individual colors\)/);
 
   for (let index = 0; index < 8; index++) menu.handleInput("\x1b[B");
   menu.handleInput("\r");
