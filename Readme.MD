@@ -20,7 +20,8 @@ Use `/usage-dashboard view compact` for the overview, or `/usage-dashboard view 
 - **Observed quota changes:** separate comparisons for each account and allowance window, in percentage points. Rows appear only when comparable samples exist; these are observations, not exact session billing.
 - **Account allowances and balances:** remaining percentages, reset times, and reported API credit balances where supported. Multiple providers can be monitored independently of the current conversation model.
 - **A quieter sidebar:** aligned values, section dividers, and spacing; no pending-sample rows or redundant single-provider totals in Compact mode. Detailed explanations stay in Details.
-- **Persistent local state:** project-scoped session history plus profile-global totals, and saved provider selection, hidden rows, position, density, polling interval, and visibility.
+- **Persistent local state:** project-scoped session history plus profile-global totals, and saved provider selection, hidden rows, position, density, polling interval, visibility, and theme tokens.
+- **Design-token theming:** green is the default accent, with blue, brown, and yellow palettes. Chart bars use the chart token; healthy, warning, and critical values stay green, orange, and red for clear allowance semantics.
 - **Native managed updates:** release checks and upgrades through OMP's marketplace manager.
 
 ### When it is useful
@@ -163,13 +164,13 @@ Inside OMP, enter:
 ```text
 /usage-dashboard
 ```
-
-The menu has five sections. Select an action, use **Back** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/usage-dashboard providers`, opens its submenu.
+The menu has six sections. Select an action, use **Back** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/usage-dashboard providers`, opens its submenu.
 
 | Section | Purpose | Example |
 | --- | --- | --- |
 | **View** | Inspect settings or switch between provider and model-level display | `/usage-dashboard view details` |
 | **Position** | Move the sidebar left or right | `/usage-dashboard position left` |
+| **Theme** | Choose a named palette or override one design token | `/usage-dashboard theme blue` |
 | **Providers** | Add, remove, hide, or restore provider views | `/usage-dashboard providers add claude` |
 | **Window** | Control the sidebar, polling, and usage-window filters | `/usage-dashboard window interval 60` |
 | **Update** | Check for or install a dashboard release | `/usage-dashboard update check` |
@@ -180,6 +181,8 @@ The menu has five sections. Select an action, use **Back** to return to the sect
 /usage-dashboard providers add claude
 /usage-dashboard providers add copilot
 /usage-dashboard window hide codex spark
+/usage-dashboard theme blue
+/usage-dashboard theme color accent #58a66a
 /usage-dashboard view compact
 ```
 
@@ -204,6 +207,9 @@ All commands below are entered inside OMP.
 | `/usage-dashboard view details` | Enable model-and-thinking-level rows plus combined model summaries for current/previous sessions and both history totals, including input/output and cache-read/write counts. |
 | `/usage-dashboard position left` | Place the sidebar on the left. |
 | `/usage-dashboard position right` | Place the sidebar on the right. |
+| `/usage-dashboard theme green|blue|brown|yellow` | Choose the named design-token palette. |
+| `/usage-dashboard theme color TOKEN COLOR` | Override one token with a terminal color name or `#RRGGBB`; tokens are `text`, `muted`, `accent`, `chart`, `good`, `warn`, and `error`. |
+| `/usage-dashboard theme reset` | Restore the green palette and remove custom token overrides. |
 | `/usage-dashboard providers add ID` | Add a provider view. |
 | `/usage-dashboard providers remove ID` | Remove a provider view and its filters. |
 | `/usage-dashboard providers hide ID` | Hide a whole provider while retaining its settings. |
@@ -281,7 +287,7 @@ Other provider IDs are accepted when OMP can supply a compatible report. Live cr
 
 ## Settings and privacy
 
-Provider order, hidden providers, window filters, position, display mode, polling interval, and on/off state are saved per profile:
+Provider order, hidden providers, window filters, position, display mode, polling interval, on/off state, and theme tokens are saved per profile:
 
 | Configuration | Preferences file |
 | --- | --- |
@@ -292,6 +298,8 @@ Provider order, hidden providers, window filters, position, display mode, pollin
 Use `omp --profile NAME` to select a profile. Keep a custom `PI_CODING_AGENT_DIR` in your launching environment. Source-checkout installations must also register the extension in each custom agent directory using `python3 install.py --agent-dir PATH`.
 
 Changes affect the current dashboard and subsequent launches, not other already-running panes. Preferences use locked, atomic updates; malformed settings produce an error rather than being silently reset. Release-check metadata is stored separately in `usage-dashboard-update.json` beside the preferences file.
+
+The named palettes are built from design tokens: `text`, `muted`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default; blue, brown, and yellow change the primary text, headings, and chart color. Allowance semantics remain stable: healthy is green, warning is orange, and critical is red. Brown and orange use the closest available terminal color when 256-color output is unavailable. Custom token values accept the basic terminal color names, `gray`, `brown`, `orange`, or a six-digit hexadecimal value.
 
 Session accounting is stored in **`usage-dashboard.sqlite3`** beside the preferences file, separately for each profile and project scope. It is created with owner-only permissions and updated transactionally as usage arrives, not just at shutdown. It stores hashed project scopes, session/request identifiers, timestamps, provider/model/thinking-level identities, numeric token counters, and quota observation summaries with hashed account/window identities. It does not copy prompts, responses, tool output, credentials, raw account IDs, or raw project paths. A crash can lose usage not yet reported or saved, but does not erase already committed session history. Uninstalling the integration leaves this history intact.
 

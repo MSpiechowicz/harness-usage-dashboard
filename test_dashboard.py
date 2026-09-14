@@ -2,7 +2,8 @@
 from copy import deepcopy
 import unittest
 
-from dashboard import allowance_color, change_config, provider_lines
+from dashboard import (allowance_color, change_config, provider_lines, resolve_tokens,
+                       token_chart)
 from preferences import DEFAULTS
 
 
@@ -46,6 +47,9 @@ class RemainingAllowanceTests(unittest.TestCase):
         self.assertEqual(allowance_color(.40), 'warn')
         self.assertEqual(allowance_color(.41), 'good')
         self.assertEqual(allowance_color(.90, 'exhausted'), 'error')
+    def test_token_chart_uses_chart_design_token(self):
+        self.assertTrue(any(style[-1] == 'chart' for _text, style in token_chart([1, 2, 3], 32)
+                            if isinstance(style, tuple)))
 
 
 class NestedCommandTests(unittest.TestCase):
@@ -79,5 +83,22 @@ class NestedCommandTests(unittest.TestCase):
         change_config(config, ['view', 'compact'])
         self.assertTrue(config['compact'])
 
+    def test_named_themes_and_custom_tokens_preserve_status_semantics(self):
+        config = deepcopy(DEFAULTS)
+        change_config(config, ['theme', 'blue'])
+        self.assertEqual(config['theme'], 'blue')
+        self.assertEqual(resolve_tokens(config)['accent'], 'blue')
+        self.assertEqual(resolve_tokens(config)['chart'], 'blue')
+        self.assertEqual(resolve_tokens(config)['good'], 'green')
+        self.assertEqual(resolve_tokens(config)['warn'], 'orange')
+        self.assertEqual(resolve_tokens(config)['error'], 'red')
+
+        change_config(config, ['theme', 'color', 'text', '#58A66A'])
+        self.assertEqual(config['tokens'], {'text': '#58a66a'})
+        self.assertEqual(resolve_tokens(config)['text'], '#58a66a')
+
+        change_config(config, ['theme', 'reset'])
+        self.assertEqual(config['theme'], 'green')
+        self.assertEqual(config['tokens'], {})
 if __name__ == '__main__':
     unittest.main()

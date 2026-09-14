@@ -19,7 +19,8 @@ import time
 import uuid
 
 from usage_source import ALIASES, UsageSourceError, fetch_usage
-from preferences import DEFAULTS, agent_dir, load_preferences, resolve_profile, update_preferences
+from preferences import (DEFAULTS, THEME_NAMES, TOKEN_NAMES, agent_dir,
+                         load_preferences, normalize_color, resolve_profile, update_preferences)
 from session_usage import active_session, record_quota, summary as session_summary
 
 ROOT = Path(__file__).resolve().parent
@@ -28,15 +29,148 @@ OMP = shutil.which('omp') or str(Path.home() / '.local/bin/omp')
 SOCKET_NAME = 'omp-usage'
 NAMES = {value: key.upper() for key, value in ALIASES.items()}
 CHART_GLYPHS = frozenset('▁▂▃▄▅▆▇█│└─')
+THEME_TOKENS = {
+    'green': {'text': 'green', 'muted': 'gray', 'accent': 'green', 'chart': 'green',
+              'good': 'green', 'warn': 'orange', 'error': 'red'},
+    'blue': {'text': 'blue', 'muted': 'gray', 'accent': 'blue', 'chart': 'blue',
+             'good': 'green', 'warn': 'orange', 'error': 'red'},
+    'brown': {'text': 'brown', 'muted': 'gray', 'accent': 'brown', 'chart': 'brown',
+              'good': 'green', 'warn': 'orange', 'error': 'red'},
+    'yellow': {'text': 'yellow', 'muted': 'gray', 'accent': 'yellow', 'chart': 'yellow',
+               'good': 'green', 'warn': 'orange', 'error': 'red'},
+}
+_BASIC_RGB = {
+    'black': (0, 0, 0),
+    'red': (205, 0, 0),
+    'green': (0, 205, 0),
+    'yellow': (205, 205, 0),
+    'blue': (0, 0, 238),
+    'magenta': (205, 0, 205),
+    'cyan': (0, 205, 205),
+    'white': (229, 229, 229),
+}
 COMMANDS = {
     'view': ('list', 'compact', 'details'),
     'position': ('left', 'right'),
     'providers': ('add', 'remove', 'hide', 'show'),
+    'theme': (*THEME_NAMES, 'color', 'reset'),
     'window': ('on', 'off', 'focus', 'refresh', 'interval', 'hide', 'show'),
 }
-HELP = ('/usage-dashboard: view list|compact|details (details separates model thinking levels and '
-        'adds summaries); position left|right; providers add|remove|hide|show PROVIDER; '
-        'window on|off|focus|refresh; window interval SECONDS; window hide|show PROVIDER FILTER')
+HELP = ('/usage-dashboard: view list|compact|details; position left|right; '
+        'providers add|remove|hide|show PROVIDER; theme green|blue|brown|yellow; '
+        'theme color TOKEN COLOR; theme reset; window on|off|focus|refresh; '
+        'window interval SECONDS; window hide|show PROVIDER FILTER')
+
+
+def resolve_tokens(config):
+    theme = config.get('theme', 'green')
+    tokens = dict(THEME_TOKENS.get(theme, THEME_TOKENS['green']))
+    tokens.update(config.get('tokens') or {})
+    return tokens
+
+
+def _xterm_rgb(index):
+    if 16 <= index < 232:
+        index -= 16
+        red, index = divmod(index, 36)
+        green, blue = divmod(index, 6)
+        levels = (0, 95, 135, 175, 215, 255)
+        return levels[red], levels[green], levels[blue]
+    value = 8 + (index - 232) * 10
+    return value, value, value
+
+
+def _nearest_xterm_color(value):
+    red, green, blue = (int(value[index:index + 2], 16) for index in (1, 3, 5))
+    return min(range(16, 256),
+               key=lambda index: sum((component - target) ** 2
+                                     for component, target in zip(_xterm_rgb(index),
+                                                                  (red, green, blue))))
+
+def _nearest_basic_color(value):
+    red, green, blue = (int(value[index:index + 2], 16) for index in (1, 3, 5))
+    name = min(_BASIC_RGB,
+               key=lambda color: sum((component - target) ** 2
+                                     for component, target in zip(_BASIC_RGB[color],
+                                                                  (red, green, blue))))
+    return {
+        'black': curses.COLOR_BLACK, 'red': curses.COLOR_RED, 'green': curses.COLOR_GREEN,
+        'yellow': curses.COLOR_YELLOW, 'blue': curses.COLOR_BLUE,
+        'magenta': curses.COLOR_MAGENTA, 'cyan': curses.COLOR_CYAN, 'white': curses.COLOR_WHITE,
+    }[name]
+
+
+def terminal_color(value):
+    basic = {
+        'default': -1,
+        'black': curses.COLOR_BLACK,
+        'red': curses.COLOR_RED,
+        'green': curses.COLOR_GREEN,
+        'yellow': curses.COLOR_YELLOW,
+        'blue': curses.COLOR_BLUE,
+        'magenta': curses.COLOR_MAGENTA,
+        'cyan': curses.COLOR_CYAN,
+        'white': curses.COLOR_WHITE,
+    }
+    if value in basic:
+        return basic[value]
+    if value == 'gray':
+        return 244 if curses.COLORS >= 256 else curses.COLOR_WHITE
+    if value == 'orange':
+        return 208 if curses.COLORS >= 256 else curses.COLOR_YELLOW
+    if value == 'brown':
+        return 130 if curses.COLORS >= 256 else curses.COLOR_YELLOW
+    if re.fullmatch(r'#[0-9a-f]{6}', value):
+        return _nearest_xterm_color(value) if curses.COLORS >= 256 else _nearest_basic_color(value)
+    return -1
+
+
+def initialize_colors(config):
+    colors = {'normal': curses.A_NORMAL, 'dim': curses.A_DIM}
+    if not curses.has_colors():
+        return colors
+    curses.start_color()
+    curses.use_default_colors()
+    tokens = resolve_tokens(config)
+    token_attributes = {}
+    for pair, name in enumerate(TOKEN_NAMES, 1):
+        if pair >= curses.COLOR_PAIRS:
+            break
+        value = tokens[name]
+        curses.init_pair(pair, terminal_color(value), -1)
+        attributes = curses.color_pair(pair)
+        if name == 'muted' or value == 'gray':
+            attributes |= curses.A_DIM
+        token_attributes[name] = attributes
+    colors.update({
+        'normal': token_attributes.get('text', curses.A_NORMAL),
+        'dim': token_attributes.get('muted', curses.A_DIM),
+        'title': token_attributes.get('accent', curses.A_NORMAL),
+        'chart': token_attributes.get('chart', curses.A_NORMAL),
+        'good': token_attributes.get('good', curses.A_NORMAL),
+        'warn': token_attributes.get('warn', curses.A_NORMAL),
+        'error': token_attributes.get('error', curses.A_NORMAL),
+    })
+    return colors
+
+
+def _token_name(value):
+    value = value.strip().lower()
+    if value not in TOKEN_NAMES:
+        raise ValueError('Token must be one of: ' + ', '.join(TOKEN_NAMES))
+    return value
+
+
+def _theme_config(config, action, params):
+    if action in THEME_NAMES:
+        config['theme'] = action
+    elif action == 'color':
+        token = _token_name(params[0])
+        color = normalize_color(params[1])
+        config.setdefault('tokens', {})[token] = color
+    elif action == 'reset':
+        config['theme'] = 'green'
+        config['tokens'] = {}
 
 
 def provider_id(value):
@@ -99,7 +233,8 @@ def change_config(config, words):
         raise ValueError(HELP)
     section, action, *params = words
     window_filter = section == 'window' and action in ('hide', 'show')
-    count = 2 if window_filter else 1 if section == 'providers' or action == 'interval' else 0
+    count = (2 if window_filter else 2 if section == 'theme' and action == 'color'
+             else 1 if section == 'providers' or action == 'interval' else 0)
     if len(params) != count:
         raise ValueError(HELP)
     if section == 'providers':
@@ -130,6 +265,8 @@ def change_config(config, words):
             patterns.append(pattern)
         elif action == 'show':
             config['windows'][provider] = [p for p in patterns if p != pattern]
+    elif section == 'theme':
+        _theme_config(config, action, params)
     elif action in ('left', 'right'):
         config['side'] = action
     elif action in ('compact', 'details'):
@@ -149,8 +286,13 @@ def change_config(config, words):
 
 
 def describe(config):
+    theme = config.get('theme', 'green')
+    custom = config.get('tokens') or {}
+    token_note = (' / custom ' + ', '.join(f'{name}={value}' for name, value in custom.items())
+                  if custom else '')
     lines = [f"Dashboard {'on' if config['enabled'] else 'off'} / {config['side']} / "
-             f"{'compact' if config['compact'] else 'details'} / {config['interval']}s"]
+             f"{'compact' if config['compact'] else 'details'} / {config['interval']}s / "
+             f"theme {theme}{token_note}"]
     if not config['providers']:
         lines.extend(['Add at least one provider.', '/usage-dashboard providers add PROVIDER'])
     for provider in config['providers']:
@@ -449,7 +591,7 @@ def token_chart(values, width):
         label = scale if row == 0 else ''
         bars = ''.join(blocks[min(8, max(0, height - (3 - row) * 8))] for height in heights)
         text = label.rjust(axis) + ' ' + vertical + bars
-        rows.append((text, ('dim', axis + 2, len(text), 'title')))
+        rows.append((text, ('dim', axis + 2, len(text), 'chart')))
     rows.append(('0'.rjust(axis) + ' ' + corner + horizontal * columns, ('dim', 0, 0, 'dim')))
     labels = f'-{len(values)}m'.ljust(max(0, columns - 3)) + 'now'
     rows.append((' ' * (axis + 2) + labels, ('dim', 0, 0, 'dim')))
@@ -632,20 +774,10 @@ def watch(screen, args):
     screen.timeout(200)
     curses.mousemask(curses.ALL_MOUSE_EVENTS)
     curses.mouseinterval(0)
-    # Terminals cannot shrink an individual row; dim cyan is the secondary-text treatment.
-    colors = {'dim': curses.A_DIM, 'normal': curses.A_NORMAL}
-    if curses.has_colors():
-        curses.start_color()
-        curses.use_default_colors()
-        for i, (name, color) in enumerate([('title', curses.COLOR_CYAN), ('good', curses.COLOR_GREEN),
-                                          ('warn', curses.COLOR_YELLOW), ('error', curses.COLOR_RED)], 1):
-            curses.init_pair(i, color, -1)
-            colors[name] = curses.color_pair(i)
-        secondary_pair = 5 if curses.COLOR_PAIRS > 5 else 1
-        curses.init_pair(secondary_pair, curses.COLOR_CYAN, -1)
-        colors['dim'] = curses.color_pair(secondary_pair) | curses.A_DIM
-    # Secondary rows use this style throughout the session and provider renderers.
     config = defaults(args)
+    # Design tokens keep the accent theme separate from allowance semantics:
+    # healthy, warning, and critical values remain green, orange, and red.
+    colors = initialize_colors(config)
     states, jobs = {}, {}
     history_error = None
     offset, next_config, next_frame = 0, 0, 0
@@ -665,6 +797,9 @@ def watch(screen, args):
                 if updated['interval'] != config['interval']:
                     for state in states.values():
                         state['next'] = min(state['next'], tick + updated['interval'])
+                if (updated.get('theme') != config.get('theme')
+                        or updated.get('tokens') != config.get('tokens')):
+                    colors = initialize_colors(updated)
                 config = updated
                 next_config = tick + 1
             visible = [p for p in config['providers'] if p not in config['hidden']]

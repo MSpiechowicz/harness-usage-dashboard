@@ -28,10 +28,11 @@ const sections = {
   view: ["list", "compact", "details"],
   position: ["left", "right"],
   providers: ["add", "remove", "hide", "show"],
+  theme: ["green", "blue", "brown", "yellow", "color", "reset"],
   window: ["on", "off", "focus", "refresh", "interval", "hide", "show"],
   update: ["check", "install"],
 };
-const help = "Sections: view (list, compact, details; details separates model thinking levels and adds summaries); position (left, right); providers (add, remove, hide, show PROVIDER); window (on, off, focus, refresh, interval SECONDS, hide/show PROVIDER FILTER); update (check, install).";
+const help = "Sections: view (list, compact, details; details separates model thinking levels and adds summaries); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, color TOKEN COLOR, reset); window (on, off, focus, refresh, interval SECONDS, hide/show PROVIDER FILTER); update (check, install).";
 
 export default function usageDashboard(pi) {
   pi.setLabel("Usage dashboard");
@@ -173,7 +174,7 @@ export default function usageDashboard(pi) {
     pi.on(event, async (_event, ctx) => { await record(ctx, "start"); });
   }
   pi.registerCommand("usage-dashboard", {
-    description: "Manage usage dashboard: view, position, providers, window, and updates",
+    description: "Manage usage dashboard: view, position, providers, theme, window, and updates",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const words = args.trim().split(/\s+/).filter(Boolean);
@@ -207,6 +208,16 @@ export default function usageDashboard(pi) {
         }
         await update(action, ctx);
         return;
+      }
+      if (section === "theme" && action === "color" && words.length === 2) {
+        const value = await ctx.ui.input("Design token and color (for example: accent #58a66a)", "accent #58a66a");
+        if (!value?.trim()) return;
+        const custom = value.trim().split(/\s+/);
+        if (custom.length !== 2) {
+          ctx.ui.notify("Usage: /usage-dashboard theme color TOKEN COLOR", "info");
+          return;
+        }
+        words.push(...custom);
       }
       const windowFilter = section === "window" && ["hide", "show"].includes(action);
       if ((section === "providers" || windowFilter) && words.length === 2) {

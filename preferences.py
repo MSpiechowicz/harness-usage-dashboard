@@ -5,7 +5,15 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
+
+
+THEME_NAMES = ('green', 'blue', 'brown', 'yellow')
+TOKEN_NAMES = ('text', 'muted', 'accent', 'chart', 'good', 'warn', 'error')
+COLOR_NAMES = frozenset(('default', 'black', 'red', 'green', 'yellow', 'blue',
+                         'magenta', 'cyan', 'white', 'gray', 'brown', 'orange'))
+_HEX_COLOR = re.compile(r'^#[0-9a-f]{6}$')
 
 
 DEFAULTS = {
@@ -16,8 +24,19 @@ DEFAULTS = {
     'compact': True,
     'interval': 60,
     'enabled': True,
+    'theme': 'green',
+    'tokens': {},
 }
 _TRANSIENT = {'profile', 'refresh'}
+
+
+def normalize_color(value):
+    if not isinstance(value, str):
+        raise ValueError('Dashboard token colors must be terminal names or #RRGGBB values.')
+    value = value.strip().lower()
+    if value in COLOR_NAMES or _HEX_COLOR.fullmatch(value):
+        return value
+    raise ValueError('Dashboard token colors must be terminal names or #RRGGBB values.')
 
 
 def resolve_profile(profile: str | None = None) -> str:
@@ -70,6 +89,17 @@ def _validated(data):
         _validate_strings(patterns, 'window filters')
     if result['side'] not in ('left', 'right'):
         raise ValueError('Dashboard side must be left or right.')
+    if result['theme'] not in THEME_NAMES:
+        raise ValueError('Dashboard theme must be green, blue, brown, or yellow.')
+    tokens = result['tokens']
+    if not isinstance(tokens, dict):
+        raise ValueError('Dashboard tokens must map token names to colors.')
+    normalized_tokens = {}
+    for name, color in tokens.items():
+        if name not in TOKEN_NAMES:
+            raise ValueError(f'Unknown dashboard token: {name}.')
+        normalized_tokens[name] = normalize_color(color)
+    result['tokens'] = normalized_tokens
     for field in ('compact', 'enabled'):
         if type(result[field]) is not bool:
             raise ValueError(f'Dashboard {field} must be a boolean.')

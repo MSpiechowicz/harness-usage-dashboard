@@ -21,6 +21,8 @@ class PreferencesTests(unittest.TestCase):
 
     def test_fresh_profile_requires_explicit_provider_selection(self):
         self.assertEqual(load_preferences(None)['providers'], [])
+        self.assertEqual(load_preferences(None)['theme'], 'green')
+        self.assertEqual(load_preferences(None)['tokens'], {})
         update_preferences(None, {'side': 'left'})
         self.assertEqual(load_preferences(None)['providers'], [])
         update_preferences(None, {'providers': ['anthropic']})
@@ -37,6 +39,8 @@ class PreferencesTests(unittest.TestCase):
             'compact': False,
             'interval': 15,
             'enabled': False,
+            'theme': 'blue',
+            'tokens': {'accent': '#58a66a', 'warn': 'orange'},
         }
         update_preferences(None, dict(changes, profile='other', refresh=123))
         self.assertEqual(load_preferences(None), changes)
@@ -73,6 +77,8 @@ class PreferencesTests(unittest.TestCase):
         invalid = (
             {'providers': 'deepseek'}, {'providers': ['']}, {'hidden': [False]},
             {'windows': {'deepseek': [' ']}}, {'side': 'bottom'},
+            {'theme': 'red'}, {'tokens': {'unknown': 'green'}},
+            {'tokens': {'accent': '#12345'}}, {'tokens': {'warn': 'not-a-color'}},
             {'compact': 1}, {'enabled': 'false'}, {'interval': True},
             {'interval': 14}, {'interval': 15.5}, {'apiKey': 'not-a-setting'},
         )
