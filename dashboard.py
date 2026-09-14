@@ -646,11 +646,11 @@ def token_chart(values, width):
     heights = ([math.ceil(value * 32 / peak) if value else 0 for value in bins]
                if peak else [0] * columns)
     rows = []
-    # Reserve a stable two-row status area: the idle message when needed,
-    # followed by breathing room before the chart. Keep the first row empty
-    # while active so the chart does not replace the status area.
-    rows.extend(((f'No activity in the last {len(values)}m' if not peak else '', 'dim'),
-                 ('', 'dim')))
+    if peak:
+        rows.append(('', 'dim'))
+    else:
+        rows.extend(((f'No activity in the last {len(values)}m', 'dim'),
+                     ('', 'dim')))
     for row in range(4):
         label = scale if row == 0 else ''
         bars = ''.join(blocks[min(8, max(0, height - (3 - row) * 8))] for height in heights)
@@ -725,7 +725,7 @@ def session_lines(history, now, width, compact=True):
         rows.append(allowance_row(label, format_tokens(total), '', width, 'normal'))
         if not compact or name == 'previous':
             stamp = time.strftime('%b %d %H:%M', time.localtime(session['updated']))
-            rows.append((f'Last recorded {stamp}', 'dim'))
+            rows.append((f'Last recorded {stamp}', 'secondary'))
         for item in providers:
             if single:
                 continue

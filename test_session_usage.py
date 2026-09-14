@@ -84,7 +84,7 @@ class SessionAccountingTests(unittest.TestCase):
         self.assertIn('Other sessions', rendered)
         self.assertIn('Project total', rendered)
         self.assertEqual([style for line, style in session_lines(report, 110, 32)
-                          if line.startswith('Last recorded ')], ['dim'])
+                          if line.startswith('Last recorded ')], ['secondary'])
         self.assertNotIn('All sessions', rendered)
 
     def test_history_is_project_scoped_and_total_history_is_available(self):

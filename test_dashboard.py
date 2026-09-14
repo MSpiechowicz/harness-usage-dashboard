@@ -62,12 +62,11 @@ class RemainingAllowanceTests(unittest.TestCase):
         self.assertTrue(any('│' in text for text in texts))
         self.assertTrue(any('└' in text and '─' in text for text in texts))
         self.assertTrue(all(len(text) == 32 for text in texts[2:]))
-    def test_active_token_chart_leaves_idle_message_slot_empty(self):
+    def test_active_token_chart_keeps_one_margin_row_before_chart(self):
         rows = token_chart([0, 1, 2], 32)
         texts = [text for text, _style in rows]
-        self.assertEqual(texts[:2], ['', ''])
-        self.assertIn('│', texts[2])
-
+        self.assertEqual(texts[0], '')
+        self.assertIn('│', texts[1])
 
     def test_section_divider_uses_secondary_base_color(self):
         _text, style = section_heading('TOKEN RATE', 32, 'tok/min')
@@ -293,7 +292,7 @@ class NestedCommandTests(unittest.TestCase):
             'models': [], 'quota': [],
         }
         history = {
-            'chart': [], 'history': [{'provider': 'openai-codex', 'total': 8}],
+            'chart': [0, 1, 2], 'history': [{'provider': 'openai-codex', 'total': 8}],
             'total_history': [{'provider': 'openai-codex', 'total': 20}],
             'current': session, 'previous': session,
         }
@@ -302,6 +301,7 @@ class NestedCommandTests(unittest.TestCase):
             next(index for index, text in enumerate(texts) if text.startswith(prefix))
             for prefix in ('TOKEN RATE', 'CURRENT SESSION', 'PREVIOUS SESSION', 'HISTORY')
         ]
+        self.assertEqual(texts[1], '')
         self.assertEqual([texts[index - 1] for index in headings[1:]], ['', '', ''])
         project_total = next(index for index, text in enumerate(texts)
                              if text.startswith('Project total'))
