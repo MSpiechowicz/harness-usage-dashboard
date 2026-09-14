@@ -471,7 +471,8 @@ def session_lines(history, now, width, compact=True):
                         rows.append((f'{model["model"]}: {model["total"]:,}', 'normal'))
                         rows.append((f'  In {model["input"]:,} / out {model["output"]:,}', 'dim'))
                         rows.append((f'  Cache r {model["cache_read"]:,} / w {model["cache_write"]:,}', 'dim'))
-        quotas = [quota for quota in session['quota'] if quota['intervals'] > 0]
+        quotas = [quota for quota in session['quota']
+                  if quota['intervals'] > 0 and round(quota['points'], 2) > 0]
         if quotas:
             rows.extend([('', 'dim'), ('Quota change (observed)', 'dim')])
         for quota in quotas:

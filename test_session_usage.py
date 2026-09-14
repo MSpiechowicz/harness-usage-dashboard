@@ -154,7 +154,7 @@ class SessionAccountingTests(unittest.TestCase):
         self.assertAlmostEqual(quota[0]['points'], 5)
         self.assertEqual(quota[0]['intervals'], 1)
 
-    def test_quota_rows_appear_only_after_a_comparable_second_sample(self):
+    def test_quota_rows_require_a_visible_accumulated_change(self):
         self.save()
         waiting = self.sample(61, .2, account='pending-account')
         waiting['label'] = 'Pending quota'
@@ -163,15 +163,23 @@ class SessionAccountingTests(unittest.TestCase):
             rendered = '\n'.join(line for line, _ in session_lines(summary(), 80, 32, compact))
             self.assertNotIn('Pending quota', rendered)
             self.assertNotIn('Quota change', rendered)
-        # A confirmed zero is real data, unlike an unmeasured baseline.
+        # Repeated unchanged polls and sub-display increases stay hidden.
         measured = self.sample(61, .4, account='measured-account')
         measured['label'] = 'Measured quota'
         record_quota(None, None, 'a', [measured, {**measured, 'at': 80}])
-        for compact in (True, False):
-            rendered = '\n'.join(line for line, _ in session_lines(summary(), 90, 48, compact))
-            self.assertNotIn('Pending quota', rendered)
-            self.assertIn('Measured quota', rendered)
-            self.assertIn('+0.00 pp', rendered)
+        for at, used in ((90, .4), (100, .40004), (110, .40008), (120, .40008)):
+            record_quota(None, None, 'a', [{**measured, 'at': at, 'used': used}])
+            for compact in (True, False):
+                with self.subTest(at=at, compact=compact):
+                    rendered = '\n'.join(line for line, _ in session_lines(summary(), at, 48, compact))
+                    self.assertNotIn('Pending quota', rendered)
+                    self.assertNotIn('+0.00 pp', rendered)
+                    if at < 110:
+                        self.assertNotIn('Measured quota', rendered)
+                        self.assertNotIn('Quota change', rendered)
+                    else:
+                        self.assertIn('Measured quota', rendered)
+                        self.assertIn('+0.01 pp', rendered)
 
 if __name__ == '__main__':
     unittest.main()
