@@ -30,13 +30,13 @@ SOCKET_NAME = 'omp-usage'
 NAMES = {value: key.upper() for key, value in ALIASES.items()}
 CHART_GLYPHS = frozenset('▁▂▃▄▅▆▇█│└─')
 THEME_TOKENS = {
-    'green': {'text': 'white', 'muted': 'gray', 'accent': 'green', 'chart': 'green',
+    'green': {'text': 'white', 'muted': 'default', 'accent': 'green', 'chart': 'green',
               'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'blue': {'text': 'white', 'muted': 'gray', 'accent': 'blue', 'chart': 'blue',
+    'blue': {'text': 'white', 'muted': 'default', 'accent': 'blue', 'chart': 'blue',
              'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'brown': {'text': 'white', 'muted': 'gray', 'accent': 'brown', 'chart': 'brown',
+    'brown': {'text': 'white', 'muted': 'default', 'accent': 'brown', 'chart': 'brown',
               'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'yellow': {'text': 'white', 'muted': 'gray', 'accent': 'yellow', 'chart': 'yellow',
+    'yellow': {'text': 'white', 'muted': 'default', 'accent': 'yellow', 'chart': 'yellow',
                'good': 'green', 'warn': 'orange', 'error': 'red'},
 }
 _BASIC_RGB = {
@@ -709,7 +709,7 @@ def session_lines(history, now, width, compact=True):
         other_rows = history_rows('Other sessions', project_history)
         total_rows = history_rows('Project total', total_history)
         rows.extend(other_rows)
-        if other_rows and total_rows:
+        if other_rows and total_rows and not compact:
             rows.append(('', 'dim'))
         rows.extend(total_rows)
         rows.append(('', 'dim'))

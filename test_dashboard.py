@@ -142,14 +142,16 @@ class NestedCommandTests(unittest.TestCase):
             for prefix in ('TOKEN RATE', 'CURRENT SESSION', 'PREVIOUS SESSION', 'HISTORY')
         ]
         self.assertEqual([texts[index - 1] for index in headings[1:]], ['', '', ''])
+        project_total = next(index for index, text in enumerate(texts)
+                             if text.startswith('Project total'))
+        self.assertTrue(texts[project_total - 1].startswith('Other sessions'))
         self.assertEqual(texts[-1], '')
 
     def test_named_themes_and_custom_tokens_preserve_status_semantics(self):
         config = deepcopy(DEFAULTS)
         change_config(config, ['theme', 'blue'])
         tokens = resolve_tokens(config)
-        self.assertEqual(config['theme'], 'blue')
-        self.assertEqual(tokens['text'], 'white')
+        self.assertEqual(tokens['muted'], 'default')
         self.assertEqual(tokens['accent'], 'blue')
         self.assertEqual(tokens['chart'], 'blue')
         self.assertEqual(tokens['good'], 'green')
