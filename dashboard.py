@@ -207,9 +207,10 @@ def control(args, words):
             mux('kill-pane', '-t', pane)
     if recreate:
         mux('set-option', '-t', owner, 'mouse', 'on')
-        # Use one low-contrast solid color for a crisp, focus-neutral divider.
+        # Keep the pane divider transparent with a single low-contrast line.
         for option in ('pane-border-style', 'pane-active-border-style'):
-            mux('set-option', '-w', '-t', owner, option, 'fg=colour237,bg=colour237')
+            mux('set-option', '-w', '-t', owner, option, 'fg=colour238,bg=default')
+        mux('set-option', '-w', '-t', owner, 'pane-border-lines', 'single')
         mux('set-option', '-w', '-t', owner, 'pane-border-indicators', 'off')
         command = [sys.executable, str(ROOT / 'dashboard.py'), 'watch', '--owner', owner]
         options = ['split-window', '-h', '-d', '-l', '34', '-t', owner, '-P', '-F', '#{pane_id}']
@@ -523,11 +524,11 @@ def session_lines(history, now, width, compact=True):
         return result
 
     project_history = history.get('history', [])
-    global_history = history.get('global_history', [])
-    if project_history or global_history:
+    total_history = history.get('total_history', [])
+    if project_history or total_history:
         rows.append(section_heading('HISTORY', width))
         rows.extend(history_rows('Previous sessions', project_history))
-        rows.extend(history_rows('Global sessions', global_history))
+        rows.extend(history_rows('Total tokens', total_history))
         rows.append(('', 'dim'))
     return rows
 

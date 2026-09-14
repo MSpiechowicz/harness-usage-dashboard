@@ -55,11 +55,13 @@ class SessionAccountingTests(unittest.TestCase):
         self.assertEqual(report['previous']['providers'][0]['total'], 320)
         self.assertEqual(report['current']['providers'][0]['total'], 160)
         self.assertEqual(sum(item['total'] for item in report['history']), 320)
+        self.assertEqual(sum(item['total'] for item in report['total_history']), 480)
         rendered = '\n'.join(line for line, _ in session_lines(report, 110, 32))
         self.assertIn('Previous sessions', rendered)
+        self.assertIn('Total tokens', rendered)
         self.assertNotIn('All sessions', rendered)
 
-    def test_history_is_project_scoped_and_global_history_is_available(self):
+    def test_history_is_project_scoped_and_total_history_is_available(self):
         first = self.home / 'first-project'
         second = self.home / 'second-project'
         self.save(session='old', activation='first-old', entries=[self.entry('old-entry')],
@@ -73,7 +75,7 @@ class SessionAccountingTests(unittest.TestCase):
 
         first_report = summary(cwd=first, now=150)
         self.assertEqual(sum(item['total'] for item in first_report['history']), 160)
-        self.assertEqual(sum(item['total'] for item in first_report['global_history']), 480)
+        self.assertEqual(sum(item['total'] for item in first_report['total_history']), 320)
         self.assertEqual(first_report['previous']['id'], 'old')
 
 

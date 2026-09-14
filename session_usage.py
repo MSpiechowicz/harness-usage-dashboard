@@ -204,7 +204,7 @@ def summary(profile=None, owner=None, now=None, minutes=20, cwd=None):
                              (project, current or '')).fetchone()
             previous = row['id'] if row else None
         result = {
-            'current': None, 'previous': None, 'history': [], 'global_history': [], 'chart': [0] * minutes,
+            'current': None, 'previous': None, 'history': [], 'total_history': [], 'chart': [0] * minutes,
         }
         for name, identity in (('current', current), ('previous', previous)):
             if not identity:
@@ -242,10 +242,10 @@ def summary(profile=None, owner=None, now=None, minutes=20, cwd=None):
             'SELECT provider, model, SUM(total) AS total FROM tokens '
             'WHERE project=? AND session != ? GROUP BY provider, model',
             (project, current or ''))]
-        result['global_history'] = [dict(row) for row in db.execute(
+        result['total_history'] = [dict(row) for row in db.execute(
             'SELECT provider, model, SUM(total) AS total FROM tokens '
-            'WHERE NOT (project=? AND session=?) GROUP BY provider, model',
-            (project, current or ''))]
+            'WHERE project=? GROUP BY provider, model',
+            (project,))]
         return result
 
 
