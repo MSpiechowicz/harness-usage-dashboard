@@ -1,8 +1,9 @@
 """User-visible allowance semantics; no live provider calls."""
 from copy import deepcopy
 import unittest
+from unittest.mock import patch
 
-from dashboard import (allowance_color, change_config, provider_lines, resolve_tokens,
+from dashboard import (allowance_color, change_config, owned_panes, provider_lines, resolve_tokens,
                        section_heading, session_lines, token_chart)
 from preferences import DEFAULTS, THEME_NAMES
 
@@ -62,6 +63,16 @@ class RemainingAllowanceTests(unittest.TestCase):
     def test_section_divider_uses_secondary_base_color(self):
         _text, style = section_heading('TOKEN RATE', 32, 'tok/min')
         self.assertEqual(style[0], 'secondary')
+
+
+class PaneOwnershipTests(unittest.TestCase):
+    @patch('dashboard.mux')
+    def test_owned_panes_returns_only_panes_tagged_to_owner(self, mux):
+        mux.return_value = '%1\t%owner\n%2\t%other\n%3\t%owner\n%4\t\n'
+
+        self.assertEqual(owned_panes('%owner'), ['%1', '%3'])
+        mux.assert_called_once_with('list-panes', '-a', '-F',
+                                     '#{pane_id}\t#{@omp_usage_owner}')
 
 
 class NestedCommandTests(unittest.TestCase):

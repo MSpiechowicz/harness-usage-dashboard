@@ -238,6 +238,10 @@ def load_config(owner, fallback):
     return json.loads(raw) if raw else fallback
 
 
+def owned_panes(owner):
+    rows = mux('list-panes', '-a', '-F', '#{pane_id}\t#{@omp_usage_owner}').splitlines()
+    return [row.split('\t')[0] for row in rows if row.endswith('\t' + owner)]
+
 
 def change_config(config, words):
     if words == ['init']:
