@@ -1,6 +1,6 @@
 {
   "name": "oh-my-pi-usage-dashboard",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "private": true,
   "type": "module",
   "description": "Persistent account-usage tmux sidebar, ordinary omp shell integration, and OMP extension",
