@@ -10,7 +10,7 @@ import tempfile
 
 
 THEME_NAMES = ('green', 'blue', 'brown', 'yellow')
-TOKEN_NAMES = ('text', 'muted', 'accent', 'chart', 'good', 'warn', 'error')
+TOKEN_NAMES = ('text', 'muted', 'secondary', 'accent', 'chart', 'good', 'warn', 'error')
 COLOR_NAMES = frozenset(('default', 'black', 'red', 'green', 'yellow', 'blue',
                          'magenta', 'cyan', 'white', 'gray', 'brown', 'orange'))
 _HEX_COLOR = re.compile(r'^#[0-9a-f]{6}$')

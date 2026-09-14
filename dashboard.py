@@ -30,14 +30,18 @@ SOCKET_NAME = 'omp-usage'
 NAMES = {value: key.upper() for key, value in ALIASES.items()}
 CHART_GLYPHS = frozenset('▁▂▃▄▅▆▇█│└─')
 THEME_TOKENS = {
-    'green': {'text': 'white', 'muted': 'default', 'accent': 'green', 'chart': 'green',
-              'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'blue': {'text': 'white', 'muted': 'default', 'accent': 'blue', 'chart': 'blue',
-             'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'brown': {'text': 'white', 'muted': 'default', 'accent': 'brown', 'chart': 'brown',
-              'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'yellow': {'text': 'white', 'muted': 'default', 'accent': 'yellow', 'chart': 'yellow',
-               'good': 'green', 'warn': 'orange', 'error': 'red'},
+    'green': {'text': 'white', 'muted': 'default', 'secondary': '#008f4c',
+              'accent': 'green', 'chart': 'green', 'good': 'green', 'warn': 'orange',
+              'error': 'red'},
+    'blue': {'text': 'white', 'muted': 'default', 'secondary': '#24527a',
+             'accent': 'blue', 'chart': 'blue', 'good': 'green', 'warn': 'orange',
+             'error': 'red'},
+    'brown': {'text': 'white', 'muted': 'default', 'secondary': '#744c24',
+              'accent': 'brown', 'chart': 'brown', 'good': 'green', 'warn': 'orange',
+              'error': 'red'},
+    'yellow': {'text': 'white', 'muted': 'default', 'secondary': '#8a7600',
+               'accent': 'yellow', 'chart': 'yellow', 'good': 'green', 'warn': 'orange',
+               'error': 'red'},
 }
 _BASIC_RGB = {
     'black': (0, 0, 0),
@@ -126,7 +130,7 @@ def terminal_color(value):
 
 
 def initialize_colors(config):
-    colors = {'normal': curses.A_NORMAL, 'dim': curses.A_DIM}
+    colors = {'normal': curses.A_NORMAL, 'dim': curses.A_DIM, 'secondary': curses.A_DIM}
     if not curses.has_colors():
         return colors
     curses.start_color()
@@ -145,6 +149,7 @@ def initialize_colors(config):
     colors.update({
         'normal': token_attributes.get('text', curses.A_NORMAL),
         'dim': token_attributes.get('muted', curses.A_DIM),
+        'secondary': token_attributes.get('secondary', curses.A_DIM),
         'title': token_attributes.get('accent', curses.A_NORMAL),
         'chart': token_attributes.get('chart', curses.A_NORMAL),
         'good': token_attributes.get('good', curses.A_NORMAL),
@@ -530,7 +535,7 @@ def provider_lines(data, provider, config, now, width):
             lines.append(('All windows hidden' if report.get('limits') else 'No usage windows reported', 'dim'))
         credits = report.get('resetCredits', {}).get('availableCount')
         if number(credits):
-            lines.append((f'Reset credits: {credits:g}', 'dim'))
+            lines.append((f'Reset credits: {credits:g}', 'secondary'))
     return lines
 
 
@@ -566,36 +571,41 @@ def section_heading(label, width, tail=''):
     label, tail = clean(label), clean(tail)
     rule = '-' * max(1, width - len(label) - len(tail) - (2 if tail else 1))
     text = label + ' ' + rule + (' ' + tail if tail else '')
-    return text[:max(1, width)], ('dim', 0, len(label), 'title')
+    return text[:max(1, width)], ('secondary', 0, len(label), 'title')
 
 
 def token_chart(values, width):
     peak = max(values, default=0)
-    if not peak:
-        return [(f'No activity in the last {len(values)}m', 'dim')]
-    # Four rows with eighth-cell precision, rather than three coarse '#' levels.
     try:
         ''.join(CHART_GLYPHS).encode(sys.stdout.encoding or 'ascii')
         blocks, vertical, corner, horizontal = ' ▁▂▃▄▅▆▇█', '│', '└', '─'
     except UnicodeEncodeError:
         blocks, vertical, corner, horizontal = ' .:-=+*O@', '|', '+', '-'
-    scale = format_tokens(peak)
+    scale = format_tokens(peak) if peak else '0'
     axis = max(4, len(scale))
     columns = max(1, width - axis - 2)
     # Stretch across the available width; max-pool only when narrower than the history.
     bins = [max(values[i * len(values) // columns:max(i * len(values) // columns + 1,
                 (i + 1) * len(values) // columns)], default=0) for i in range(columns)]
-    heights = [math.ceil(value * 32 / peak) if value else 0 for value in bins]
+    heights = ([math.ceil(value * 32 / peak) if value else 0 for value in bins]
+               if peak else [0] * columns)
     rows = []
+    if not peak:
+        rows.append((f'No activity in the last {len(values)}m', 'dim'))
     for row in range(4):
         label = scale if row == 0 else ''
         bars = ''.join(blocks[min(8, max(0, height - (3 - row) * 8))] for height in heights)
         text = label.rjust(axis) + ' ' + vertical + bars
-        rows.append((text, ('dim', axis + 2, len(text), 'chart')))
-    rows.append(('0'.rjust(axis) + ' ' + corner + horizontal * columns, ('dim', 0, 0, 'dim')))
+        if peak:
+            rows.append((text, ('secondary', axis + 2, len(text), 'chart')))
+        else:
+            # Keep trailing cells so the vertical axis reaches the pane edge.
+            rows.append((text, ('secondary', axis + 2, axis + 2, 'chart')))
+    rows.append(('0'.rjust(axis) + ' ' + corner + horizontal * columns, 'secondary'))
     labels = f'-{len(values)}m'.ljust(max(0, columns - 3)) + 'now'
-    rows.append((' ' * (axis + 2) + labels, ('dim', 0, 0, 'dim')))
+    rows.append((' ' * (axis + 2) + labels, 'secondary'))
     return rows
+
 
 def thinking_level_label(value):
     value = clean(value or '')

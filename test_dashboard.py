@@ -3,7 +3,7 @@ from copy import deepcopy
 import unittest
 
 from dashboard import (allowance_color, change_config, provider_lines, resolve_tokens,
-                       session_lines, token_chart)
+                       section_heading, session_lines, token_chart)
 from preferences import DEFAULTS
 
 
@@ -28,7 +28,7 @@ class RemainingAllowanceTests(unittest.TestCase):
             {'id': 'weekly', 'label': 'Weekly', 'amount': {'usedFraction': .1}},
         ], 'resetCredits': {'availableCount': 2}}]}
         lines = provider_lines(data, 'openai-codex', {'interval': 60, 'compact': True, 'windows': {}}, 0, 32)
-        self.assertEqual(next(style for text, style in lines if text.startswith('Reset credits:')), 'dim')
+        self.assertEqual(next(style for text, style in lines if text.startswith('Reset credits:')), 'secondary')
 
     def test_reported_remaining_takes_precedence_over_used_estimate(self):
         self.assertIn('20% left', self.render({'remainingFraction': .2, 'usedFraction': .55}))
@@ -50,6 +50,18 @@ class RemainingAllowanceTests(unittest.TestCase):
     def test_token_chart_uses_chart_design_token(self):
         self.assertTrue(any(style[-1] == 'chart' for _text, style in token_chart([1, 2, 3], 32)
                             if isinstance(style, tuple)))
+
+    def test_empty_token_chart_keeps_axes_and_full_width(self):
+        rows = token_chart([0] * 20, 32)
+        texts = [text for text, _style in rows]
+        self.assertIn('No activity in the last 20m', texts)
+        self.assertTrue(any('│' in text for text in texts))
+        self.assertTrue(any('└' in text and '─' in text for text in texts))
+        self.assertTrue(all(len(text) == 32 for text in texts[1:]))
+
+    def test_section_divider_uses_secondary_base_color(self):
+        _text, style = section_heading('TOKEN RATE', 32, 'tok/min')
+        self.assertEqual(style[0], 'secondary')
 
 
 class NestedCommandTests(unittest.TestCase):
@@ -152,6 +164,7 @@ class NestedCommandTests(unittest.TestCase):
         change_config(config, ['theme', 'blue'])
         tokens = resolve_tokens(config)
         self.assertEqual(tokens['muted'], 'default')
+        self.assertEqual(tokens['secondary'], '#24527a')
         self.assertEqual(tokens['accent'], 'blue')
         self.assertEqual(tokens['chart'], 'blue')
         self.assertEqual(tokens['good'], 'green')

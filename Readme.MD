@@ -21,7 +21,7 @@ Use `/usage-dashboard view compact` for the overview, or `/usage-dashboard view 
 - **Account allowances and balances:** remaining percentages, reset times, and reported API credit balances where supported. Multiple providers can be monitored independently of the current conversation model.
 - **A quieter sidebar:** aligned values, section dividers, and spacing; no pending-sample rows or redundant single-provider totals in Compact mode. Detailed explanations stay in Details.
 - **Persistent local state:** project-scoped session history plus profile-global totals, and saved provider selection, hidden rows, position, density, polling interval, visibility, and theme tokens.
-- **Design-token theming:** green is the default accent, with blue, brown, and yellow palettes. Chart bars use the chart token; healthy, warning, and critical values stay green, orange, and red for clear allowance semantics.
+- **Design-token theming:** green is the default accent, with blue, brown, and yellow palettes. Secondary rules and chart axes use each theme's darker secondary token; chart bars use the chart token; healthy, warning, and critical values stay green, orange, and red for clear allowance semantics.
 - **Native managed updates:** release checks and upgrades through OMP's marketplace manager.
 
 ### When it is useful
@@ -208,7 +208,7 @@ All commands below are entered inside OMP.
 | `/usage-dashboard position left` | Place the sidebar on the left. |
 | `/usage-dashboard position right` | Place the sidebar on the right. |
 | `/usage-dashboard theme green|blue|brown|yellow` | Choose the named design-token palette. |
-| `/usage-dashboard theme color TOKEN COLOR` | Override one token with a terminal color name or `#RRGGBB`; tokens are `text`, `muted`, `accent`, `chart`, `good`, `warn`, and `error`. |
+| `/usage-dashboard theme color TOKEN COLOR` | Override one design token with a terminal color name or `#RRGGBB`; tokens are `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`. |
 | `/usage-dashboard theme reset` | Restore the green palette and remove custom token overrides. |
 | `/usage-dashboard providers add ID` | Add a provider view. |
 | `/usage-dashboard providers remove ID` | Remove a provider view and its filters. |
@@ -246,7 +246,7 @@ Percentages in the account-allowance section mean **remaining allowance**: green
 
 ### Live chart and session history
 
-The **Token rate** chart uses 20 one-minute buckets across all models, including the current, incomplete minute. Solid bars use fractional terminal cells, with a labelled vertical scale and time axis; ASCII-only terminals get a fallback. The vertical scale adjusts to the displayed peak, and an empty minute has no bar. With no recent usage, a single idle line replaces the empty chart. Token records update on completed usage events, with a one-second check for auxiliary model usage. This is reported request usage, not a token-by-token stream or the current context-window size.
+The **Token rate** chart uses 20 one-minute buckets across all models, including the current, incomplete minute. Solid bars use fractional terminal cells, with a labelled vertical scale and time axis; ASCII-only terminals get a fallback. The vertical scale adjusts to the displayed peak, and an empty minute has no bar. With no recent usage, the idle message remains visible above the same full-width x/y axes instead of replacing the chart. Token records update on completed usage events, with a one-second check for auxiliary model usage. This is reported request usage, not a token-by-token stream or the current context-window size.
 
 **Current session** and **Previous session** show cumulative reported token totals. Compact mode groups them by provider; `/usage-dashboard view details` separates each model by thinking level, for example `Luna - Max tokens` and `Luna - xHigh tokens`. Each row includes input/output and cache-read/write counts. Switching models or thinking levels never reassigns earlier usage. Cached tokens remain part of the provider's reported total, not an extra amount added on top of it.
 
@@ -299,7 +299,7 @@ Use `omp --profile NAME` to select a profile. Keep a custom `PI_CODING_AGENT_DIR
 
 Changes affect the current dashboard and subsequent launches, not other already-running panes. Preferences use locked, atomic updates; malformed settings produce an error rather than being silently reset. Release-check metadata is stored separately in `usage-dashboard-update.json` beside the preferences file.
 
-The named palettes are built from design tokens: `text`, `muted`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default; blue, brown, and yellow change the primary text, headings, and chart color. Muted text stays neutral and uses terminal dimming for a darker secondary treatment. Allowance semantics remain stable: healthy is green, warning is orange, and critical is red. Brown and orange use the closest available terminal color when 256-color output is unavailable. Custom token values accept the basic terminal color names, `gray`, `brown`, `orange`, or a six-digit hexadecimal value.
+The named palettes are built from design tokens: `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default; blue, brown, and yellow change the primary text, headings, darker secondary rules, and chart color. Muted text stays neutral and uses terminal dimming. Allowance semantics remain stable: healthy is green, warning is orange, and critical is red. Brown and orange use the closest available terminal color when 256-color output is unavailable. Custom token values accept the basic terminal color names, `gray`, `brown`, `orange`, or a six-digit hexadecimal value.
 
 Session accounting is stored in **`usage-dashboard.sqlite3`** beside the preferences file, separately for each profile and project scope. It is created with owner-only permissions and updated transactionally as usage arrives, not just at shutdown. It stores hashed project scopes, session/request identifiers, timestamps, provider/model/thinking-level identities, numeric token counters, and quota observation summaries with hashed account/window identities. It does not copy prompts, responses, tool output, credentials, raw account IDs, or raw project paths. A crash can lose usage not yet reported or saved, but does not erase already committed session history. Uninstalling the integration leaves this history intact.
 
