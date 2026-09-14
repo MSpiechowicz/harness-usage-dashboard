@@ -94,6 +94,33 @@ class RemainingAllowanceTests(unittest.TestCase):
                 watch(screen, args)
         screen.clear.assert_called_once_with()
 
+    @patch('dashboard.curses.mouseinterval')
+    @patch('dashboard.curses.mousemask')
+    @patch('dashboard.curses.curs_set')
+    def test_footer_reserves_margin_after_history(self, _curs_set, _mousemask, _mouseinterval):
+        screen = MagicMock()
+        screen.getmaxyx.return_value = (8, 80)
+        screen.getch.side_effect = SystemExit
+        initial = dict(DEFAULTS, providers=['openai-codex'], profile='default', refresh=0)
+        model = {'provider': 'openai-codex', 'model': 'model-a', 'thinking_level': 'unknown',
+                 'total': 10, 'input': 10, 'output': 0, 'cache_read': 0, 'cache_write': 0}
+        history = {'current': None, 'previous': None, 'chart': [],
+                   'history': [model], 'total_history': [model]}
+        colors = {name: 0 for name in ('normal', 'dim', 'secondary', 'title',
+                                       'chart', 'good', 'warn', 'error')}
+        args = Namespace(owner=None, profile='default', providers=None, side=None, interval=None)
+        with patch('dashboard.defaults', return_value=initial), \
+             patch('dashboard.initialize_colors', return_value=colors), \
+             patch('dashboard.session_summary', return_value=history), \
+             patch('dashboard.FetchJob'):
+            from dashboard import watch
+            with self.assertRaises(SystemExit):
+                watch(screen, args)
+        writes = {call.args[0]: call.args[2] for call in screen.addnstr.call_args_list}
+        footer_row = next(row for row, text in writes.items()
+                          if text.startswith('1 provider | every 60s'))
+        self.assertEqual(writes[footer_row - 1], '')
+
 
 class PaneOwnershipTests(unittest.TestCase):
     @patch('dashboard.mux')

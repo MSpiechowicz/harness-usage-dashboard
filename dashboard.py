@@ -697,8 +697,7 @@ def session_lines(history, now, width, compact=True):
         quotas = [quota for quota in session['quota']
                   if quota['intervals'] > 0 and round(quota['points'], 2) > 0]
         if quotas:
-            if not compact:
-                rows.append(('', 'dim'))
+            rows.append(('', 'dim'))
             rows.append(('Quota change (observed)', 'dim'))
         for quota in quotas:
             label = NAMES.get(quota['provider'], quota['provider']) + ' ' + quota['label']
@@ -707,13 +706,13 @@ def session_lines(history, now, width, compact=True):
             if duplicates > 1 or not compact:
                 # Put the fingerprint first so width fitting cannot erase its identity.
                 label = '[' + quota['key'][:6] + '] ' + label
-            rows.append(allowance_row(label, f'+{quota["points"]:.2f} pp', '', width, 'normal'))
+            rows.append(allowance_row(label, f'+{quota["points"]:.2f}%', '', width, 'normal'))
             if not compact:
                 if quota['segments'] > 1:
                     rows.append((f'{quota["segments"]} observation segments', 'dim'))
                 rows.append((f'Last sample {max(0, int(now - quota["last"]))}s ago', 'dim'))
         if quotas and not compact:
-            rows.extend([('pp = percentage points', 'dim'), ('Account-wide; not exact billing', 'dim')])
+            rows.extend([('% = percentage-point change', 'dim'), ('Account-wide; not exact billing', 'dim')])
         rows.append(('', 'dim'))
     def history_rows(label, entries):
         if not entries:
@@ -916,10 +915,11 @@ def watch(screen, args):
                         wrapped.append((clean(text)[:max(1, width - 2)], style))
                     else:
                         wrapped.extend((part, style) for part in (textwrap.wrap(clean(text), max(1, width - 2)) or ['']))
-                body_height = max(0, height - 4)
+                body_height = max(0, height - 5)
                 offset = min(offset, max(0, len(wrapped) - body_height))
                 draw = wrapped[offset:offset + body_height]
                 draw += [('', '')] * max(0, body_height - len(draw))
+                draw += [('', 'dim')]
                 count = len(visible)
                 position = f' | {offset + 1}-{min(len(wrapped), offset + body_height)}/{len(wrapped)}' if len(wrapped) > body_height else ''
                 draw += [(f'{count} provider{"s" if count != 1 else ""} | every {config["interval"]}s{position}', 'dim'),

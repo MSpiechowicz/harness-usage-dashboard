@@ -146,7 +146,7 @@ class SessionAccountingTests(unittest.TestCase):
         record_quota(None, None, 'b', [self.sample(111, .9)])
         quota = summary()['current']['quota'][0]
         self.assertEqual(quota['intervals'], 0)
-        self.assertNotIn('+0.00 pp', '\n'.join(line for line, _ in session_lines(summary(), 120, 32)))
+        self.assertNotIn('+0.00%', '\n'.join(line for line, _ in session_lines(summary(), 120, 32)))
 
     def test_accounts_are_not_paired_by_report_order(self):
         self.save()
@@ -293,13 +293,16 @@ class SessionAccountingTests(unittest.TestCase):
                 with self.subTest(at=at, compact=compact):
                     rendered = '\n'.join(line for line, _ in session_lines(summary(), at, 48, compact))
                     self.assertNotIn('Pending quota', rendered)
-                    self.assertNotIn('+0.00 pp', rendered)
+                    self.assertNotIn('+0.00%', rendered)
                     if at < 110:
                         self.assertNotIn('Measured quota', rendered)
                         self.assertNotIn('Quota change', rendered)
                     else:
                         self.assertIn('Measured quota', rendered)
-                        self.assertIn('+0.01 pp', rendered)
+                        self.assertIn('+0.01%', rendered)
+                        lines = rendered.splitlines()
+                        heading = lines.index('Quota change (observed)')
+                        self.assertEqual(lines[heading - 1], '')
 
 if __name__ == '__main__':
     unittest.main()
