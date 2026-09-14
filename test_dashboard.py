@@ -5,7 +5,8 @@ import signal
 import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
-from dashboard import (FetchJob, allowance_color, change_config, owned_panes, provider_lines, resolve_tokens,
+from dashboard import (FetchJob, allowance_color, change_config, clean, command_box_rows,
+                       owned_panes, provider_lines, resolve_tokens,
                        section_heading, session_lines, token_chart, watch)
 from preferences import DEFAULTS, THEME_NAMES
 
@@ -71,6 +72,12 @@ class RemainingAllowanceTests(unittest.TestCase):
     def test_section_divider_uses_secondary_base_color(self):
         _text, style = section_heading('TOKEN RATE', 32, 'tok/min')
         self.assertEqual(style[0], 'secondary')
+    def test_command_box_uses_secondary_side_borders(self):
+        rows = command_box_rows(1, 60, '', 40)
+        self.assertEqual(clean('┌─┐│└┘'), '┌─┐│└┘')
+        self.assertNotIn('?', ''.join(text for text, _style in rows))
+        for text, style in rows[1:4]:
+            self.assertEqual(style[:3], ('secondary', 1, len(text) - 1))
     @patch('dashboard.curses.mouseinterval')
     @patch('dashboard.curses.mousemask')
     @patch('dashboard.curses.curs_set')

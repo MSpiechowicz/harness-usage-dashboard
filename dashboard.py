@@ -28,7 +28,7 @@ TMUX = None
 OMP = shutil.which('omp') or str(Path.home() / '.local/bin/omp')
 SOCKET_NAME = 'omp-usage'
 NAMES = {value: key.upper() for key, value in ALIASES.items()}
-CHART_GLYPHS = frozenset('▁▂▃▄▅▆▇█│└─┌┐')
+CHART_GLYPHS = frozenset('▁▂▃▄▅▆▇█│└─┌┐┘')
 COMMAND_BOX_HEIGHT = 5
 # A suspended terminal can leave the dashboard loop asleep while provider jobs
 # continue to hold old results. Restart them when the loop resumes.
@@ -607,10 +607,12 @@ def command_box_rows(count, interval, position, width):
 
     content_width = max(1, inner - 2) if inner >= 2 else inner
 
-    def inside(text):
+    def inside(text, style):
         if inner >= 2:
-            return '│ ' + text[:content_width].ljust(content_width) + ' │'
-        return '│' + text[:inner].ljust(inner) + '│'
+            framed = '│ ' + text[:content_width].ljust(content_width) + ' │'
+        else:
+            framed = '│' + text[:inner].ljust(inner) + '│'
+        return framed, ('secondary', 1, len(framed) - 1, style)
 
     summary = f'{count} provider{"s" if count != 1 else ""} | every {interval}s'
     status = next((candidate for candidate in (summary + position, summary)
@@ -623,9 +625,9 @@ def command_box_rows(count, interval, position, width):
     ) if len(candidate) <= content_width), 'r/q | scroll')
     return [
         (top, top_style),
-        (inside(status), 'dim'),
-        (inside('[Refresh] [Hide]'), 'normal'),
-        (inside(keys), 'dim'),
+        (inside(status, 'dim')),
+        (inside('[Refresh] [Hide]', 'normal')),
+        (inside(keys, 'dim')),
         ('└' + '─' * (outer - 2) + '┘', 'secondary'),
     ]
 
