@@ -51,7 +51,7 @@ print(json.dumps(updater.check(cached='--cached' in sys.argv)))
     assert.deepEqual(notices, [], "startup must return before the background check");
     for (const callback of scheduled) await callback();
     assert.equal(notices.length, 1);
-    assert.match(notices[0].message, /is available \(installed .*\).*\/usage-dashboard update install/);
+    assert.equal(notices[0].message, "Usage dashboard update available.");
     assert.equal(notices[0].level, "warning");
   } finally {
     for (const key of keys) {
