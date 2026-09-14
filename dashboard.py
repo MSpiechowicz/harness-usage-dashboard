@@ -491,10 +491,9 @@ def session_lines(history, now, width, compact=True):
             rows.extend([('pp = percentage points', 'dim'), ('Account-wide; not exact billing', 'dim')])
         rows.append(('', 'dim'))
     recorded = sum(item['total'] for item in history['history'])
-    current_total = sum(item['total'] for item in current['providers']) if current else 0
-    if history['history'] and (not compact or not current or recorded != current_total):
+    if history['history']:
         rows.append(section_heading('HISTORY', width))
-        rows.append(allowance_row('All sessions', f'{recorded:,}', '', width, 'normal'))
+        rows.append(allowance_row('Previous sessions', f'{recorded:,}', '', width, 'normal'))
         if not compact:
             rows.extend((f'{NAMES.get(item["provider"], item["provider"])} / {item["model"]}: {item["total"]:,}', 'dim')
                         for item in history['history'])

@@ -169,7 +169,8 @@ def summary(profile=None, owner=None, now=None, minutes=20):
                 if 0 <= index < minutes:
                     result['chart'][index] = row['total']
         result['history'] = [dict(row) for row in db.execute(
-            'SELECT provider, model, SUM(total) AS total FROM tokens GROUP BY provider, model')]
+            'SELECT provider, model, SUM(total) AS total FROM tokens WHERE session != ? GROUP BY provider, model',
+            (current or '',))]
         return result
 
 

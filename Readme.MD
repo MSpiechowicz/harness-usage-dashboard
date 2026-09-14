@@ -244,9 +244,9 @@ The **Token rate** chart uses 20 one-minute buckets across all models, including
 
 **Current session** and **Previous session** show cumulative reported token totals. Compact mode groups them by provider; `/usage-dashboard view details` also shows the actual model on each request, input/output tokens, and cache reads/writes. Switching models never reassigns earlier usage to the newly selected model. Cached tokens remain part of the provider's reported total, not an extra amount added on top of it.
 
-Section dividers and blank lines separate token rate, session summaries, history, and account allowances. Compact mode avoids repeating the total for a single provider, hides history when it equals the current session total, and omits a nonexistent previous session. Details mode retains per-model breakdowns and session IDs.
+Section dividers and blank lines separate token rate, session summaries, history, and account allowances. Compact mode avoids repeating the total for a single provider, hides history when there are no earlier sessions, and omits a nonexistent previous session. Details mode retains per-model breakdowns and session IDs.
 
-**Recorded history** is the total of locally recorded requests, not an account's lifetime bill or subscription limit. History starts with sessions opened while this extension is installed; opening an existing session imports its available usage records. `/new` preserves the old summary. Resuming the same conversation continues its record, while inherited fork context is excluded from new consumption. The previous summary is the pane's preceding conversation, falling back to the most recently recorded other conversation in this profile; it is not necessarily a completed session if another OMP is still using it.
+**Recorded history** is the total of locally recorded requests from sessions other than the current one, not an account's lifetime bill or subscription limit. History starts with sessions opened while this extension is installed; opening an existing session imports its available usage records. `/new` preserves the old summary. Resuming the same conversation continues its record, while inherited fork context is excluded from new consumption. The previous summary is the pane's preceding conversation, falling back to the most recently recorded other conversation in this profile; it is not necessarily a completed session if another OMP is still using it.
 
 OMP's main-session assistant messages and auxiliary `model_usage` records retain their provider/model attribution. Aggregated task usage without a route breakdown is shown separately as **task (mixed)** / **mixed / unattributed**, rather than being charged to the main model. Noninteractive child extensions do not independently record those same task requests.
 
@@ -310,7 +310,9 @@ Inside OMP:
 
 **Restart OMP after installation** to load the updated extension and sidebar. Your saved preferences and credentials are retained.
 
-Every interactive OMP startup requests a fresh release check in the background, so a previously cached “up to date” result does not hide a newly published version. When a newer version is found, a visible notice includes `/usage-dashboard update install`. Checks do not block the prompt or automatically install code. Startup network failures remain quiet; explicit `update check` commands also request fresh release data and report errors.
+Every interactive OMP startup requests a fresh release check in the background, so a previously cached “up to date” result does not hide a newly published version. For marketplace installations, a newer version produces a visible notice with `/usage-dashboard update install`. Checks do not block the prompt or automatically install code. Startup network failures remain quiet; explicit `update check` commands also request fresh release data and report errors.
+
+Source-checkout installations do not offer native marketplace upgrades. Their explicit update check reports the manual `git pull --ff-only` and `python3 install.py` path instead; use the marketplace installation if you want updates managed through OMP.
 
 Installation uses OMP's **native marketplace manager** and preserves the current user/project scope. It refuses unregistered checkouts or mismatched installations instead of overwriting them. OMP's native notification mode currently logs update availability; this extension supplies the visible notice.
 

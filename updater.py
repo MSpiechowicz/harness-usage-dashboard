@@ -31,6 +31,16 @@ class UpdateError(RuntimeError):
     pass
 
 
+class NotManagedError(UpdateError):
+    pass
+
+
+SOURCE_CHECKOUT_MESSAGE = (
+    'This source checkout is not managed by OMP. Update it with `git pull --ff-only` '
+    'and `python3 install.py`, or migrate to the marketplace for native updates.'
+)
+
+
 def version_tuple(value):
     if not isinstance(value, str) or len(value) > 80 or VERSION.fullmatch(value) is None:
         raise UpdateError('Expected a stable MAJOR.MINOR.PATCH version.')
@@ -151,14 +161,21 @@ def result(current, release):
     }
 
 
-def check(profile=None, cached=False, root=None):
-    current = current_version(root or ROOT)
+def check(profile=None, cached=False, root=None, managed=False):
+    root = root or ROOT
+    current = current_version(root)
     valid, release = read_cache(profile) if cached else (False, None)
     if not valid:
         release = latest_release()
         write_cache(profile, release)
     response = result(current, release)
-    if release is None:
+    if response['updateAvailable'] and managed:
+        try:
+            managed_install(profile, root)
+        except NotManagedError:
+            response['updateAvailable'] = False
+            response['message'] = SOURCE_CHECKOUT_MESSAGE
+    elif release is None:
         response['message'] = 'No published stable GitHub release is available.'
     return response
 
@@ -219,7 +236,7 @@ def managed_install(profile, root=None, scope=None):
             raise UpdateError('Native plugin registry and installed package versions disagree. Inspect `omp plugin list` before updating.')
         matches.append((summary['scope'], str(Path(path).resolve()), entry['version']))
     if len(matches) != 1:
-        raise UpdateError(
+        raise NotManagedError(
             'This running dashboard is not an unambiguous active native marketplace installation. '
             'Legacy git/symlink checkouts are never overwritten. Follow Readme.MD migration: '
             'uninstall only the old integration, add the official marketplace, then '
@@ -282,7 +299,7 @@ def main(argv=None):
         parser.error('--cached is only supported for check')
     try:
         cache_path(args.profile)  # Validate profile before any mutation/network request.
-        response = check(args.profile, args.cached) if args.action == 'check' else install_update(args.profile)
+        response = check(args.profile, args.cached, managed=True) if args.action == 'check' else install_update(args.profile)
     except (UpdateError, OSError, ValueError, UnicodeError) as exc:
         message = str(exc) if isinstance(exc, (UpdateError, ValueError)) else 'Local files could not be accessed safely; inspect permissions and checkout state.'
         message = ''.join(char if char.isprintable() else ' ' for char in message)

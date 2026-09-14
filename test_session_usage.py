@@ -43,9 +43,22 @@ class SessionAccountingTests(unittest.TestCase):
         self.assertEqual(report['previous']['id'], 'one')
         self.assertEqual(report['previous']['providers'][0]['total'], 160)
         self.assertEqual(report['current']['providers'][0]['total'], 160)
-        self.assertEqual(report['history'][0]['total'], 320)
+        self.assertEqual(report['history'][0]['total'], 160)
         # Closing and reopening connections on every call exercises actual persistence.
         self.assertEqual((self.home / 'agent/usage-dashboard.sqlite3').stat().st_mode & 0o777, 0o600)
+
+    def test_history_total_excludes_current_session(self):
+        self.save(session='previous', activation='previous',
+                  entries=[self.entry('previous-one'), self.entry('previous-two')], now=60)
+        self.save(session='current', activation='current', entries=[self.entry('current')], now=100)
+        report = summary(now=110)
+        self.assertEqual(report['previous']['providers'][0]['total'], 320)
+        self.assertEqual(report['current']['providers'][0]['total'], 160)
+        self.assertEqual(sum(item['total'] for item in report['history']), 320)
+        rendered = '\n'.join(line for line, _ in session_lines(report, 110, 32))
+        self.assertIn('Previous sessions', rendered)
+        self.assertNotIn('All sessions', rendered)
+
 
     def test_resets_and_resume_gaps_are_not_subtracted_or_charged(self):
         self.save()
