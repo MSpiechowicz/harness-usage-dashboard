@@ -1,9 +1,11 @@
 """User-visible allowance semantics; no live provider calls."""
 from argparse import Namespace
 from copy import deepcopy
+import signal
+import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
-from dashboard import (allowance_color, change_config, owned_panes, provider_lines, resolve_tokens,
+from dashboard import (FetchJob, allowance_color, change_config, owned_panes, provider_lines, resolve_tokens,
                        section_heading, session_lines, token_chart, watch)
 from preferences import DEFAULTS, THEME_NAMES
 
@@ -125,6 +127,26 @@ class RemainingAllowanceTests(unittest.TestCase):
         self.assertIn('[Refresh] [Hide]', writes[footer_row + 2])
         self.assertIn('r refresh | q hide | scroll', writes[footer_row + 3])
         self.assertTrue(writes[footer_row + 4].startswith('└'))
+
+class DashboardShutdownTests(unittest.TestCase):
+    @patch('dashboard.os.killpg')
+    def test_refresh_worker_escalates_quickly_when_stuck(self, killpg):
+        job = FetchJob.__new__(FetchJob)
+        job.process = MagicMock(pid=123, poll=MagicMock(return_value=None))
+        job.process.wait.side_effect = [
+            subprocess.TimeoutExpired('omp', 0.25),
+            None,
+        ]
+        job.output = MagicMock()
+        job.error = MagicMock()
+
+        job.close()
+
+        self.assertEqual(killpg.call_args_list, [
+            ((123, signal.SIGTERM), {}),
+            ((123, signal.SIGKILL), {}),
+        ])
+        job.process.wait.assert_any_call(timeout=0.25)
 
 
 class DashboardPollingTests(unittest.TestCase):

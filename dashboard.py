@@ -828,7 +828,9 @@ class FetchJob:
         if self.process.poll() is None:
             self.signal_group(signal.SIGTERM)
             try:
-                self.process.wait(timeout=2)
+                # Refresh workers have no shutdown work worth keeping the
+                # curses pane alive for; escalate quickly if OMP is stuck.
+                self.process.wait(timeout=0.25)
             except subprocess.TimeoutExpired:
                 self.signal_group(signal.SIGKILL)
                 self.process.wait()

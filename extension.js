@@ -228,10 +228,12 @@ export default function usageDashboard(pi) {
   pi.on("session_shutdown", async (_event, ctx) => {
     if (timer) ctx.clearTimer(timer);
     timer = undefined;
-    await record(ctx, "stop");
+    // Detach before the final usage write so a slow/forced shutdown cannot
+    // leave the curses pane repainting into the terminal.
     if (ctx.hasUI && process.env.TMUX && process.env.TMUX_PANE) {
       await control(["detach"], ctx, true);
     }
+    await record(ctx, "stop");
   });
   for (const event of ["message_end", "agent_end", "session_compact", "session_tree"]) {
     pi.on(event, async (_event, ctx) => { await record(ctx); });

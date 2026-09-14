@@ -252,3 +252,50 @@ test("theme menu lists palettes and explains custom token colors", async () => {
   assert.match(notices[0].message, /terminal names, gray, brown, orange, or #RRGGBB/);
   assert.deepEqual(execArgs.slice(-5), ["--", "theme", "custom", "accent", "#58a66a"]);
 });
+
+test("detaches the dashboard before waiting for shutdown recording", async () => {
+  const home = await mkdtemp(join(tmpdir(), "dashboard-shutdown-"));
+  const keys = ["HOME", "PI_CODING_AGENT_DIR", "OMP_PROFILE", "PI_PROFILE", "TMUX", "TMUX_PANE"];
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  Object.assign(process.env, {
+    HOME: home,
+    PI_CODING_AGENT_DIR: join(home, "agent"),
+    OMP_PROFILE: "default",
+    PI_PROFILE: "default",
+    TMUX: "/tmp/tmux-test,123,0",
+    TMUX_PANE: "%1",
+  });
+  try {
+    const handlers = new Map();
+    const calls = [];
+    usageDashboard({
+      setLabel() {},
+      registerCommand() {},
+      on(event, handler) { handlers.set(event, handler); },
+      async exec(_binary, args) {
+        calls.push(args);
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    const ctx = {
+      hasUI: true,
+      cwd: process.cwd(),
+      sessionManager: {
+        getSessionId: () => "shutdown-session",
+        getUsageStatistics: () => ({}),
+        getLeafId: () => null,
+        getHeader: () => ({}),
+        getEntries: () => [],
+      },
+      ui: { notify() {} },
+    };
+    await handlers.get("session_shutdown")({}, ctx);
+    assert.deepEqual(calls[0].slice(-2), ["--", "detach"]);
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    await rm(home, { recursive: true, force: true });
+  }
+});
