@@ -72,12 +72,15 @@ class RemainingAllowanceTests(unittest.TestCase):
     def test_section_divider_uses_secondary_base_color(self):
         _text, style = section_heading('TOKEN RATE', 32, 'tok/min')
         self.assertEqual(style[0], 'secondary')
-    def test_command_box_uses_secondary_side_borders(self):
+    def test_command_box_uses_one_border_color_and_capitalized_actions(self):
         rows = command_box_rows(1, 60, '', 40)
         self.assertEqual(clean('┌─┐│└┘'), '┌─┐│└┘')
         self.assertNotIn('?', ''.join(text for text, _style in rows))
+        self.assertEqual(rows[0][1], 'secondary')
+        self.assertEqual(rows[-1][1], 'secondary')
         for text, style in rows[1:4]:
             self.assertEqual(style[:3], ('secondary', 1, len(text) - 1))
+        self.assertIn('r Refresh | q Hide | Scroll', rows[3][0])
     @patch('dashboard.curses.mouseinterval')
     @patch('dashboard.curses.mousemask')
     @patch('dashboard.curses.curs_set')
@@ -131,7 +134,7 @@ class RemainingAllowanceTests(unittest.TestCase):
         self.assertEqual(writes[footer_row - 1], '')
         self.assertIn('1 provider | every 60s', writes[footer_row + 1])
         self.assertIn('[Refresh] [Hide]', writes[footer_row + 2])
-        self.assertIn('r refresh | q hide | scroll', writes[footer_row + 3])
+        self.assertIn('r Refresh | q Hide | Scroll', writes[footer_row + 3])
         self.assertTrue(writes[footer_row + 4].startswith('└'))
 
 class DashboardShutdownTests(unittest.TestCase):

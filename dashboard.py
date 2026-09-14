@@ -600,7 +600,7 @@ def command_box_rows(count, interval, position, width):
     if outer >= title_size:
         top = (title_prefix + title + title_suffix
                + '─' * (outer - title_size) + '┐')
-        top_style = 'title'
+        top_style = 'secondary'
     else:
         top = '┌' + '─' * (outer - 2) + '┐'
         top_style = 'secondary'
@@ -618,11 +618,11 @@ def command_box_rows(count, interval, position, width):
     status = next((candidate for candidate in (summary + position, summary)
                    if len(candidate) <= content_width), summary)
     keys = next((candidate for candidate in (
-        'r refresh | q hide | scroll',
-        'r refresh q hide scroll',
-        'r/q actions | scroll',
-        'r/q | scroll',
-    ) if len(candidate) <= content_width), 'r/q | scroll')
+        'r Refresh | q Hide | Scroll',
+        'r Refresh q Hide Scroll',
+        'r/q Actions | Scroll',
+        'r/q | Scroll',
+    ) if len(candidate) <= content_width), 'r/q | Scroll')
     return [
         (top, top_style),
         (inside(status, 'dim')),
