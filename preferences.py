@@ -9,7 +9,7 @@ import tempfile
 
 
 DEFAULTS = {
-    'providers': ['openai-codex'],
+    'providers': [],
     'hidden': [],
     'windows': {},
     'side': 'right',

@@ -44,6 +44,7 @@ class RemainingAllowanceTests(unittest.TestCase):
 class NestedCommandTests(unittest.TestCase):
     def test_provider_visibility_and_window_filters_are_independent(self):
         config = deepcopy(DEFAULTS)
+        change_config(config, ['providers', 'add', 'codex'])
         change_config(config, ['window', 'hide', 'codex', 'spark'])
         change_config(config, ['providers', 'hide', 'codex'])
         self.assertEqual(config['windows']['openai-codex'], ['spark'])

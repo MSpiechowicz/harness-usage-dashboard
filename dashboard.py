@@ -148,6 +148,8 @@ def change_config(config, words):
 def describe(config):
     lines = [f"Dashboard {'on' if config['enabled'] else 'off'} / {config['side']} / "
              f"{'compact' if config['compact'] else 'details'} / {config['interval']}s"]
+    if not config['providers']:
+        lines.extend(['Add at least one provider.', '/usage-dashboard providers add PROVIDER'])
     for provider in config['providers']:
         lines.append(provider + (' [hidden]' if provider in config['hidden'] else ' [visible]'))
         for pattern in config['windows'].get(provider, []):
@@ -503,7 +505,9 @@ def watch(screen, args):
                         rows.append(('Fetching account usage...', 'dim'))
                     rows.append(('', 'dim'))
                 if not visible:
-                    rows = [('No visible providers', 'dim'), ('/usage-dashboard providers add codex', 'dim')]
+                    rows = [('No visible providers' if config['providers'] else 'Add at least one provider.', 'dim'),
+                            ('/usage-dashboard providers', 'dim'),
+                            ('Choose Add to select a provider.', 'dim')]
                 if width < 22:
                     rows = [('Widen terminal', 'warn')]
                 # Wrap long labels/notes; never let curses write outside this pane.
@@ -639,6 +643,8 @@ def main():
         elif extra:
             parser.error('Unexpected arguments after --')
         elif args.once:
+            if not config['providers']:
+                print(describe(config))
             for provider in config['providers']:
                 print(NAMES.get(provider, provider.upper()))
                 print('\n'.join(text for text, _ in provider_lines(fetch_usage(provider, args.profile), provider, config, time.time(), 32)))

@@ -150,7 +150,7 @@ These paths follow `XDG_CONFIG_HOME` when set. Existing aliases, functions, abbr
 
 ## Usage
 
-Run `omp` normally, including `omp --resume` or `omp --continue`. The default view is **Codex, on the right, in compact mode, polling every 60 seconds**.
+Run `omp` normally, including `omp --resume` or `omp --continue`. Fresh installs start with **no providers selected**, on the right, in compact mode, polling every 60 seconds. The sidebar prompts you to add at least one provider: run `/usage-dashboard providers`, choose **add**, then select a provider you use. Existing saved provider selections are preserved.
 
 Inside OMP, enter:
 

@@ -19,6 +19,15 @@ class PreferencesTests(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
 
+    def test_fresh_profile_requires_explicit_provider_selection(self):
+        self.assertEqual(load_preferences(None)['providers'], [])
+        update_preferences(None, {'side': 'left'})
+        self.assertEqual(load_preferences(None)['providers'], [])
+        update_preferences(None, {'providers': ['anthropic']})
+        self.assertEqual(load_preferences(None)['providers'], ['anthropic'])
+        update_preferences(None, {'providers': []})
+        self.assertEqual(load_preferences(None)['providers'], [])
+
     def test_persisted_settings_survive_load_without_transient_fields(self):
         changes = {
             'providers': ['openai-codex', 'deepseek'],
@@ -106,9 +115,6 @@ class PreferencesTests(unittest.TestCase):
         first['hidden'].append('openai-codex')
         first['windows']['openai-codex'] = ['weekly']
         self.assertEqual(load_preferences(None), DEFAULTS)
-        self.assertEqual(DEFAULTS['providers'], ['openai-codex'])
-        self.assertEqual(DEFAULTS['hidden'], [])
-        self.assertEqual(DEFAULTS['windows'], {})
         patterns = ['weekly']
         saved = update_preferences(None, {'windows': {'openai-codex': patterns}})
         patterns.append('daily')
