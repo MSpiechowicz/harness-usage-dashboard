@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from dashboard import quota_samples, session_lines
+from dashboard import format_tokens, quota_samples, session_lines
 from session_usage import active_session, ingest, record_quota, summary
 
 
@@ -20,9 +20,9 @@ class SessionAccountingTests(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
 
-    def save(self, session='one', activation='a', action='start', entries=(), now=60):
+    def save(self, session='one', activation='a', action='start', entries=(), now=60, cwd=None):
         ingest({'session': session, 'activation': activation, 'action': action,
-                'entries': list(entries)}, now=now)
+                'entries': list(entries)}, now=now, cwd=cwd)
 
     def entry(self, identity='request-one', at=65, provider='openai-codex', model='gpt-5'):
         return {'id': identity, 'at': at, 'provider': provider, 'model': model, 'input': 100, 'output': 20,
@@ -58,6 +58,30 @@ class SessionAccountingTests(unittest.TestCase):
         rendered = '\n'.join(line for line, _ in session_lines(report, 110, 32))
         self.assertIn('Previous sessions', rendered)
         self.assertNotIn('All sessions', rendered)
+
+    def test_history_is_project_scoped_and_global_history_is_available(self):
+        first = self.home / 'first-project'
+        second = self.home / 'second-project'
+        self.save(session='old', activation='first-old', entries=[self.entry('old-entry')],
+                  cwd=first, now=60)
+        self.save(session='current', activation='first-current', entries=[self.entry('current-entry')],
+                  cwd=first, now=100)
+        self.save(session='old', activation='second-old', entries=[self.entry('old-entry')],
+                  cwd=second, now=120)
+        self.save(session='current', activation='second-current', entries=[self.entry('current-entry')],
+                  cwd=second, now=140)
+
+        first_report = summary(cwd=first, now=150)
+        self.assertEqual(sum(item['total'] for item in first_report['history']), 160)
+        self.assertEqual(sum(item['total'] for item in first_report['global_history']), 480)
+        self.assertEqual(first_report['previous']['id'], 'old')
+
+
+    def test_large_token_totals_use_compact_units(self):
+        self.assertEqual(format_tokens(999), '999')
+        self.assertEqual(format_tokens(1_000), '1k')
+        self.assertEqual(format_tokens(12_345), '12.3k')
+        self.assertEqual(format_tokens(1_234_567), '1.23M')
 
 
     def test_resets_and_resume_gaps_are_not_subtracted_or_charged(self):

@@ -207,9 +207,9 @@ def control(args, words):
             mux('kill-pane', '-t', pane)
     if recreate:
         mux('set-option', '-t', owner, 'mouse', 'on')
-        # Equal window-local styles remove tmux's half-colored focus indicator.
+        # Use one low-contrast solid color for a crisp, focus-neutral divider.
         for option in ('pane-border-style', 'pane-active-border-style'):
-            mux('set-option', '-w', '-t', owner, option, 'fg=colour240,bg=default')
+            mux('set-option', '-w', '-t', owner, option, 'fg=colour237,bg=colour237')
         mux('set-option', '-w', '-t', owner, 'pane-border-indicators', 'off')
         command = [sys.executable, str(ROOT / 'dashboard.py'), 'watch', '--owner', owner]
         options = ['split-window', '-h', '-d', '-l', '34', '-t', owner, '-P', '-F', '#{pane_id}']
@@ -233,6 +233,27 @@ def clean(value):
 def number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
+
+def format_tokens(value):
+    """Keep large token totals readable without hiding small exact totals."""
+    value = max(0, int(value))
+    if value < 1_000:
+        return f'{value:,}'
+    for factor, suffix in ((1_000_000_000_000, 'T'), (1_000_000_000, 'B'),
+                           (1_000_000, 'M'), (1_000, 'k')):
+        if value >= factor:
+            scaled = value / factor
+            if scaled >= 100:
+                text = f'{scaled:.0f}'
+            elif scaled >= 10:
+                text = f'{scaled:.1f}'
+            else:
+                text = f'{scaled:.2f}'
+            text = text.rstrip('0').rstrip('.')
+            if text == '1000' and suffix != 'T':
+                continue
+            return text + suffix
+    return str(value)
 
 def fraction(amount):
     value = amount.get('usedFraction')
@@ -415,7 +436,7 @@ def token_chart(values, width):
         blocks, vertical, corner, horizontal = ' ▁▂▃▄▅▆▇█', '│', '└', '─'
     except UnicodeEncodeError:
         blocks, vertical, corner, horizontal = ' .:-=+*O@', '|', '+', '-'
-    scale = f'{peak / 1_000_000:.1f}m' if peak >= 1_000_000 else f'{peak / 1_000:.0f}k' if peak >= 1_000 else str(peak)
+    scale = format_tokens(peak)
     axis = max(4, len(scale))
     columns = max(1, width - axis - 2)
     # Stretch across the available width; max-pool only when narrower than the history.
@@ -454,7 +475,7 @@ def session_lines(history, now, width, compact=True):
         total = sum(item['total'] for item in providers)
         single = compact and len(providers) == 1
         label = NAMES.get(providers[0]['provider'], providers[0]['provider']) + ' tokens' if single else 'Tokens'
-        rows.append(allowance_row(label, f'{total:,}', '', width, 'normal'))
+        rows.append(allowance_row(label, format_tokens(total), '', width, 'normal'))
         if not compact or name == 'previous':
             stamp = time.strftime('%b %d %H:%M', time.localtime(session['updated']))
             rows.append((f'Last recorded {stamp}', 'dim'))
@@ -464,13 +485,13 @@ def session_lines(history, now, width, compact=True):
             label = NAMES.get(item['provider'], item['provider'])
             if not compact:
                 rows.append(('', 'dim'))
-            rows.append(allowance_row(label, f'{item["total"]:,}', '', width, 'normal'))
+            rows.append(allowance_row(label, format_tokens(item['total']), '', width, 'normal'))
             if not compact:
                 for model in session['models']:
                     if model['provider'] == item['provider']:
-                        rows.append((f'{model["model"]}: {model["total"]:,}', 'normal'))
-                        rows.append((f'  In {model["input"]:,} / out {model["output"]:,}', 'dim'))
-                        rows.append((f'  Cache r {model["cache_read"]:,} / w {model["cache_write"]:,}', 'dim'))
+                        rows.append((f'{model["model"]}: {format_tokens(model["total"])}', 'normal'))
+                        rows.append((f'  In {format_tokens(model["input"])} / out {format_tokens(model["output"])}', 'dim'))
+                        rows.append((f'  Cache r {format_tokens(model["cache_read"])} / w {format_tokens(model["cache_write"])}', 'dim'))
         quotas = [quota for quota in session['quota']
                   if quota['intervals'] > 0 and round(quota['points'], 2) > 0]
         if quotas:
@@ -490,13 +511,23 @@ def session_lines(history, now, width, compact=True):
         if quotas and not compact:
             rows.extend([('pp = percentage points', 'dim'), ('Account-wide; not exact billing', 'dim')])
         rows.append(('', 'dim'))
-    recorded = sum(item['total'] for item in history['history'])
-    if history['history']:
-        rows.append(section_heading('HISTORY', width))
-        rows.append(allowance_row('Previous sessions', f'{recorded:,}', '', width, 'normal'))
+
+    def history_rows(label, entries):
+        if not entries:
+            return []
+        total = sum(item['total'] for item in entries)
+        result = [allowance_row(label, format_tokens(total), '', width, 'normal')]
         if not compact:
-            rows.extend((f'{NAMES.get(item["provider"], item["provider"])} / {item["model"]}: {item["total"]:,}', 'dim')
-                        for item in history['history'])
+            result.extend((f'{NAMES.get(item["provider"], item["provider"])} / {item["model"]}: '
+                           f'{format_tokens(item["total"])}', 'dim') for item in entries)
+        return result
+
+    project_history = history.get('history', [])
+    global_history = history.get('global_history', [])
+    if project_history or global_history:
+        rows.append(section_heading('HISTORY', width))
+        rows.extend(history_rows('Previous sessions', project_history))
+        rows.extend(history_rows('Global sessions', global_history))
         rows.append(('', 'dim'))
     return rows
 
