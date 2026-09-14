@@ -18,7 +18,7 @@ class InstallerOwnershipTests(unittest.TestCase):
         self.home = Path(self.temporary.name)
         self.root = self.home / "checkout with 'quotes'"
         self.root.mkdir()
-        for name in ('extension.js', 'dashboard.py', 'usage_source.py', 'launcher.py', 'preferences.py', 'updater.py', 'package.json'):
+        for name in ('extension.js', 'dashboard.py', 'usage_source.py', 'session_usage.py', 'launcher.py', 'preferences.py', 'updater.py', 'package.json'):
             (self.root / name).write_text('', encoding='utf-8')
         self.agent = self.home / '.omp/agent'
         self.config = self.home / '.config'

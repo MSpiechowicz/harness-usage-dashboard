@@ -1,8 +1,8 @@
 # Oh My Pi Usage Dashboard
 
-Monitor provider allowances, reset times, and API credit balances without leaving [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi).
+Monitor session tokens, provider allowances, reset times, and API credit balances without leaving [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi).
 
-The dashboard adds a compact sidebar beside your OMP session. It shows **provider-reported account usage**, not just the tokens spent in the current conversation. Choose which providers to display, hide unnecessary usage windows, and keep your layout across sessions.
+The dashboard adds a compact sidebar beside your OMP session. It shows **provider-reported account usage** alongside a live token chart and persistent current/previous-session summaries. Choose which account providers to display, inspect usage by provider and model, and keep your history and layout across sessions.
 
 [Install](#installation) · [Use](#usage) · [Update](#updating) · [Uninstall](#uninstalling) · [Troubleshoot](#troubleshooting)
 
@@ -14,6 +14,9 @@ The dashboard adds a compact sidebar beside your OMP session. It shows **provide
 
 - **Shows remaining allowance and reset times** for usage windows reported by your provider.
 - **Displays multiple providers together**, independently of the model selected for your conversation.
+- **Charts reported tokens per minute** over the current session's last 20 minutes, across all models.
+- **Keeps current and previous session summaries** with provider totals, per-model details, and observed allowance changes.
+- **Preserves recorded token history** across restarts and resumes without counting inherited fork context as new usage.
 - **Shows reported API credit balances** where supported, without inventing a percentage or starting quota.
 - **Keeps the display compact:** one row per allowance, with color applied only to the remaining percentage.
 - **Remembers your preferences:** provider selection, hidden rows, position, density, polling interval, and visibility.
@@ -195,7 +198,7 @@ All commands below are entered inside OMP.
 | --- | --- |
 | `/usage-dashboard view list` | Show the current configuration. |
 | `/usage-dashboard view compact` | Show dense allowance rows. |
-| `/usage-dashboard view details` | Show additional details, source age, and window IDs. |
+| `/usage-dashboard view details` | Show per-model token/cache breakdowns, quota sample age, source age, and window IDs. |
 | `/usage-dashboard position left` | Place the sidebar on the left. |
 | `/usage-dashboard position right` | Place the sidebar on the right. |
 | `/usage-dashboard providers add ID` | Add a provider view. |
@@ -228,9 +231,34 @@ With default tmux bindings, **Ctrl-b**, then **o**, switches panes. Your termina
 
 ### Reading the numbers
 
-Percentages mean **remaining allowance**: green above 40%, amber above 20% through 40%, and red at 20% or below. Labels and reset times remain neutral. Credit balances stay in their reported currency rather than becoming an estimated percentage.
+Percentages in the account-allowance section mean **remaining allowance**: green above 40%, amber above 20% through 40%, and red at 20% or below. Labels and reset times remain neutral. Credit balances stay in their reported currency rather than becoming an estimated percentage.
 
 `checked Ns` describes the dashboard's last completed poll, not the age of the provider's data. Old source data is marked as cached; failed refreshes retain the last successful report with **STALE DATA**. Details mode shows source age and window IDs. The dashboard invalidates the selected provider's OMP usage cache before polling, but cannot force an upstream counter to change. Hidden providers are not polled. Keep the default 60-second interval unless you have a reason to change it; shorter intervals can encounter rate limits.
+
+### Live chart and session history
+
+The **Token rate** chart uses 20 one-minute buckets across all models, including the current, incomplete minute. Solid bars use fractional terminal cells, with a labelled vertical scale and time axis; ASCII-only terminals get a fallback. The vertical scale adjusts to the displayed peak, and an empty minute has no bar. With no recent usage, a single idle line replaces the empty chart. Token records update on completed usage events, with a one-second check for auxiliary model usage. This is reported request usage, not a token-by-token stream or the current context-window size.
+
+**Current session** and **Previous session** show cumulative reported token totals. Compact mode groups them by provider; `/usage-dashboard view details` also shows the actual model on each request, input/output tokens, and cache reads/writes. Switching models never reassigns earlier usage to the newly selected model. Cached tokens remain part of the provider's reported total, not an extra amount added on top of it.
+
+Section dividers and blank lines separate token rate, session summaries, history, and account allowances. Compact mode avoids repeating the total for a single provider, hides history when it equals the current session total, and omits a nonexistent previous session. Details mode retains per-model breakdowns and session IDs.
+
+**Recorded history** is the total of locally recorded requests, not an account's lifetime bill or subscription limit. History starts with sessions opened while this extension is installed; opening an existing session imports its available usage records. `/new` preserves the old summary. Resuming the same conversation continues its record, while inherited fork context is excluded from new consumption. The previous summary is the pane's preceding conversation, falling back to the most recently recorded other conversation in this profile; it is not necessarily a completed session if another OMP is still using it.
+
+OMP's main-session assistant messages and auxiliary `model_usage` records retain their provider/model attribution. Aggregated task usage without a route breakdown is shown separately as **task (mixed)** / **mixed / unattributed**, rather than being charged to the main model. Noninteractive child extensions do not independently record those same task requests.
+
+### Session quota changes are observations, not exact billing
+
+Each supported account/window gets its own **observed quota change**, expressed in **percentage points (pp)**. For example, an allowance moving from 20% used to 24.2% used contributes **+4.20 pp**. Hourly, five-hour, weekly, monthly, or other labels come from the provider; the dashboard does not invent an hourly or total quota if none is reported.
+
+- Token totals can be combined across models; quota percentages cannot be combined across providers, accounts, or distinct allowance windows. Shared model buckets are observed once, not multiplied by the number of models used.
+- Different accounts/buckets remain separate. Short bracketed bucket fingerprints distinguish otherwise identical labels without displaying raw account IDs.
+- A fresh baseline and a comparable second sample are required. Quota rows and their heading stay hidden until such a comparison exists; there are no “awaiting samples” rows. A confirmed zero change is valid data and can be displayed. Old cached samples, late responses from a previous session, and duplicate timestamps do not establish new consumption.
+- A changed reset/limit, decreasing counter, or resumed session starts a separate observation segment. The summary adds only observed increases inside those segments; it never subtracts across a reset or charges the inactive resume gap. Segment counts, sample ages, and explanatory notes appear only in Details mode.
+- Provider counters can lag and include other sessions, applications, or machines. Changes before the first sample or after the last sample cannot be attributed. These values are **not exact per-session or per-model subscription charges**, and tokens are not converted into quota percentages or dollar charges.
+- Account sampling runs at the configured polling interval while the sidebar and provider view are visible. Hidden providers are not polled. A provider without a stable account scope or percentage cannot produce a session quota comparison; its quota summary stays hidden rather than implying zero. Historical summaries remain visible regardless of the current account-view filters.
+
+Restart OMP after updating the extension to enable collection. Token recording continues when the sidebar is hidden; account-quota sampling does not.
 
 ## Provider availability
 
@@ -261,6 +289,8 @@ Provider order, hidden providers, window filters, position, display mode, pollin
 Use `omp --profile NAME` to select a profile. Keep a custom `PI_CODING_AGENT_DIR` in your launching environment. Source-checkout installations must also register the extension in each custom agent directory using `python3 install.py --agent-dir PATH`.
 
 Changes affect the current dashboard and subsequent launches, not other already-running panes. Preferences use locked, atomic updates; malformed settings produce an error rather than being silently reset. Release-check metadata is stored separately in `usage-dashboard-update.json` beside the preferences file.
+
+Session accounting is stored in **`usage-dashboard.sqlite3`** beside the preferences file, separately for each profile. It is created with owner-only permissions and updated transactionally as usage arrives, not just at shutdown. It stores session/request identifiers, timestamps, provider/model names, numeric token counters, and quota observation summaries with hashed scope identities. It does not copy prompts, responses, tool output, credentials, or raw account IDs. A crash can lose usage not yet reported or saved, but does not erase already committed session history. Uninstalling the integration leaves this history intact.
 
 **Do not paste API keys or tokens into dashboard commands.** The dashboard uses OMP authentication, does not store credentials in its preference files, and does not render account emails or account/credential IDs. DeepSeek's fallback obtains its credential from OMP and uses it in the provider-fetch process. Release checks contact the public GitHub API without provider credentials.
 
@@ -363,6 +393,8 @@ node --check extension.js
 ```
 
 Tests use isolated fixtures, not live account credentials. Interactive verification has covered fish/tmux launch, mouse controls, nested menus, preference persistence, native upgrades, and project-over-user discovery. Live provider verification is limited to Codex; passing offline tests does not establish support for another account or provider.
+
+Session accounting has also been exercised with the installed OMP runtime using isolated saved sessions: multiple models/providers, `/new`, and previous-session persistence. Curses rendering and scrolling were checked in a 34-column tmux pane. Quota-reset/account-attribution checks use offline fixtures; they do not establish live quota reporting support for additional providers.
 
 GitHub Actions validates pull requests and `main` pushes. A successful main push bumps the patch version, synchronizes the marketplace version and pinned tag, atomically pushes the metadata commit and tag, and publishes a GitHub Release. Manual dispatch supports patch, minor, and major bumps. No npm publishing token is required.
 

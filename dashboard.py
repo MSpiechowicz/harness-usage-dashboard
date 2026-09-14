@@ -11,6 +11,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import sqlite3
 import sys
 import tempfile
 import textwrap
@@ -19,12 +20,14 @@ import uuid
 
 from usage_source import ALIASES, UsageSourceError, fetch_usage
 from preferences import DEFAULTS, agent_dir, load_preferences, resolve_profile, update_preferences
+from session_usage import active_session, record_quota, summary as session_summary
 
 ROOT = Path(__file__).resolve().parent
 TMUX = None
 OMP = shutil.which('omp') or str(Path.home() / '.local/bin/omp')
 SOCKET_NAME = 'omp-usage'
 NAMES = {value: key.upper() for key, value in ALIASES.items()}
+CHART_GLYPHS = frozenset('▁▂▃▄▅▆▇█│└─')
 COMMANDS = {
     'view': ('list', 'compact', 'details'),
     'position': ('left', 'right'),
@@ -222,7 +225,9 @@ def control(args, words):
 
 
 def clean(value):
-    return str(value).encode('ascii', 'replace').decode().translate({i: None for i in range(32)} | {127: None})
+    # Keep only single-cell chart glyphs in addition to printable ASCII.
+    return ''.join(char if ' ' <= char <= '~' or char in CHART_GLYPHS else '?'
+                   for char in str(value) if ord(char) >= 32 and ord(char) != 127)
 
 
 def number(value):
@@ -365,6 +370,137 @@ def provider_lines(data, provider, config, now, width):
     return lines
 
 
+def quota_samples(data):
+    samples = []
+    reports = data.get('reports', [])
+    for report in reports:
+        provider = report.get('provider')
+        fetched = report.get('fetchedAt')
+        if not number(fetched):
+            continue
+        for limit in report.get('limits', []):
+            used = fraction(limit.get('amount') or {})
+            scope = limit.get('scope') or {}
+            # Unidentified reports cannot safely be paired across account reordering.
+            if used is None or not any(scope.get(key) for key in ('accountId', 'projectId', 'orgId')):
+                continue
+            window = limit.get('window') or {}
+            identity_scope = dict(scope)
+            if scope.get('shared'):
+                # A shared bucket is not a new allowance for each model using it.
+                identity_scope.pop('modelId', None)
+            samples.append({
+                'identity': [provider, identity_scope, limit.get('id')],
+                'provider': provider, 'label': clean(limit.get('label', limit.get('id', 'Quota'))),
+                'at': fetched / 1000, 'used': used,
+                'reset': [window.get('id'), window.get('resetsAt'), (limit.get('amount') or {}).get('limit')],
+            })
+    return samples
+
+
+def section_heading(label, width, tail=''):
+    label, tail = clean(label), clean(tail)
+    rule = '-' * max(1, width - len(label) - len(tail) - (2 if tail else 1))
+    text = label + ' ' + rule + (' ' + tail if tail else '')
+    return text[:max(1, width)], ('dim', 0, len(label), 'title')
+
+
+def token_chart(values, width):
+    peak = max(values, default=0)
+    if not peak:
+        return [(f'No activity in the last {len(values)}m', 'dim')]
+    # Four rows with eighth-cell precision, rather than three coarse '#' levels.
+    try:
+        ''.join(CHART_GLYPHS).encode(sys.stdout.encoding or 'ascii')
+        blocks, vertical, corner, horizontal = ' ▁▂▃▄▅▆▇█', '│', '└', '─'
+    except UnicodeEncodeError:
+        blocks, vertical, corner, horizontal = ' .:-=+*O@', '|', '+', '-'
+    scale = f'{peak / 1_000_000:.1f}m' if peak >= 1_000_000 else f'{peak / 1_000:.0f}k' if peak >= 1_000 else str(peak)
+    axis = max(4, len(scale))
+    columns = max(1, width - axis - 2)
+    # Stretch across the available width; max-pool only when narrower than the history.
+    bins = [max(values[i * len(values) // columns:max(i * len(values) // columns + 1,
+                (i + 1) * len(values) // columns)], default=0) for i in range(columns)]
+    heights = [math.ceil(value * 32 / peak) if value else 0 for value in bins]
+    rows = []
+    for row in range(4):
+        label = scale if row == 0 else ''
+        bars = ''.join(blocks[min(8, max(0, height - (3 - row) * 8))] for height in heights)
+        text = label.rjust(axis) + ' ' + vertical + bars
+        rows.append((text, ('dim', axis + 2, len(text), 'title')))
+    rows.append(('0'.rjust(axis) + ' ' + corner + horizontal * columns, ('dim', 0, 0, 'dim')))
+    labels = f'-{len(values)}m'.ljust(max(0, columns - 3)) + 'now'
+    rows.append((' ' * (axis + 2) + labels, ('dim', 0, 0, 'dim')))
+    return rows
+
+
+def session_lines(history, now, width, compact=True):
+    rows = []
+    current = history['current']
+    if current:
+        rows.append(section_heading('TOKEN RATE', width, 'tok/min'))
+        rows.extend(token_chart(history['chart'], width))
+        if not compact:
+            rows.append(('All models; reported usage', 'dim'))
+        rows.append(('', 'dim'))
+    elif not history['previous']:
+        rows.extend([('Waiting for OMP session', 'dim'), ('', 'dim')])
+    for name, title in (('current', 'CURRENT SESSION'), ('previous', 'PREVIOUS SESSION')):
+        session = history[name]
+        if not session:
+            continue
+        rows.append(section_heading(title, width, session['id'][:8] if not compact else ''))
+        providers = session['providers']
+        total = sum(item['total'] for item in providers)
+        single = compact and len(providers) == 1
+        label = NAMES.get(providers[0]['provider'], providers[0]['provider']) + ' tokens' if single else 'Tokens'
+        rows.append(allowance_row(label, f'{total:,}', '', width, 'normal'))
+        if not compact or name == 'previous':
+            stamp = time.strftime('%b %d %H:%M', time.localtime(session['updated']))
+            rows.append((f'Last recorded {stamp}', 'dim'))
+        for item in providers:
+            if single:
+                continue
+            label = NAMES.get(item['provider'], item['provider'])
+            if not compact:
+                rows.append(('', 'dim'))
+            rows.append(allowance_row(label, f'{item["total"]:,}', '', width, 'normal'))
+            if not compact:
+                for model in session['models']:
+                    if model['provider'] == item['provider']:
+                        rows.append((f'{model["model"]}: {model["total"]:,}', 'normal'))
+                        rows.append((f'  In {model["input"]:,} / out {model["output"]:,}', 'dim'))
+                        rows.append((f'  Cache r {model["cache_read"]:,} / w {model["cache_write"]:,}', 'dim'))
+        quotas = [quota for quota in session['quota'] if quota['intervals'] > 0]
+        if quotas:
+            rows.extend([('', 'dim'), ('Quota change (observed)', 'dim')])
+        for quota in quotas:
+            label = NAMES.get(quota['provider'], quota['provider']) + ' ' + quota['label']
+            duplicates = sum(item['provider'] == quota['provider'] and item['label'] == quota['label']
+                             for item in quotas)
+            if duplicates > 1 or not compact:
+                # Put the fingerprint first so width fitting cannot erase its identity.
+                label = '[' + quota['key'][:6] + '] ' + label
+            rows.append(allowance_row(label, f'+{quota["points"]:.2f} pp', '', width, 'normal'))
+            if not compact:
+                if quota['segments'] > 1:
+                    rows.append((f'{quota["segments"]} observation segments', 'dim'))
+                rows.append((f'Last sample {max(0, int(now - quota["last"]))}s ago', 'dim'))
+        if quotas and not compact:
+            rows.extend([('pp = percentage points', 'dim'), ('Account-wide; not exact billing', 'dim')])
+        rows.append(('', 'dim'))
+    recorded = sum(item['total'] for item in history['history'])
+    current_total = sum(item['total'] for item in current['providers']) if current else 0
+    if history['history'] and (not compact or not current or recorded != current_total):
+        rows.append(section_heading('HISTORY', width))
+        rows.append(allowance_row('All sessions', f'{recorded:,}', '', width, 'normal'))
+        if not compact:
+            rows.extend((f'{NAMES.get(item["provider"], item["provider"])} / {item["model"]}: {item["total"]:,}', 'dim')
+                        for item in history['history'])
+        rows.append(('', 'dim'))
+    return rows
+
+
 class FetchJob:
     def __init__(self, provider, profile):
         self.output = tempfile.TemporaryFile(mode='w+t')
@@ -439,6 +575,7 @@ def watch(screen, args):
             colors[name] = curses.color_pair(i)
     config = defaults(args)
     states, jobs = {}, {}
+    history_error = None
     offset, next_config, next_frame = 0, 0, 0
     try:
         while True:
@@ -470,6 +607,11 @@ def watch(screen, args):
                             error = 'Provider returned no usage'
                         else:
                             state['data'] = data
+                            try:
+                                record_quota(job.history_profile, args.owner, job.activation, quota_samples(data))
+                                history_error = None
+                            except (OSError, ValueError, sqlite3.Error):
+                                history_error = 'Could not save quota history'
                     state['error'] = error
                     state['checked'] = tick
                     state['next'] = tick + config['interval'] if error else max(tick, job.started + config['interval'])
@@ -478,19 +620,31 @@ def watch(screen, args):
             for provider in visible:
                 state = states.setdefault(provider, {'data': None, 'error': None, 'next': 0, 'checked': None})
                 if len(jobs) < 2 and provider not in jobs and tick >= state['next']:
+                    try:
+                        active = active_session(config['profile'], args.owner)
+                    except (OSError, sqlite3.Error):
+                        active = None
+                        history_error = 'Session history unavailable'
                     jobs[provider] = FetchJob(provider, config['profile'])
+                    jobs[provider].history_profile = config['profile']
+                    jobs[provider].activation = active['activation'] if active else None
             if tick >= next_frame:
                 height, width = screen.getmaxyx()
                 screen.erase()
-                rows = []
+                try:
+                    rows = session_lines(session_summary(config['profile'], args.owner, now),
+                                         now, width - 2, config['compact'])
+                except (OSError, sqlite3.Error):
+                    rows = [('Session history unavailable', 'warn')]
+                if history_error:
+                    rows.append((history_error, 'warn'))
                 for provider in visible:
                     state = states[provider]
                     name = NAMES.get(provider, provider.upper())
                     tail = ''
                     if config['compact'] and state['checked'] is not None:
                         tail = 'checking' if provider in jobs else f'checked {max(0, int(tick - state["checked"]))}s'
-                    heading = name + ' ' + '-' * max(1, width - len(name) - len(tail) - 4) + (' ' + tail if tail else '')
-                    rows.append((heading[:max(1, width - 2)], ('dim', 0, len(name), 'title')))
+                    rows.append(section_heading(name, width - 2, tail))
                     if state['checked'] is not None and not config['compact']:
                         age = max(0, int(tick - state['checked']))
                         next_check = max(0, int(state['next'] - tick))
@@ -505,7 +659,7 @@ def watch(screen, args):
                         rows.append(('Fetching account usage...', 'dim'))
                     rows.append(('', 'dim'))
                 if not visible:
-                    rows = [('No visible providers' if config['providers'] else 'Add at least one provider.', 'dim'),
+                    rows += [('No visible providers' if config['providers'] else 'Add at least one provider.', 'dim'),
                             ('/usage-dashboard providers', 'dim'),
                             ('Choose Add to select a provider.', 'dim')]
                 if width < 22:
@@ -643,6 +797,8 @@ def main():
         elif extra:
             parser.error('Unexpected arguments after --')
         elif args.once:
+            print('\n'.join(text for text, _ in session_lines(
+                session_summary(config['profile'], args.owner), time.time(), 32, config['compact'])))
             if not config['providers']:
                 print(describe(config))
             for provider in config['providers']:
@@ -656,7 +812,7 @@ def main():
             signal.signal(signal.SIGHUP, stop_watch)
             signal.signal(signal.SIGTERM, stop_watch)
             curses.wrapper(watch, args)
-    except (ValueError, OSError, subprocess.SubprocessError, curses.error, UsageSourceError) as exc:
+    except (ValueError, OSError, sqlite3.Error, subprocess.SubprocessError, curses.error, UsageSourceError) as exc:
         detail = exc.stderr.strip() if isinstance(exc, subprocess.CalledProcessError) and isinstance(exc.stderr, str) else str(exc)
         print('omp-dashboard: ' + clean(detail), file=sys.stderr)
         return 1

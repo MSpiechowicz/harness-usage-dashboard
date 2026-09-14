@@ -1,7 +1,28 @@
 import { fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 
 const dashboard = fileURLToPath(new URL("./dashboard.py", import.meta.url));
 const updater = fileURLToPath(new URL("./updater.py", import.meta.url));
+const sessionStore = fileURLToPath(new URL("./session_usage.py", import.meta.url));
+
+// Only normalized counters cross this pipe: never prompts, tool output, or credentials.
+function saveSession(payload, profile, cwd) {
+  return new Promise((resolve, reject) => {
+    const args = [sessionStore];
+    if (profile !== undefined) args.push("--profile", profile);
+    const child = spawn("python3", args, { cwd, stdio: ["pipe", "ignore", "ignore"] });
+    const timeout = setTimeout(() => child.kill(), 10000);
+    child.on("error", reject);
+    child.stdin.on("error", reject);
+    child.on("close", code => {
+      clearTimeout(timeout);
+      if (code === 0) resolve();
+      else reject(new Error("Could not save dashboard session usage."));
+    });
+    child.stdin.end(JSON.stringify(payload));
+  });
+}
 const popular = ["codex", "claude", "copilot", "grok", "xai-oauth", "deepseek", "gemini", "google-antigravity", "cursor", "kimi-code", "minimax-code", "openrouter"];
 const sections = {
   view: ["list", "compact", "details"],
@@ -14,6 +35,68 @@ const help = "Sections: view (list, compact, details); position (left, right); p
 
 export default function usageDashboard(pi) {
   pi.setLabel("Usage dashboard");
+  let recording;
+  let pending = Promise.resolve();
+  let queued = 0;
+  let timer;
+  let saveFailed = false;
+
+  function record(ctx, action = "sync") {
+    if (!ctx.hasUI) return pending;
+    if (action === "sync" && queued) return pending;
+    const manager = ctx.sessionManager;
+    const session = manager.getSessionId();
+    if (!recording || recording.session !== session || action === "start") {
+      recording = { session, activation: randomUUID(), count: 0, signature: undefined, saved: false };
+      action = "start";
+    }
+    const state = recording;
+    const usage = manager.getUsageStatistics();
+    const signature = JSON.stringify([manager.getLeafId(), usage.input, usage.output,
+      usage.cacheRead, usage.cacheWrite, usage.totalTokens]);
+    if (action === "sync" && signature === state.signature) return pending;
+    if (!state.saved && action === "sync") action = "start";
+    const header = manager.getHeader();
+    const entries = manager.getEntries();
+    const batch = [];
+    for (const entry of entries.slice(state.count)) {
+      const message = entry.type === "message" ? entry.message : undefined;
+      const task = message?.role === "toolResult" && message.toolName === "task";
+      const usage = entry.type === "model_usage" ? entry.usage
+        : message?.role === "assistant" ? message.usage : task ? message.details?.usage : undefined;
+      if (!usage) continue;
+      const at = Date.parse(entry.timestamp);
+      // Forks copy old entries; inherited context is not newly consumed usage.
+      if (header?.parentSession && at <= Date.parse(header.timestamp)) continue;
+      const counts = [usage.input, usage.output, usage.cacheRead, usage.cacheWrite];
+      if (!Number.isFinite(at) || !counts.every(value => Number.isSafeInteger(value) && value >= 0)) continue;
+      const provider = entry.provider ?? message?.provider ?? (task ? "task (mixed)" : "unknown");
+      const model = entry.model ?? message?.model ?? (task ? "mixed / unattributed" : "unknown");
+      const total = usage.totalTokens ?? counts.reduce((sum, value) => sum + value, 0);
+      if (!Number.isSafeInteger(total) || total < 0) continue;
+      const id = createHash("sha256").update(JSON.stringify([entry.id, entry.timestamp, provider, model])).digest("hex");
+      batch.push({ id, at: at / 1000, provider, model, input: counts[0], output: counts[1],
+        cacheRead: counts[2], cacheWrite: counts[3], total });
+    }
+    const payload = { session, activation: state.activation, owner: process.env.TMUX_PANE, action, entries: batch };
+    const profile = process.env.OMP_PROFILE ?? process.env.PI_PROFILE;
+    queued++;
+    pending = pending.then(async () => {
+      try {
+        await saveSession(payload, profile, ctx.cwd);
+        state.count = Math.max(state.count, entries.length);
+        state.signature = signature;
+        state.saved = true;
+        saveFailed = false;
+      } catch {
+        if (!saveFailed) ctx.ui.notify("Dashboard session history could not be saved; recording will retry.", "warning");
+        saveFailed = true;
+      } finally {
+        queued--;
+      }
+    });
+    return pending;
+  }
   async function control(words, ctx, quiet = false) {
     const command = [dashboard, "control"];
     if (process.env.TMUX && process.env.TMUX_PANE) command.push("--owner", process.env.TMUX_PANE);
@@ -60,16 +143,30 @@ export default function usageDashboard(pi) {
   }
 
   pi.on("session_start", async (_event, ctx) => {
+    await record(ctx, "start");
+    if (ctx.hasUI && !timer) timer = ctx.setInterval(() => record(ctx), 1000);
     if (ctx.hasUI && process.env.TMUX && process.env.TMUX_PANE && process.env.OMP_USAGE_LAUNCHER !== "1") {
       await control(["init"], ctx, true);
     }
     if (ctx.hasUI) ctx.setTimeout(() => update("check", ctx, true), 0);
   });
   pi.on("session_shutdown", async (_event, ctx) => {
+    if (timer) ctx.clearTimer(timer);
+    timer = undefined;
+    await record(ctx, "stop");
     if (ctx.hasUI && process.env.TMUX && process.env.TMUX_PANE) {
       await control(["detach"], ctx, true);
     }
   });
+  for (const event of ["message_end", "agent_end", "session_compact", "session_tree"]) {
+    pi.on(event, async (_event, ctx) => { await record(ctx); });
+  }
+  for (const event of ["session_before_switch", "session_before_branch"]) {
+    pi.on(event, async (_event, ctx) => { await record(ctx); });
+  }
+  for (const event of ["session_switch", "session_branch"]) {
+    pi.on(event, async (_event, ctx) => { await record(ctx, "start"); });
+  }
   pi.registerCommand("usage-dashboard", {
     description: "Manage usage dashboard: view, position, providers, window, and updates",
     handler: async (args, ctx) => {

@@ -273,7 +273,7 @@ def main():
         shells = selected_shells(args.shell, args.uninstall)
         plans = [plan_shell(shell, args.uninstall, args.native) for shell in shells]
         if not args.uninstall:
-            for name in ('extension.js', 'dashboard.py', 'usage_source.py', 'launcher.py', 'preferences.py', 'updater.py', 'package.json'):
+            for name in ('extension.js', 'dashboard.py', 'usage_source.py', 'session_usage.py', 'launcher.py', 'preferences.py', 'updater.py', 'package.json'):
                 if not (ROOT / name).is_file():
                     raise RuntimeError(f'Incomplete checkout: missing {name}.')
             if os.path.lexists(extension) and not same_link(extension, source):
