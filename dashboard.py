@@ -30,13 +30,13 @@ SOCKET_NAME = 'omp-usage'
 NAMES = {value: key.upper() for key, value in ALIASES.items()}
 CHART_GLYPHS = frozenset('▁▂▃▄▅▆▇█│└─')
 THEME_TOKENS = {
-    'green': {'text': 'green', 'muted': 'green', 'accent': 'green', 'chart': 'green',
+    'green': {'text': 'green', 'muted': 'gray', 'accent': 'green', 'chart': 'green',
               'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'blue': {'text': 'blue', 'muted': 'blue', 'accent': 'blue', 'chart': 'blue',
+    'blue': {'text': 'blue', 'muted': 'gray', 'accent': 'blue', 'chart': 'blue',
              'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'brown': {'text': 'brown', 'muted': 'brown', 'accent': 'brown', 'chart': 'brown',
+    'brown': {'text': 'brown', 'muted': 'gray', 'accent': 'brown', 'chart': 'brown',
               'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'yellow': {'text': 'yellow', 'muted': 'yellow', 'accent': 'yellow', 'chart': 'yellow',
+    'yellow': {'text': 'yellow', 'muted': 'gray', 'accent': 'yellow', 'chart': 'yellow',
                'good': 'green', 'warn': 'orange', 'error': 'red'},
 }
 _BASIC_RGB = {
@@ -605,15 +605,12 @@ def thinking_level_label(value):
             'max': 'Max', 'xhigh': 'xHigh'}.get(value.lower(), value)
 
 
-def model_usage_rows(model, width, label=None, summary=False):
+def model_usage_rows(model, width, label=None):
     model_name = clean(model.get('model', 'unknown'))
     label = label or model_name
-    if summary:
-        label += ' (summary)'
-    else:
-        thinking = thinking_level_label(model.get('thinking_level'))
-        if thinking:
-            label += ' - ' + thinking
+    thinking = thinking_level_label(model.get('thinking_level'))
+    if thinking:
+        label += ' - ' + thinking
     label += ' tokens'
     rows = [allowance_row(label, format_tokens(model['total']), '', width, 'normal')]
     rows.append((f'  In {format_tokens(model["input"])} / out {format_tokens(model["output"])}', 'dim'))
@@ -621,11 +618,10 @@ def model_usage_rows(model, width, label=None, summary=False):
     return rows
 
 
-def detailed_model_rows(entries, summaries, width, include_provider=False):
+def detailed_model_rows(entries, width, include_provider=False):
     grouped = {}
     for entry in entries:
         grouped.setdefault((entry['provider'], entry['model']), []).append(entry)
-    summaries = {(entry['provider'], entry['model']): entry for entry in summaries}
     rows = []
     for key, variants in grouped.items():
         provider, model = key
@@ -634,9 +630,6 @@ def detailed_model_rows(entries, summaries, width, include_provider=False):
             if rows:
                 rows.append(('', 'dim'))
             rows.extend(model_usage_rows(variant, width, prefix))
-        if len(variants) > 1 and key in summaries:
-            rows.append(('', 'dim'))
-            rows.extend(model_usage_rows(summaries[key], width, prefix, summary=True))
     return rows
 
 def session_lines(history, now, width, compact=True):
@@ -647,9 +640,11 @@ def session_lines(history, now, width, compact=True):
         rows.extend(token_chart(history['chart'], width))
         if not compact:
             rows.append(('All models; reported usage', 'dim'))
-        rows.append(('', 'dim'))
+            rows.append(('', 'dim'))
     elif not history['previous']:
-        rows.extend([('Waiting for OMP session', 'dim'), ('', 'dim')])
+        rows.append(('Waiting for OMP session', 'dim'))
+        if not compact:
+            rows.append(('', 'dim'))
     for name, title in (('current', 'CURRENT SESSION'), ('previous', 'PREVIOUS SESSION')):
         session = history[name]
         if not session:
@@ -672,15 +667,15 @@ def session_lines(history, now, width, compact=True):
             rows.append(allowance_row(label, format_tokens(item['total']), '', width, 'normal'))
             if not compact:
                 models = [model for model in session['models'] if model['provider'] == item['provider']]
-                summaries = [model for model in session.get('model_summaries', [])
-                             if model['provider'] == item['provider']]
-                if models or summaries:
+                if models:
                     rows.append(('', 'dim'))
-                rows.extend(detailed_model_rows(models, summaries, width))
+                rows.extend(detailed_model_rows(models, width))
         quotas = [quota for quota in session['quota']
                   if quota['intervals'] > 0 and round(quota['points'], 2) > 0]
         if quotas:
-            rows.extend([('', 'dim'), ('Quota change (observed)', 'dim')])
+            if not compact:
+                rows.append(('', 'dim'))
+            rows.append(('Quota change (observed)', 'dim'))
         for quota in quotas:
             label = NAMES.get(quota['provider'], quota['provider']) + ' ' + quota['label']
             duplicates = sum(item['provider'] == quota['provider'] and item['label'] == quota['label']
@@ -695,28 +690,29 @@ def session_lines(history, now, width, compact=True):
                 rows.append((f'Last sample {max(0, int(now - quota["last"]))}s ago', 'dim'))
         if quotas and not compact:
             rows.extend([('pp = percentage points', 'dim'), ('Account-wide; not exact billing', 'dim')])
-        rows.append(('', 'dim'))
-    def history_rows(label, entries, summaries):
+        if not compact:
+            rows.append(('', 'dim'))
+    def history_rows(label, entries):
         if not entries:
             return []
         total = sum(item['total'] for item in entries)
         result = [allowance_row(label, format_tokens(total), '', width, 'normal')]
-        if not compact and (entries or summaries):
-            result.append(('', 'dim'))
-            result.extend(detailed_model_rows(entries, summaries, width, include_provider=True))
+        if not compact:
+            result.extend(detailed_model_rows(entries, width, include_provider=True))
         return result
 
     project_history = history.get('history', [])
     total_history = history.get('total_history', [])
     if project_history or total_history:
         rows.append(section_heading('HISTORY', width))
-        other_rows = history_rows('Other sessions', project_history, history.get('history_summaries', []))
-        total_rows = history_rows('Project total', total_history, history.get('total_history_summaries', []))
+        other_rows = history_rows('Other sessions', project_history)
+        total_rows = history_rows('Project total', total_history)
         rows.extend(other_rows)
-        if other_rows and total_rows:
+        if other_rows and total_rows and not compact:
             rows.append(('', 'dim'))
         rows.extend(total_rows)
-        rows.append(('', 'dim'))
+        if not compact:
+            rows.append(('', 'dim'))
     return rows
 
 
@@ -874,7 +870,8 @@ def watch(screen, args):
                         rows.extend(provider_lines(state['data'], provider, config, now, width - 2))
                     elif not state['error']:
                         rows.append(('Fetching account usage...', 'dim'))
-                    rows.append(('', 'dim'))
+                    if not config['compact']:
+                        rows.append(('', 'dim'))
                 if not visible:
                     rows += [('No visible providers' if config['providers'] else 'Add at least one provider.', 'dim'),
                             ('/usage-dashboard providers', 'dim'),

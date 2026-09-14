@@ -111,13 +111,12 @@ class NestedCommandTests(unittest.TestCase):
         tokens = resolve_tokens(config)
         self.assertEqual(config['theme'], 'blue')
         self.assertEqual(tokens['text'], 'blue')
-        self.assertEqual(tokens['muted'], 'blue')
+        self.assertEqual(tokens['muted'], 'gray')
         self.assertEqual(tokens['accent'], 'blue')
         self.assertEqual(tokens['chart'], 'blue')
         self.assertEqual(tokens['good'], 'green')
         self.assertEqual(tokens['warn'], 'orange')
         self.assertEqual(tokens['error'], 'red')
-
         change_config(config, ['theme', 'color', 'text', '#58A66A'])
         self.assertEqual(config['tokens'], {'text': '#58a66a'})
         self.assertEqual(resolve_tokens(config)['text'], '#58a66a')
@@ -125,5 +124,20 @@ class NestedCommandTests(unittest.TestCase):
         change_config(config, ['theme', 'reset'])
         self.assertEqual(config['theme'], 'green')
         self.assertEqual(config['tokens'], {})
+
+    def test_compact_session_lines_omit_separator_rows(self):
+        session = {
+            'id': 'session-1', 'updated': 0,
+            'providers': [{'provider': 'openai-codex', 'total': 12}],
+            'models': [], 'quota': [],
+        }
+        history = {
+            'chart': [], 'history': [{'provider': 'openai-codex', 'total': 8}],
+            'total_history': [{'provider': 'openai-codex', 'total': 20}],
+            'current': session, 'previous': session,
+        }
+        compact = session_lines(history, 0, 60, compact=True)
+        self.assertNotIn('', [text for text, _style in compact])
+
 if __name__ == '__main__':
     unittest.main()

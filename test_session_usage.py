@@ -220,8 +220,8 @@ class SessionAccountingTests(unittest.TestCase):
         self.assertEqual(combined, {('Luna', 9000), ('Opus 5', 160)})
         self.assertIn('Luna - Max tokens', rendered)
         self.assertIn('Luna - xHigh tokens', rendered)
-        self.assertIn('Luna (summary) tokens', rendered)
-        self.assertTrue(any('Luna (summary)' in line and '9k' in line for line in rendered.splitlines()))
+        self.assertNotIn('Luna (summary) tokens', rendered)
+        self.assertNotIn('Luna (summary)', rendered)
         self.assertIn('Opus 5 - Medium tokens', rendered)
 
     def test_detailed_mode_keeps_model_breakdowns_in_history(self):
@@ -241,12 +241,10 @@ class SessionAccountingTests(unittest.TestCase):
 
         self.assertIn('Luna - High tokens', rendered)
         self.assertIn('Luna - xHigh tokens', rendered)
-        self.assertIn('Luna (summary) tokens', rendered)
+        self.assertNotIn('Luna (summary) tokens', rendered)
         self.assertIn('CODEX / Luna - High tokens', rendered)
         self.assertIn('CODEX / Luna - xHigh tokens', rendered)
-        self.assertIn('CODEX / Luna (summary) tokens', rendered)
-        self.assertTrue(any('CODEX / Luna (summary)' in line and '9k' in line
-                            for line in rendered.splitlines()))
+        self.assertNotIn('CODEX / Luna (summary)', rendered)
         self.assertIn('Opus 5 - Medium tokens', rendered)
         self.assertIn('In 100 / out 20', rendered)
         self.assertIn('Cache r 30 / w 10', rendered)
