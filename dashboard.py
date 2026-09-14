@@ -602,8 +602,11 @@ def token_chart(values, width):
     heights = ([math.ceil(value * 32 / peak) if value else 0 for value in bins]
                if peak else [0] * columns)
     rows = []
-    if not peak:
-        rows.append((f'No activity in the last {len(values)}m', 'dim'))
+    # Reserve a stable two-row status area: the idle message when needed,
+    # followed by breathing room before the chart. Keep the first row empty
+    # while active so the chart does not replace the status area.
+    rows.extend(((f'No activity in the last {len(values)}m' if not peak else '', 'dim'),
+                 ('', 'dim')))
     for row in range(4):
         label = scale if row == 0 else ''
         bars = ''.join(blocks[min(8, max(0, height - (3 - row) * 8))] for height in heights)
@@ -828,6 +831,9 @@ def watch(screen, args):
                 if (updated.get('theme') != config.get('theme')
                         or updated.get('tokens') != config.get('tokens')):
                     colors = initialize_colors(updated)
+                    # Some macOS curses terminals keep unchanged cells using
+                    # the old color-pair definition until a full repaint.
+                    screen.clear()
                 config = updated
                 next_config = tick + 1
             visible = [p for p in config['providers'] if p not in config['hidden']]

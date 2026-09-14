@@ -1,8 +1,8 @@
 """User-visible allowance semantics; no live provider calls."""
+from argparse import Namespace
 from copy import deepcopy
 import unittest
-from unittest.mock import patch
-
+from unittest.mock import MagicMock, patch
 from dashboard import (allowance_color, change_config, owned_panes, provider_lines, resolve_tokens,
                        section_heading, session_lines, token_chart)
 from preferences import DEFAULTS, THEME_NAMES
@@ -56,13 +56,43 @@ class RemainingAllowanceTests(unittest.TestCase):
         rows = token_chart([0] * 20, 32)
         texts = [text for text, _style in rows]
         self.assertIn('No activity in the last 20m', texts)
+        self.assertEqual(texts[1], '')
         self.assertTrue(any('│' in text for text in texts))
         self.assertTrue(any('└' in text and '─' in text for text in texts))
-        self.assertTrue(all(len(text) == 32 for text in texts[1:]))
+        self.assertTrue(all(len(text) == 32 for text in texts[2:]))
+    def test_active_token_chart_leaves_idle_message_slot_empty(self):
+        rows = token_chart([0, 1, 2], 32)
+        texts = [text for text, _style in rows]
+        self.assertEqual(texts[:2], ['', ''])
+        self.assertIn('│', texts[2])
+
 
     def test_section_divider_uses_secondary_base_color(self):
         _text, style = section_heading('TOKEN RATE', 32, 'tok/min')
         self.assertEqual(style[0], 'secondary')
+    @patch('dashboard.curses.mouseinterval')
+    @patch('dashboard.curses.mousemask')
+    @patch('dashboard.curses.curs_set')
+    def test_theme_change_forces_full_repaint(self, _curs_set, _mousemask, _mouseinterval):
+        screen = MagicMock()
+        screen.getmaxyx.return_value = (30, 80)
+        screen.getch.side_effect = SystemExit
+        initial = dict(DEFAULTS, profile='default', refresh=0)
+        updated = dict(initial, theme='blue')
+        colors = {name: 0 for name in ('normal', 'dim', 'secondary', 'title',
+                                       'chart', 'good', 'warn', 'error')}
+        args = Namespace(owner='%1', profile='default', providers=None, side=None, interval=None)
+        with patch('dashboard.defaults', return_value=initial), \
+             patch('dashboard.load_config', return_value=updated), \
+             patch('dashboard.mux', return_value='0'), \
+             patch('dashboard.initialize_colors', return_value=colors), \
+             patch('dashboard.session_summary',
+                   return_value={'current': None, 'previous': None, 'chart': [],
+                                 'history': [], 'total_history': []}):
+            with self.assertRaises(SystemExit):
+                from dashboard import watch
+                watch(screen, args)
+        screen.clear.assert_called_once_with()
 
 
 class PaneOwnershipTests(unittest.TestCase):

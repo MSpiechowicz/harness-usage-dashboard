@@ -178,6 +178,7 @@ test("view menu uses compact/details and left arrow navigation", async () => {
   assert.match(viewMenu, /compact/);
   assert.match(viewMenu, /details/);
   assert.doesNotMatch(viewMenu, /\blist\b/);
+  assert.match(viewMenu, /Enter select/);
   assert.doesNotMatch(viewMenu, /\bBack\b/);
 
   menu.handleInput("\x1b[D");

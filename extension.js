@@ -47,6 +47,7 @@ const themeOptions = [
 const help = "Sections: view (compact, details; list remains available as a command for showing settings); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, cyan, magenta, orange, red, custom TOKEN COLOR, reset); window (on, off, focus, refresh, interval SECONDS, hide/show PROVIDER FILTER); update (check, install).";
 const menuSections = {...sections, view: ["compact", "details"]};
 const MENU_BACK = Symbol("menu-back");
+const MENU_HELP = "↑/↓ navigate  Enter select  ← back  Esc cancel";
 
 function isArrow(data, direction) {
   const code = { up: "A", down: "B", right: "C", left: "D" }[direction];
@@ -74,6 +75,7 @@ async function menuSelect(ctx, title, options) {
             const line = `${index === selected ? "> " : "  "}${option.label}`;
             return index === selected ? color("accent", clamp(line)) : clamp(line);
           }),
+          color("muted", clamp(MENU_HELP)),
         ];
       },
       handleInput(data) {
