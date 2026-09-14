@@ -4,7 +4,7 @@ import unittest
 
 from dashboard import (allowance_color, change_config, provider_lines, resolve_tokens,
                        section_heading, session_lines, token_chart)
-from preferences import DEFAULTS
+from preferences import DEFAULTS, THEME_NAMES
 
 
 class RemainingAllowanceTests(unittest.TestCase):
@@ -160,24 +160,26 @@ class NestedCommandTests(unittest.TestCase):
         self.assertEqual(texts[-1], '')
 
     def test_named_themes_and_custom_tokens_preserve_status_semantics(self):
+        for theme in THEME_NAMES:
+            config = deepcopy(DEFAULTS)
+            change_config(config, ['theme', theme])
+            tokens = resolve_tokens(config)
+            self.assertEqual(tokens['accent'], theme)
+            self.assertEqual(tokens['chart'], theme)
+            self.assertEqual(tokens['good'], 'green')
+            self.assertEqual(tokens['warn'], 'orange')
+            self.assertEqual(tokens['error'], 'red')
+
         config = deepcopy(DEFAULTS)
         change_config(config, ['theme', 'blue'])
-        tokens = resolve_tokens(config)
-        self.assertEqual(tokens['muted'], 'default')
-        self.assertEqual(tokens['secondary'], '#24527a')
-        self.assertEqual(tokens['accent'], 'blue')
-        self.assertEqual(tokens['chart'], 'blue')
-        self.assertEqual(tokens['good'], 'green')
-        self.assertEqual(tokens['warn'], 'orange')
-        self.assertEqual(tokens['error'], 'red')
-        change_config(config, ['theme', 'color', 'text', '#58A66A'])
+        self.assertEqual(resolve_tokens(config)['secondary'], '#24527a')
+        change_config(config, ['theme', 'custom', 'text', '#58A66A'])
         self.assertEqual(config['tokens'], {'text': '#58a66a'})
         self.assertEqual(resolve_tokens(config)['text'], '#58a66a')
 
         change_config(config, ['theme', 'reset'])
         self.assertEqual(config['theme'], 'green')
         self.assertEqual(config['tokens'], {})
-
 
 if __name__ == '__main__':
     unittest.main()

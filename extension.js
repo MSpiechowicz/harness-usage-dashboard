@@ -28,11 +28,23 @@ const sections = {
   view: ["list", "compact", "details"],
   position: ["left", "right"],
   providers: ["add", "remove", "hide", "show"],
-  theme: ["green", "blue", "brown", "yellow", "color", "reset"],
+  theme: ["green", "blue", "brown", "yellow", "cyan", "magenta", "orange", "red", "custom", "reset"],
   window: ["on", "off", "focus", "refresh", "interval", "hide", "show"],
   update: ["check", "install"],
 };
-const help = "Sections: view (compact, details; list remains available as a command for showing settings); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, color TOKEN COLOR, reset); window (on, off, focus, refresh, interval SECONDS, hide/show PROVIDER FILTER); update (check, install).";
+const themeOptions = [
+  { value: "green", label: "green   (classic green accent)" },
+  { value: "blue", label: "blue    (cool blue accent)" },
+  { value: "brown", label: "brown   (warm brown accent)" },
+  { value: "yellow", label: "yellow  (bright yellow accent)" },
+  { value: "cyan", label: "cyan    (clear cyan accent)" },
+  { value: "magenta", label: "magenta (bold magenta accent)" },
+  { value: "orange", label: "orange  (warm orange accent)" },
+  { value: "red", label: "red     (strong red accent)" },
+  { value: "custom", label: "custom  (override individual colors)" },
+  { value: "reset", label: "reset   (restore green and remove custom colors)" },
+];
+const help = "Sections: view (compact, details; list remains available as a command for showing settings); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, cyan, magenta, orange, red, custom TOKEN COLOR, reset); window (on, off, focus, refresh, interval SECONDS, hide/show PROVIDER FILTER); update (check, install).";
 const menuSections = {...sections, view: ["compact", "details"]};
 const MENU_BACK = Symbol("menu-back");
 
@@ -42,8 +54,14 @@ function isArrow(data, direction) {
     || new RegExp(`^\\x1b\\[[0-9;]*${code}$`).test(data);
 }
 
-function menuSelect(ctx, title, options) {
-  if (typeof ctx.ui.custom !== "function") return ctx.ui.select(title, options);
+async function menuSelect(ctx, title, options) {
+  const choices = options.map(option => typeof option === "string"
+    ? { value: option, label: option }
+    : option);
+  if (typeof ctx.ui.custom !== "function") {
+    const selected = await ctx.ui.select(title, choices.map(choice => choice.label));
+    return choices.find(choice => choice.label === selected)?.value ?? selected;
+  }
   const custom = ctx.ui.custom((_tui, theme, _keybindings, done) => {
     let selected = 0;
     const color = (name, text) => theme?.fg ? theme.fg(name, text) : text;
@@ -52,8 +70,8 @@ function menuSelect(ctx, title, options) {
         const clamp = text => text.slice(0, Math.max(1, width));
         return [
           color("accent", clamp(title)),
-          ...options.map((option, index) => {
-            const line = `${index === selected ? "> " : "  "}${option}`;
+          ...choices.map((option, index) => {
+            const line = `${index === selected ? "> " : "  "}${option.label}`;
             return index === selected ? color("accent", clamp(line)) : clamp(line);
           }),
         ];
@@ -68,19 +86,19 @@ function menuSelect(ctx, title, options) {
           return;
         }
         if (isArrow(data, "up")) {
-          selected = (selected + options.length - 1) % options.length;
+          selected = (selected + choices.length - 1) % choices.length;
           return;
         }
         if (isArrow(data, "down")) {
-          selected = (selected + 1) % options.length;
+          selected = (selected + 1) % choices.length;
           return;
         }
-        if (data === "\r" || data === "\n") done(options[selected]);
+        if (data === "\r" || data === "\n") done(choices[selected].value);
       },
       invalidate() {},
     };
   });
-  return custom === undefined ? ctx.ui.select(title, options) : custom;
+  return custom === undefined ? ctx.ui.select(title, choices.map(choice => choice.label)) : custom;
 }
 
 export default function usageDashboard(pi) {
@@ -238,7 +256,8 @@ export default function usageDashboard(pi) {
             ctx.ui.notify(help, "info");
             return;
           }
-          const action = await menuSelect(ctx, `Usage dashboard / ${words[0]}`, menuSections[words[0]]);
+          const options = words[0] === "theme" ? themeOptions : menuSections[words[0]];
+          const action = await menuSelect(ctx, `Usage dashboard / ${words[0]}`, options);
           if (!action) return;
           if (action === MENU_BACK) {
             words.length = 0;
@@ -259,12 +278,13 @@ export default function usageDashboard(pi) {
           await update(action, ctx);
           return;
         }
-        if (section === "theme" && action === "color" && words.length === 2) {
-          const value = await ctx.ui.input("Design token and color (for example: accent #58a66a)", "accent #58a66a");
+        if (section === "theme" && action === "custom" && words.length === 2) {
+          ctx.ui.notify("Custom changes one token on the selected palette. Use one of: text, muted, secondary, accent, chart, good, warn, error. Colors can be terminal names, gray, brown, orange, or #RRGGBB. Example: accent #58a66a. Repeat for more tokens; reset restores the green palette.", "info");
+          const value = await ctx.ui.input("Custom theme: TOKEN COLOR (for example: accent #58a66a)", "accent #58a66a");
           if (!value?.trim()) return;
           const custom = value.trim().split(/\s+/);
           if (custom.length !== 2) {
-            ctx.ui.notify("Usage: /usage-dashboard theme color TOKEN COLOR", "info");
+            ctx.ui.notify("Usage: /usage-dashboard theme custom TOKEN COLOR", "info");
             return;
           }
           words.push(...custom);

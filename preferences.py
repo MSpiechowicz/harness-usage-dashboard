@@ -9,7 +9,7 @@ import re
 import tempfile
 
 
-THEME_NAMES = ('green', 'blue', 'brown', 'yellow')
+THEME_NAMES = ('green', 'blue', 'brown', 'yellow', 'cyan', 'magenta', 'orange', 'red')
 TOKEN_NAMES = ('text', 'muted', 'secondary', 'accent', 'chart', 'good', 'warn', 'error')
 COLOR_NAMES = frozenset(('default', 'black', 'red', 'green', 'yellow', 'blue',
                          'magenta', 'cyan', 'white', 'gray', 'brown', 'orange'))
@@ -90,7 +90,7 @@ def _validated(data):
     if result['side'] not in ('left', 'right'):
         raise ValueError('Dashboard side must be left or right.')
     if result['theme'] not in THEME_NAMES:
-        raise ValueError('Dashboard theme must be green, blue, brown, or yellow.')
+        raise ValueError('Dashboard theme must be one of: ' + ', '.join(THEME_NAMES) + '.')
     tokens = result['tokens']
     if not isinstance(tokens, dict):
         raise ValueError('Dashboard tokens must map token names to colors.')

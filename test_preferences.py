@@ -77,7 +77,7 @@ class PreferencesTests(unittest.TestCase):
         invalid = (
             {'providers': 'deepseek'}, {'providers': ['']}, {'hidden': [False]},
             {'windows': {'deepseek': [' ']}}, {'side': 'bottom'},
-            {'theme': 'red'}, {'tokens': {'unknown': 'green'}},
+            {'theme': 'violet'}, {'tokens': {'unknown': 'green'}},
             {'tokens': {'accent': '#12345'}}, {'tokens': {'warn': 'not-a-color'}},
             {'compact': 1}, {'enabled': 'false'}, {'interval': True},
             {'interval': 14}, {'interval': 15.5}, {'apiKey': 'not-a-setting'},

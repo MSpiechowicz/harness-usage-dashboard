@@ -192,3 +192,62 @@ test("view menu uses compact/details and left arrow navigation", async () => {
   await run;
   assert.deepEqual(execArgs.slice(-3), ["--", "view", "details"]);
 });
+test("theme menu lists palettes and explains custom token colors", async () => {
+  let command;
+  let menu;
+  let execArgs;
+  const notices = [];
+  const inputs = [];
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  usageDashboard({
+    setLabel() {},
+    on() {},
+    registerCommand(_name, definition) { command = definition; },
+    async exec(_binary, args) {
+      execArgs = args;
+      return { code: 0, stdout: "", stderr: "" };
+    },
+  });
+  const ctx = {
+    hasUI: true,
+    cwd: process.cwd(),
+    models: { list: () => [] },
+    ui: {
+      custom(factory) {
+        return new Promise(resolve => {
+          const done = value => {
+            menu = undefined;
+            resolve(value);
+          };
+          menu = factory({}, { fg: (_name, text) => text }, {}, done);
+        });
+      },
+      async input(title, placeholder) {
+        inputs.push({ title, placeholder });
+        return "accent #58a66a";
+      },
+      notify(message, level) { notices.push({ message, level }); },
+    },
+  };
+
+  const run = command.handler("theme", ctx);
+  await tick();
+  assert.ok(menu);
+  const themeMenu = menu.render(120).join("\n");
+  assert.match(themeMenu, /cyan\s+\(clear cyan accent\)/);
+  assert.match(themeMenu, /magenta\s+\(bold magenta accent\)/);
+  assert.match(themeMenu, /custom\s+\(override individual colors\)/);
+
+  for (let index = 0; index < 8; index++) menu.handleInput("\x1b[B");
+  menu.handleInput("\r");
+  await run;
+
+  assert.deepEqual(inputs, [{
+    title: "Custom theme: TOKEN COLOR (for example: accent #58a66a)",
+    placeholder: "accent #58a66a",
+  }]);
+  assert.equal(notices[0].level, "info");
+  assert.match(notices[0].message, /text, muted, secondary, accent, chart, good, warn, error/);
+  assert.match(notices[0].message, /terminal names, gray, brown, orange, or #RRGGBB/);
+  assert.deepEqual(execArgs.slice(-5), ["--", "theme", "custom", "accent", "#58a66a"]);
+});

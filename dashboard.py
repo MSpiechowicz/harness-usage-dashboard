@@ -42,6 +42,18 @@ THEME_TOKENS = {
     'yellow': {'text': 'white', 'muted': 'default', 'secondary': '#8a7600',
                'accent': 'yellow', 'chart': 'yellow', 'good': 'green', 'warn': 'orange',
                'error': 'red'},
+    'cyan': {'text': 'white', 'muted': 'default', 'secondary': '#007c83',
+             'accent': 'cyan', 'chart': 'cyan', 'good': 'green', 'warn': 'orange',
+             'error': 'red'},
+    'magenta': {'text': 'white', 'muted': 'default', 'secondary': '#8a3f8f',
+                'accent': 'magenta', 'chart': 'magenta', 'good': 'green', 'warn': 'orange',
+                'error': 'red'},
+    'orange': {'text': 'white', 'muted': 'default', 'secondary': '#a65300',
+               'accent': 'orange', 'chart': 'orange', 'good': 'green', 'warn': 'orange',
+               'error': 'red'},
+    'red': {'text': 'white', 'muted': 'default', 'secondary': '#9e2f3f',
+            'accent': 'red', 'chart': 'red', 'good': 'green', 'warn': 'orange',
+            'error': 'red'},
 }
 _BASIC_RGB = {
     'black': (0, 0, 0),
@@ -57,12 +69,13 @@ COMMANDS = {
     'view': ('list', 'compact', 'details'),
     'position': ('left', 'right'),
     'providers': ('add', 'remove', 'hide', 'show'),
-    'theme': (*THEME_NAMES, 'color', 'reset'),
+    'theme': (*THEME_NAMES, 'custom', 'reset'),
     'window': ('on', 'off', 'focus', 'refresh', 'interval', 'hide', 'show'),
 }
-HELP = ('/usage-dashboard: view list|compact|details; position left|right; '
-        'providers add|remove|hide|show PROVIDER; theme green|blue|brown|yellow; '
-        'theme color TOKEN COLOR; theme reset; window on|off|focus|refresh; '
+THEME_OPTIONS = '|'.join(THEME_NAMES)
+HELP = (f'/usage-dashboard: view list|compact|details; position left|right; '
+        f'providers add|remove|hide|show PROVIDER; theme {THEME_OPTIONS}; '
+        'theme custom TOKEN COLOR; theme reset; window on|off|focus|refresh; '
         'window interval SECONDS; window hide|show PROVIDER FILTER')
 
 
@@ -169,14 +182,13 @@ def _token_name(value):
 def _theme_config(config, action, params):
     if action in THEME_NAMES:
         config['theme'] = action
-    elif action == 'color':
+    elif action == 'custom':
         token = _token_name(params[0])
         color = normalize_color(params[1])
         config.setdefault('tokens', {})[token] = color
     elif action == 'reset':
         config['theme'] = 'green'
         config['tokens'] = {}
-
 
 def provider_id(value):
     value = ALIASES.get(value.lower(), value.lower())
@@ -226,10 +238,6 @@ def load_config(owner, fallback):
     return json.loads(raw) if raw else fallback
 
 
-def owned_panes(owner):
-    rows = mux('list-panes', '-a', '-F', '#{pane_id}\t#{@omp_usage_owner}').splitlines()
-    return [row.split('\t')[0] for row in rows if row.endswith('\t' + owner)]
-
 
 def change_config(config, words):
     if words == ['init']:
@@ -238,7 +246,7 @@ def change_config(config, words):
         raise ValueError(HELP)
     section, action, *params = words
     window_filter = section == 'window' and action in ('hide', 'show')
-    count = (2 if window_filter else 2 if section == 'theme' and action == 'color'
+    count = (2 if window_filter else 2 if section == 'theme' and action == 'custom'
              else 1 if section == 'providers' or action == 'interval' else 0)
     if len(params) != count:
         raise ValueError(HELP)
