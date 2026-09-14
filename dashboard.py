@@ -30,13 +30,13 @@ SOCKET_NAME = 'omp-usage'
 NAMES = {value: key.upper() for key, value in ALIASES.items()}
 CHART_GLYPHS = frozenset('▁▂▃▄▅▆▇█│└─')
 THEME_TOKENS = {
-    'green': {'text': 'green', 'muted': 'gray', 'accent': 'green', 'chart': 'green',
+    'green': {'text': 'white', 'muted': 'gray', 'accent': 'green', 'chart': 'green',
               'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'blue': {'text': 'blue', 'muted': 'gray', 'accent': 'blue', 'chart': 'blue',
+    'blue': {'text': 'white', 'muted': 'gray', 'accent': 'blue', 'chart': 'blue',
              'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'brown': {'text': 'brown', 'muted': 'gray', 'accent': 'brown', 'chart': 'brown',
+    'brown': {'text': 'white', 'muted': 'gray', 'accent': 'brown', 'chart': 'brown',
               'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'yellow': {'text': 'yellow', 'muted': 'gray', 'accent': 'yellow', 'chart': 'yellow',
+    'yellow': {'text': 'white', 'muted': 'gray', 'accent': 'yellow', 'chart': 'yellow',
                'good': 'green', 'warn': 'orange', 'error': 'red'},
 }
 _BASIC_RGB = {
@@ -640,11 +640,10 @@ def session_lines(history, now, width, compact=True):
         rows.extend(token_chart(history['chart'], width))
         if not compact:
             rows.append(('All models; reported usage', 'dim'))
-            rows.append(('', 'dim'))
+        rows.append(('', 'dim'))
     elif not history['previous']:
         rows.append(('Waiting for OMP session', 'dim'))
-        if not compact:
-            rows.append(('', 'dim'))
+        rows.append(('', 'dim'))
     for name, title in (('current', 'CURRENT SESSION'), ('previous', 'PREVIOUS SESSION')):
         session = history[name]
         if not session:
@@ -690,15 +689,17 @@ def session_lines(history, now, width, compact=True):
                 rows.append((f'Last sample {max(0, int(now - quota["last"]))}s ago', 'dim'))
         if quotas and not compact:
             rows.extend([('pp = percentage points', 'dim'), ('Account-wide; not exact billing', 'dim')])
-        if not compact:
-            rows.append(('', 'dim'))
+        rows.append(('', 'dim'))
     def history_rows(label, entries):
         if not entries:
             return []
         total = sum(item['total'] for item in entries)
         result = [allowance_row(label, format_tokens(total), '', width, 'normal')]
         if not compact:
-            result.extend(detailed_model_rows(entries, width, include_provider=True))
+            details = detailed_model_rows(entries, width, include_provider=True)
+            if details:
+                result.append(('', 'dim'))
+                result.extend(details)
         return result
 
     project_history = history.get('history', [])
@@ -708,11 +709,10 @@ def session_lines(history, now, width, compact=True):
         other_rows = history_rows('Other sessions', project_history)
         total_rows = history_rows('Project total', total_history)
         rows.extend(other_rows)
-        if other_rows and total_rows and not compact:
+        if other_rows and total_rows:
             rows.append(('', 'dim'))
         rows.extend(total_rows)
-        if not compact:
-            rows.append(('', 'dim'))
+        rows.append(('', 'dim'))
     return rows
 
 
@@ -854,6 +854,8 @@ def watch(screen, args):
                 for provider in visible:
                     state = states[provider]
                     name = NAMES.get(provider, provider.upper())
+                    if rows and rows[-1][0]:
+                        rows.append(('', 'dim'))
                     tail = ''
                     if config['compact'] and state['checked'] is not None:
                         tail = 'checking' if provider in jobs else f'checked {max(0, int(tick - state["checked"]))}s'
@@ -870,7 +872,7 @@ def watch(screen, args):
                         rows.extend(provider_lines(state['data'], provider, config, now, width - 2))
                     elif not state['error']:
                         rows.append(('Fetching account usage...', 'dim'))
-                    if not config['compact']:
+                    if rows and rows[-1][0]:
                         rows.append(('', 'dim'))
                 if not visible:
                     rows += [('No visible providers' if config['providers'] else 'Add at least one provider.', 'dim'),
