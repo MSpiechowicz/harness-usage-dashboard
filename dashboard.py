@@ -30,13 +30,13 @@ SOCKET_NAME = 'omp-usage'
 NAMES = {value: key.upper() for key, value in ALIASES.items()}
 CHART_GLYPHS = frozenset('▁▂▃▄▅▆▇█│└─')
 THEME_TOKENS = {
-    'green': {'text': 'green', 'muted': 'gray', 'accent': 'green', 'chart': 'green',
+    'green': {'text': 'green', 'muted': 'green', 'accent': 'green', 'chart': 'green',
               'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'blue': {'text': 'blue', 'muted': 'gray', 'accent': 'blue', 'chart': 'blue',
+    'blue': {'text': 'blue', 'muted': 'blue', 'accent': 'blue', 'chart': 'blue',
              'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'brown': {'text': 'brown', 'muted': 'gray', 'accent': 'brown', 'chart': 'brown',
+    'brown': {'text': 'brown', 'muted': 'brown', 'accent': 'brown', 'chart': 'brown',
               'good': 'green', 'warn': 'orange', 'error': 'red'},
-    'yellow': {'text': 'yellow', 'muted': 'gray', 'accent': 'yellow', 'chart': 'yellow',
+    'yellow': {'text': 'yellow', 'muted': 'yellow', 'accent': 'yellow', 'chart': 'yellow',
                'good': 'green', 'warn': 'orange', 'error': 'red'},
 }
 _BASIC_RGB = {
