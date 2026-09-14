@@ -32,7 +32,56 @@ const sections = {
   window: ["on", "off", "focus", "refresh", "interval", "hide", "show"],
   update: ["check", "install"],
 };
-const help = "Sections: view (list, compact, details; details separates model thinking levels and adds summaries); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, color TOKEN COLOR, reset); window (on, off, focus, refresh, interval SECONDS, hide/show PROVIDER FILTER); update (check, install).";
+const help = "Sections: view (compact, details; list remains available as a command for showing settings); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, color TOKEN COLOR, reset); window (on, off, focus, refresh, interval SECONDS, hide/show PROVIDER FILTER); update (check, install).";
+const menuSections = {...sections, view: ["compact", "details"]};
+const MENU_BACK = Symbol("menu-back");
+
+function isArrow(data, direction) {
+  const code = { up: "A", down: "B", right: "C", left: "D" }[direction];
+  return data === `\x1b[${code}` || data === `\x1bO${code}`
+    || new RegExp(`^\\x1b\\[[0-9;]*${code}$`).test(data);
+}
+
+function menuSelect(ctx, title, options) {
+  if (typeof ctx.ui.custom !== "function") return ctx.ui.select(title, options);
+  const custom = ctx.ui.custom((_tui, theme, _keybindings, done) => {
+    let selected = 0;
+    const color = (name, text) => theme?.fg ? theme.fg(name, text) : text;
+    return {
+      render(width) {
+        const clamp = text => text.slice(0, Math.max(1, width));
+        return [
+          color("accent", clamp(title)),
+          ...options.map((option, index) => {
+            const line = `${index === selected ? "> " : "  "}${option}`;
+            return index === selected ? color("accent", clamp(line)) : clamp(line);
+          }),
+        ];
+      },
+      handleInput(data) {
+        if (isArrow(data, "left")) {
+          done(MENU_BACK);
+          return;
+        }
+        if (data === "\x1b") {
+          done(undefined);
+          return;
+        }
+        if (isArrow(data, "up")) {
+          selected = (selected + options.length - 1) % options.length;
+          return;
+        }
+        if (isArrow(data, "down")) {
+          selected = (selected + 1) % options.length;
+          return;
+        }
+        if (data === "\r" || data === "\n") done(options[selected]);
+      },
+      invalidate() {},
+    };
+  });
+  return custom === undefined ? ctx.ui.select(title, options) : custom;
+}
 
 export default function usageDashboard(pi) {
   pi.setLabel("Usage dashboard");
@@ -178,69 +227,76 @@ export default function usageDashboard(pi) {
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const words = args.trim().split(/\s+/).filter(Boolean);
-      while (words.length < 2) {
-        if (words.length === 0) {
-          const section = await ctx.ui.select("Usage dashboard", Object.keys(sections));
-          if (!section) return;
-          words.push(section);
+      while (true) {
+        while (words.length < 2) {
+          if (words.length === 0) {
+            const section = await menuSelect(ctx, "Usage dashboard", Object.keys(menuSections));
+            if (!section || section === MENU_BACK) return;
+            words.push(section);
+          }
+          if (!Object.hasOwn(sections, words[0])) {
+            ctx.ui.notify(help, "info");
+            return;
+          }
+          const action = await menuSelect(ctx, `Usage dashboard / ${words[0]}`, menuSections[words[0]]);
+          if (!action) return;
+          if (action === MENU_BACK) {
+            words.length = 0;
+            continue;
+          }
+          words.push(action);
         }
-        if (!Object.hasOwn(sections, words[0])) {
+        const [section, action] = words;
+        if (!Object.hasOwn(sections, section) || !sections[section].includes(action)) {
           ctx.ui.notify(help, "info");
           return;
         }
-        const action = await ctx.ui.select(`Usage dashboard / ${words[0]}`, [...sections[words[0]], "Back"]);
-        if (!action) return;
-        if (action === "Back") {
-          words.length = 0;
-          continue;
-        }
-        words.push(action);
-      }
-      const [section, action] = words;
-      if (!Object.hasOwn(sections, section) || !sections[section].includes(action)) {
-        ctx.ui.notify(help, "info");
-        return;
-      }
-      if (section === "update") {
-        if (words.length !== 2) {
-          ctx.ui.notify("Usage: /usage-dashboard update check|install", "info");
+        if (section === "update") {
+          if (words.length !== 2) {
+            ctx.ui.notify("Usage: /usage-dashboard update check|install", "info");
+            return;
+          }
+          await update(action, ctx);
           return;
         }
-        await update(action, ctx);
+        if (section === "theme" && action === "color" && words.length === 2) {
+          const value = await ctx.ui.input("Design token and color (for example: accent #58a66a)", "accent #58a66a");
+          if (!value?.trim()) return;
+          const custom = value.trim().split(/\s+/);
+          if (custom.length !== 2) {
+            ctx.ui.notify("Usage: /usage-dashboard theme color TOKEN COLOR", "info");
+            return;
+          }
+          words.push(...custom);
+        }
+        const windowFilter = section === "window" && ["hide", "show"].includes(action);
+        if ((section === "providers" || windowFilter) && words.length === 2) {
+          const providers = [...new Set([...popular, ...ctx.models.list().map(model => model.provider)])];
+          const provider = await menuSelect(ctx, "Provider (availability depends on OMP login and usage support)", providers);
+          if (!provider) return;
+          if (provider === MENU_BACK) {
+            words.pop();
+            continue;
+          }
+          words.push(provider);
+        }
+        if (windowFilter) {
+          if (words.length === 3) {
+            const filter = await ctx.ui.input("Usage-window label/ID substring", "spark");
+            if (!filter?.trim()) return;
+            words.push(filter.trim());
+          } else if (words.length > 4) {
+            words.splice(3, words.length - 3, words.slice(3).join(" "));
+          }
+        }
+        if (section === "window" && action === "interval" && words.length === 2) {
+          const interval = await ctx.ui.input("Polling interval in seconds (minimum 15)", "60");
+          if (!interval) return;
+          words.push(interval);
+        }
+        await control(words, ctx);
         return;
       }
-      if (section === "theme" && action === "color" && words.length === 2) {
-        const value = await ctx.ui.input("Design token and color (for example: accent #58a66a)", "accent #58a66a");
-        if (!value?.trim()) return;
-        const custom = value.trim().split(/\s+/);
-        if (custom.length !== 2) {
-          ctx.ui.notify("Usage: /usage-dashboard theme color TOKEN COLOR", "info");
-          return;
-        }
-        words.push(...custom);
-      }
-      const windowFilter = section === "window" && ["hide", "show"].includes(action);
-      if ((section === "providers" || windowFilter) && words.length === 2) {
-        const providers = [...new Set([...popular, ...ctx.models.list().map(model => model.provider)])];
-        const provider = await ctx.ui.select("Provider (availability depends on OMP login and usage support)", providers);
-        if (!provider) return;
-        words.push(provider);
-      }
-      if (windowFilter) {
-        if (words.length === 3) {
-          const filter = await ctx.ui.input("Usage-window label/ID substring", "spark");
-          if (!filter?.trim()) return;
-          words.push(filter.trim());
-        } else if (words.length > 4) {
-          words.splice(3, words.length - 3, words.slice(3).join(" "));
-        }
-      }
-      if (section === "window" && action === "interval" && words.length === 2) {
-        const interval = await ctx.ui.input("Polling interval in seconds (minimum 15)", "60");
-        if (!interval) return;
-        words.push(interval);
-      }
-      await control(words, ctx);
     },
   });
 }

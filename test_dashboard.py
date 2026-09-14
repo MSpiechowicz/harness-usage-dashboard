@@ -3,7 +3,7 @@ from copy import deepcopy
 import unittest
 
 from dashboard import (allowance_color, change_config, provider_lines, resolve_tokens,
-                       token_chart)
+                       session_lines, token_chart)
 from preferences import DEFAULTS
 
 
@@ -82,6 +82,28 @@ class NestedCommandTests(unittest.TestCase):
         self.assertFalse(config['compact'])
         change_config(config, ['view', 'compact'])
         self.assertTrue(config['compact'])
+    def test_details_separate_model_blocks_for_readability(self):
+        model_fields = {'input': 10, 'output': 2, 'cache_read': 3, 'cache_write': 0}
+        history = {
+            'chart': [], 'history': [], 'total_history': [],
+            'current': {
+                'id': 'session-1', 'updated': 0,
+                'providers': [{'provider': 'openai-codex', 'total': 15}],
+                'models': [
+                    {'provider': 'openai-codex', 'model': 'model-a',
+                     'thinking_level': 'high', 'total': 15, **model_fields},
+                    {'provider': 'openai-codex', 'model': 'model-b',
+                     'thinking_level': 'low', 'total': 15, **model_fields},
+                ],
+                'model_summaries': [], 'quota': [],
+            },
+            'previous': None,
+        }
+        texts = [text for text, _style in session_lines(history, 0, 60, compact=False)]
+        first = next(index for index, text in enumerate(texts) if text.startswith('model-a'))
+        second = next(index for index, text in enumerate(texts) if text.startswith('model-b'))
+        self.assertEqual(texts[first - 1], '')
+        self.assertEqual(texts[second - 1], '')
 
     def test_named_themes_and_custom_tokens_preserve_status_semantics(self):
         config = deepcopy(DEFAULTS)

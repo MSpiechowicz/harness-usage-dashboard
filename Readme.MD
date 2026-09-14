@@ -164,7 +164,7 @@ Inside OMP, enter:
 ```text
 /usage-dashboard
 ```
-The menu has six sections. Select an action, use **Back** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/usage-dashboard providers`, opens its submenu.
+The menu has six sections. Use the **Left Arrow** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/usage-dashboard providers`, opens its submenu.
 
 | Section | Purpose | Example |
 | --- | --- | --- |

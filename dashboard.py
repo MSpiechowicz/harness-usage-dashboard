@@ -631,8 +631,11 @@ def detailed_model_rows(entries, summaries, width, include_provider=False):
         provider, model = key
         prefix = f'{NAMES.get(provider, provider)} / {clean(model)}' if include_provider else clean(model)
         for variant in variants:
+            if rows:
+                rows.append(('', 'dim'))
             rows.extend(model_usage_rows(variant, width, prefix))
         if len(variants) > 1 and key in summaries:
+            rows.append(('', 'dim'))
             rows.extend(model_usage_rows(summaries[key], width, prefix, summary=True))
     return rows
 
@@ -671,6 +674,8 @@ def session_lines(history, now, width, compact=True):
                 models = [model for model in session['models'] if model['provider'] == item['provider']]
                 summaries = [model for model in session.get('model_summaries', [])
                              if model['provider'] == item['provider']]
+                if models or summaries:
+                    rows.append(('', 'dim'))
                 rows.extend(detailed_model_rows(models, summaries, width))
         quotas = [quota for quota in session['quota']
                   if quota['intervals'] > 0 and round(quota['points'], 2) > 0]
@@ -696,7 +701,8 @@ def session_lines(history, now, width, compact=True):
             return []
         total = sum(item['total'] for item in entries)
         result = [allowance_row(label, format_tokens(total), '', width, 'normal')]
-        if not compact:
+        if not compact and (entries or summaries):
+            result.append(('', 'dim'))
             result.extend(detailed_model_rows(entries, summaries, width, include_provider=True))
         return result
 
@@ -704,8 +710,12 @@ def session_lines(history, now, width, compact=True):
     total_history = history.get('total_history', [])
     if project_history or total_history:
         rows.append(section_heading('HISTORY', width))
-        rows.extend(history_rows('Other sessions', project_history, history.get('history_summaries', [])))
-        rows.extend(history_rows('Project total', total_history, history.get('total_history_summaries', [])))
+        other_rows = history_rows('Other sessions', project_history, history.get('history_summaries', []))
+        total_rows = history_rows('Project total', total_history, history.get('total_history_summaries', []))
+        rows.extend(other_rows)
+        if other_rows and total_rows:
+            rows.append(('', 'dim'))
+        rows.extend(total_rows)
         rows.append(('', 'dim'))
     return rows
 

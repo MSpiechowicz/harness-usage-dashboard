@@ -135,3 +135,60 @@ print(json.dumps(summary(owner=None)))
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("view menu uses compact/details and left arrow navigation", async () => {
+  let command;
+  let menu;
+  let execArgs;
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  usageDashboard({
+    setLabel() {},
+    on() {},
+    registerCommand(_name, definition) { command = definition; },
+    async exec(_binary, args) {
+      execArgs = args;
+      return { code: 0, stdout: "", stderr: "" };
+    },
+  });
+  const ctx = {
+    hasUI: true,
+    cwd: process.cwd(),
+    models: { list: () => [] },
+    ui: {
+      custom(factory) {
+        return new Promise(resolve => {
+          const done = value => {
+            menu = undefined;
+            resolve(value);
+          };
+          menu = factory({}, { fg: (_name, text) => text }, {}, done);
+        });
+      },
+      notify() {},
+    },
+  };
+
+  const run = command.handler("", ctx);
+  await tick();
+  assert.ok(menu);
+  menu.handleInput("\r");
+  await tick();
+  assert.ok(menu);
+  const viewMenu = menu.render(80).join("\n");
+  assert.match(viewMenu, /compact/);
+  assert.match(viewMenu, /details/);
+  assert.doesNotMatch(viewMenu, /\blist\b/);
+  assert.doesNotMatch(viewMenu, /\bBack\b/);
+
+  menu.handleInput("\x1b[D");
+  await tick();
+  assert.ok(menu);
+  assert.match(menu.render(80).join("\n"), /Usage dashboard/);
+
+  menu.handleInput("\r");
+  await tick();
+  menu.handleInput("\x1b[B");
+  menu.handleInput("\r");
+  await run;
+  assert.deepEqual(execArgs.slice(-3), ["--", "view", "details"]);
+});
