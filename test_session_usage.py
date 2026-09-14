@@ -57,8 +57,10 @@ class SessionAccountingTests(unittest.TestCase):
         self.assertEqual(sum(item['total'] for item in report['history']), 320)
         self.assertEqual(sum(item['total'] for item in report['total_history']), 480)
         rendered = '\n'.join(line for line, _ in session_lines(report, 110, 32))
-        self.assertIn('Previous sessions', rendered)
-        self.assertIn('Total tokens', rendered)
+        self.assertIn('Other sessions', rendered)
+        self.assertIn('Project total', rendered)
+        self.assertEqual([style for line, style in session_lines(report, 110, 32)
+                          if line.startswith('Last recorded ')], ['dim'])
         self.assertNotIn('All sessions', rendered)
 
     def test_history_is_project_scoped_and_total_history_is_available(self):

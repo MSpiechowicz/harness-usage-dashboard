@@ -22,6 +22,13 @@ class RemainingAllowanceTests(unittest.TestCase):
         self.assertIn('0% left', self.render({'usedFraction': 1}))
         self.assertNotIn('#', rendered)
 
+    def test_reset_credit_metadata_is_secondary(self):
+        data = {'reports': [{'provider': 'openai-codex', 'fetchedAt': 0, 'limits': [
+            {'id': 'weekly', 'label': 'Weekly', 'amount': {'usedFraction': .1}},
+        ], 'resetCredits': {'availableCount': 2}}]}
+        lines = provider_lines(data, 'openai-codex', {'interval': 60, 'compact': True, 'windows': {}}, 0, 32)
+        self.assertEqual(next(style for text, style in lines if text.startswith('Reset credits:')), 'dim')
+
     def test_reported_remaining_takes_precedence_over_used_estimate(self):
         self.assertIn('20% left', self.render({'remainingFraction': .2, 'usedFraction': .55}))
         self.assertIn('25% left', self.render({'remaining': 25, 'limit': 100}))

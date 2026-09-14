@@ -527,8 +527,8 @@ def session_lines(history, now, width, compact=True):
     total_history = history.get('total_history', [])
     if project_history or total_history:
         rows.append(section_heading('HISTORY', width))
-        rows.extend(history_rows('Previous sessions', project_history))
-        rows.extend(history_rows('Total tokens', total_history))
+        rows.extend(history_rows('Other sessions', project_history))
+        rows.extend(history_rows('Project total', total_history))
         rows.append(('', 'dim'))
     return rows
 
@@ -597,6 +597,7 @@ def watch(screen, args):
     screen.timeout(200)
     curses.mousemask(curses.ALL_MOUSE_EVENTS)
     curses.mouseinterval(0)
+    # Terminals cannot shrink an individual row; dim cyan is the secondary-text treatment.
     colors = {'dim': curses.A_DIM, 'normal': curses.A_NORMAL}
     if curses.has_colors():
         curses.start_color()
@@ -605,6 +606,10 @@ def watch(screen, args):
                                           ('warn', curses.COLOR_YELLOW), ('error', curses.COLOR_RED)], 1):
             curses.init_pair(i, color, -1)
             colors[name] = curses.color_pair(i)
+        secondary_pair = 5 if curses.COLOR_PAIRS > 5 else 1
+        curses.init_pair(secondary_pair, curses.COLOR_CYAN, -1)
+        colors['dim'] = curses.color_pair(secondary_pair) | curses.A_DIM
+    # Secondary rows use this style throughout the session and provider renderers.
     config = defaults(args)
     states, jobs = {}, {}
     history_error = None
