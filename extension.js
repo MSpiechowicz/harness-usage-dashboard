@@ -118,7 +118,6 @@ export default function usageDashboard(pi) {
     const command = [updater, action];
     const profile = process.env.OMP_PROFILE ?? process.env.PI_PROFILE;
     if (profile !== undefined) command.push("--profile", profile);
-    if (quiet) command.push("--cached");
     try {
       if (action === "install") ctx.ui.notify("Updating the dashboard through OMP's native plugin manager…", "info");
       const result = await pi.exec("python3", command, {

@@ -310,7 +310,7 @@ Inside OMP:
 
 **Restart OMP after installation** to load the updated extension and sidebar. Your saved preferences and credentials are retained.
 
-Startup checks notify without blocking the prompt or automatically installing code. Successful checks are cached for up to 24 hours; `update check` requests a fresh check. Startup network failures remain quiet; explicit checks report errors.
+Every interactive OMP startup requests a fresh release check in the background, so a previously cached “up to date” result does not hide a newly published version. When a newer version is found, a visible notice includes `/usage-dashboard update install`. Checks do not block the prompt or automatically install code. Startup network failures remain quiet; explicit `update check` commands also request fresh release data and report errors.
 
 Installation uses OMP's **native marketplace manager** and preserves the current user/project scope. It refuses unregistered checkouts or mismatched installations instead of overwriting them. OMP's native notification mode currently logs update availability; this extension supplies the visible notice.
 
