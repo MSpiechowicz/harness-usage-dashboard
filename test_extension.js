@@ -52,7 +52,7 @@ print(json.dumps(updater.check(cached='--cached' in sys.argv)))
     for (const callback of scheduled) await callback();
     assert.equal(notices.length, 1);
     assert.match(notices[0].message, /is available \(installed .*\).*\/usage-dashboard update install/);
-    assert.equal(notices[0].level, "info");
+    assert.equal(notices[0].level, "warning");
   } finally {
     for (const key of keys) {
       if (saved[key] === undefined) delete process.env[key];

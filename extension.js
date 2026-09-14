@@ -132,7 +132,7 @@ export default function usageDashboard(pi) {
       if (report.updated) {
         ctx.ui.notify(report.message || `Dashboard updated to ${report.currentVersion}. Restart OMP to load it.`, "info");
       } else if (report.updateAvailable) {
-        ctx.ui.notify(`Usage dashboard ${report.latestVersion} is available (installed ${report.currentVersion}). Run /usage-dashboard update install.`, "info");
+        ctx.ui.notify(`UPDATE AVAILABLE: Usage dashboard ${report.latestVersion} is available (installed ${report.currentVersion}). Run /usage-dashboard update install.`, "warning");
       } else if (!quiet) {
         ctx.ui.notify(`Usage dashboard ${report.currentVersion}: ${report.message || "No newer release available."}`, "info");
       }
