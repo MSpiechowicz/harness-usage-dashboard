@@ -4,7 +4,7 @@ from copy import deepcopy
 import unittest
 from unittest.mock import MagicMock, patch
 from dashboard import (allowance_color, change_config, owned_panes, provider_lines, resolve_tokens,
-                       section_heading, session_lines, token_chart)
+                       section_heading, session_lines, token_chart, watch)
 from preferences import DEFAULTS, THEME_NAMES
 
 
@@ -125,6 +125,60 @@ class RemainingAllowanceTests(unittest.TestCase):
         self.assertIn('[Refresh] [Hide]', writes[footer_row + 2])
         self.assertIn('r refresh | q hide | scroll', writes[footer_row + 3])
         self.assertTrue(writes[footer_row + 4].startswith('└'))
+
+
+class DashboardPollingTests(unittest.TestCase):
+    def setUp(self):
+        self.screen = MagicMock()
+        self.screen.getmaxyx.return_value = (12, 80)
+        self.args = Namespace(owner=None, profile='default', providers=None,
+                              side=None, interval=None)
+        self.config = dict(DEFAULTS, providers=['openai-codex'], profile='default', refresh=0)
+        self.colors = {name: 0 for name in ('normal', 'dim', 'secondary', 'title',
+                                            'chart', 'good', 'warn', 'error')}
+        self.history = {'current': None, 'previous': None, 'chart': [],
+                        'history': [], 'total_history': []}
+
+    def run_watch(self, fetch_jobs, ticks, keys):
+        self.screen.getch.side_effect = keys
+        jobs = iter(fetch_jobs)
+        with patch('dashboard.curses.curs_set'), \
+             patch('dashboard.curses.mousemask'), \
+             patch('dashboard.curses.mouseinterval'), \
+             patch('dashboard.defaults', return_value=self.config), \
+             patch('dashboard.initialize_colors', return_value=self.colors), \
+             patch('dashboard.session_summary', return_value=self.history), \
+             patch('dashboard.active_session', return_value=None), \
+             patch('dashboard.record_quota'), \
+             patch('dashboard.FetchJob', side_effect=lambda *_args: next(jobs)), \
+             patch('dashboard.time.monotonic', side_effect=ticks):
+            with self.assertRaises(SystemExit):
+                watch(self.screen, self.args)
+
+    def test_resumes_provider_poll_after_dashboard_loop_was_suspended(self):
+        first = MagicMock(started=0)
+        first.finish.return_value = None
+        second = MagicMock(started=6)
+        second.finish.return_value = ({'reports': []}, None)
+
+        self.run_watch([first, second], [0, 6, 7], [-1, -1, SystemExit])
+
+        first.close.assert_called_once_with()
+        self.assertEqual(first.finish.call_count, 0)
+        self.assertEqual(second.finish.call_count, 1)
+
+    def test_failed_refresh_retries_before_full_poll_interval(self):
+        first = MagicMock(started=0)
+        first.finish.return_value = (None, 'Refresh failed')
+        second = MagicMock(started=16)
+        second.finish.return_value = ({'reports': []}, None)
+
+        with patch('dashboard.RESUME_GAP_SECONDS', 100):
+            self.run_watch([first, second], [0, 1, 15, 16], [-1, -1, -1, SystemExit])
+
+        self.assertEqual(first.finish.call_count, 1)
+        first.close.assert_called_once_with()
+        self.assertEqual(second.finish.call_count, 0)
 
 
 class PaneOwnershipTests(unittest.TestCase):

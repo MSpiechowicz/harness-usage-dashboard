@@ -242,7 +242,7 @@ With default tmux bindings, **Ctrl-b**, then **o**, switches panes. Your termina
 
 Percentages in the account-allowance section mean **remaining allowance**: green above 40%, amber above 20% through 40%, and red at 20% or below. Labels and reset times remain neutral. Credit balances stay in their reported currency rather than becoming an estimated percentage.
 
-`checked Ns` describes the dashboard's last completed poll, not the age of the provider's data. Old source data is marked as cached; failed refreshes retain the last successful report with **STALE DATA**. Details mode shows source age and window IDs. The dashboard invalidates the selected provider's OMP usage cache before polling, but cannot force an upstream counter to change. Hidden providers are not polled. Keep the default 60-second interval unless you have a reason to change it; shorter intervals can encounter rate limits.
+`checked Ns` describes the dashboard's last completed poll, not the age of the provider's data. Old source data is marked as cached; failed refreshes retain the last successful report with **STALE DATA**. Details mode shows source age and window IDs. The dashboard invalidates the selected provider's OMP usage cache before polling, but cannot force an upstream counter to change. If the terminal pauses the dashboard loop while its tab is inactive, in-flight polls are discarded and restarted when the loop resumes; failed polls retry within 15 seconds instead of waiting for the full interval. Hidden providers are not polled. Keep the default 60-second interval unless you have a reason to change it; shorter intervals can encounter rate limits.
 
 ### Live chart and session history
 

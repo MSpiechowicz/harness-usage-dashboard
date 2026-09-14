@@ -30,6 +30,10 @@ SOCKET_NAME = 'omp-usage'
 NAMES = {value: key.upper() for key, value in ALIASES.items()}
 CHART_GLYPHS = frozenset('▁▂▃▄▅▆▇█│└─┌┐')
 COMMAND_BOX_HEIGHT = 5
+# A suspended terminal can leave the dashboard loop asleep while provider jobs
+# continue to hold old results. Restart them when the loop resumes.
+RESUME_GAP_SECONDS = 5
+FAILED_REFRESH_RETRY_SECONDS = 15
 THEME_TOKENS = {
     'green': {'text': 'white', 'muted': 'default', 'secondary': '#008f4c',
               'accent': 'green', 'chart': 'green', 'good': 'green', 'warn': 'orange',
@@ -851,9 +855,18 @@ def watch(screen, args):
     states, jobs = {}, {}
     history_error = None
     offset, next_config, next_frame = 0, 0, 0
+    last_tick = None
     try:
         while True:
             now, tick = time.time(), time.monotonic()
+            resumed = last_tick is not None and tick - last_tick >= RESUME_GAP_SECONDS
+            last_tick = tick
+            if resumed:
+                for job in jobs.values():
+                    job.close()
+                jobs.clear()
+                for state in states.values():
+                    state['next'] = 0
             if args.owner and tick >= next_config:
                 try:
                     if mux('display-message', '-p', '-t', args.owner, '#{pane_dead}') != '0':
@@ -894,7 +907,8 @@ def watch(screen, args):
                                 history_error = 'Could not save quota history'
                     state['error'] = error
                     state['checked'] = tick
-                    state['next'] = tick + config['interval'] if error else max(tick, job.started + config['interval'])
+                    state['next'] = (tick + min(config['interval'], FAILED_REFRESH_RETRY_SECONDS)
+                                     if error else max(tick, job.started + config['interval']))
                     job.close()
                     del jobs[provider]
             for provider in visible:
