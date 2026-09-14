@@ -136,7 +136,7 @@ print(json.dumps(summary(owner=None)))
   }
 });
 
-test("command menu uses numbered rows and left arrow navigation", async () => {
+test("command menu uses rows and left arrow navigation", async () => {
   let command;
   let menu;
   let execArgs;
@@ -177,17 +177,18 @@ test("command menu uses numbered rows and left arrow navigation", async () => {
   const rootMenu = menu.render(80).join("\n");
   assert.match(rootMenu, /<fg:accent>Usage dashboard/);
   assert.match(rootMenu, /┌─/);
-  assert.match(rootMenu, /<bg:selectedBg><fg:accent>› 1\. View/);
+  assert.match(rootMenu, /<bg:selectedBg><fg:accent>› View/);
   assert.match(rootMenu, /Esc cancel/);
-  assert.doesNotMatch(rootMenu, /← back/);
+  assert.doesNotMatch(rootMenu, /\b[1-6]\./);
 
   menu.handleInput("\r");
   await tick();
   assert.ok(menu);
   const viewMenu = menu.render(80).join("\n");
   assert.match(viewMenu, /<fg:accent>Usage dashboard \/ View/);
-  assert.match(viewMenu, /<bg:selectedBg><fg:accent>› 1\. Compact/);
-  assert.match(viewMenu, /2\. Details/);
+  assert.match(viewMenu, /<bg:selectedBg><fg:accent>› Compact/);
+  assert.match(viewMenu, /Details/);
+  assert.doesNotMatch(viewMenu, /\b[12]\./);
   assert.doesNotMatch(viewMenu, /\blist\b/);
   assert.match(viewMenu, /Enter select/);
   assert.match(viewMenu, /← back/);
@@ -203,6 +204,36 @@ test("command menu uses numbered rows and left arrow navigation", async () => {
   menu.handleInput("\r");
   await run;
   assert.deepEqual(execArgs.slice(-3), ["--", "view", "details"]);
+});
+test("native menu options stay unnumbered", async () => {
+  let command;
+  const selections = [];
+  const calls = [];
+  usageDashboard({
+    setLabel() {},
+    on() {},
+    registerCommand(_name, definition) { command = definition; },
+    async exec() { return { code: 0, stdout: "", stderr: "" }; },
+  });
+  const ctx = {
+    hasUI: true,
+    cwd: process.cwd(),
+    models: { list: () => [] },
+    ui: {
+      async select(title, options) {
+        calls.push({ title, options });
+        return selections.shift();
+      },
+      notify() {},
+    },
+  };
+  selections.push("View", "Compact");
+  await command.handler("", ctx);
+  assert.deepEqual(calls, [
+    { title: "Usage dashboard", options: ["View", "Position", "Providers", "Theme", "Window", "Update"] },
+    { title: "Usage dashboard / View", options: ["Compact", "Details"] },
+  ]);
+  assert.ok(calls.flatMap(({ options }) => options).every(option => !/^\d+\./.test(option)));
 });
 test("theme menu lists palettes and explains custom token colors", async () => {
   let command;

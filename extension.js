@@ -58,10 +58,6 @@ function capitalizeLabel(label) {
     `${whitespace}${letter.toUpperCase()}`);
 }
 
-function displayChoice(choice, index) {
-  return `${index + 1}. ${capitalizeLabel(choice.label)}`;
-}
-
 function safeVisibleText(text, width) {
   return text.slice(0, Math.max(1, width)).padEnd(Math.max(1, width));
 }
@@ -105,7 +101,7 @@ async function menuSelect(ctx, title, options, { nested = false } = {}) {
   const choices = options.map(option => typeof option === "string"
     ? { value: option, label: option }
     : option);
-  const labels = choices.map((choice, index) => displayChoice(choice, index));
+  const labels = choices.map(choice => capitalizeLabel(choice.label));
   if (typeof ctx.ui.custom !== "function") {
     const selected = await ctx.ui.select(title, labels);
     return choices.find((choice, index) => labels[index] === selected)?.value ?? selected;
