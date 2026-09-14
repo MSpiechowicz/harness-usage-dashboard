@@ -112,14 +112,19 @@ class RemainingAllowanceTests(unittest.TestCase):
         with patch('dashboard.defaults', return_value=initial), \
              patch('dashboard.initialize_colors', return_value=colors), \
              patch('dashboard.session_summary', return_value=history), \
-             patch('dashboard.FetchJob'):
+             patch('dashboard.FetchJob'), \
+             patch('dashboard.session_lines', return_value=[('HISTORY entry', 'normal')]):
             from dashboard import watch
             with self.assertRaises(SystemExit):
                 watch(screen, args)
         writes = {call.args[0]: call.args[2] for call in screen.addnstr.call_args_list}
         footer_row = next(row for row, text in writes.items()
-                          if text.startswith('1 provider | every 60s'))
+                          if text.startswith('┌─ COMMANDS'))
         self.assertEqual(writes[footer_row - 1], '')
+        self.assertIn('1 provider | every 60s', writes[footer_row + 1])
+        self.assertIn('[Refresh] [Hide]', writes[footer_row + 2])
+        self.assertIn('r refresh | q hide | scroll', writes[footer_row + 3])
+        self.assertTrue(writes[footer_row + 4].startswith('└'))
 
 
 class PaneOwnershipTests(unittest.TestCase):

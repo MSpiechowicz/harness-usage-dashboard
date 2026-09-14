@@ -28,7 +28,8 @@ TMUX = None
 OMP = shutil.which('omp') or str(Path.home() / '.local/bin/omp')
 SOCKET_NAME = 'omp-usage'
 NAMES = {value: key.upper() for key, value in ALIASES.items()}
-CHART_GLYPHS = frozenset('▁▂▃▄▅▆▇█│└─')
+CHART_GLYPHS = frozenset('▁▂▃▄▅▆▇█│└─┌┐')
+COMMAND_BOX_HEIGHT = 5
 THEME_TOKENS = {
     'green': {'text': 'white', 'muted': 'default', 'secondary': '#008f4c',
               'accent': 'green', 'chart': 'green', 'good': 'green', 'warn': 'orange',
@@ -585,6 +586,45 @@ def section_heading(label, width, tail=''):
     text = label + ' ' + rule + (' ' + tail if tail else '')
     return text[:max(1, width)], ('secondary', 0, len(label), 'title')
 
+def command_box_rows(count, interval, position, width):
+    outer = max(3, width - 2)
+    inner = max(1, outer - 2)
+    title = 'COMMANDS'
+    title_prefix = '┌─ '
+    title_suffix = ' '
+    title_size = len(title_prefix) + len(title) + len(title_suffix) + 1
+    if outer >= title_size:
+        top = (title_prefix + title + title_suffix
+               + '─' * (outer - title_size) + '┐')
+        top_style = 'title'
+    else:
+        top = '┌' + '─' * (outer - 2) + '┐'
+        top_style = 'secondary'
+
+    content_width = max(1, inner - 2) if inner >= 2 else inner
+
+    def inside(text):
+        if inner >= 2:
+            return '│ ' + text[:content_width].ljust(content_width) + ' │'
+        return '│' + text[:inner].ljust(inner) + '│'
+
+    summary = f'{count} provider{"s" if count != 1 else ""} | every {interval}s'
+    status = next((candidate for candidate in (summary + position, summary)
+                   if len(candidate) <= content_width), summary)
+    keys = next((candidate for candidate in (
+        'r refresh | q hide | scroll',
+        'r refresh q hide scroll',
+        'r/q actions | scroll',
+        'r/q | scroll',
+    ) if len(candidate) <= content_width), 'r/q | scroll')
+    return [
+        (top, top_style),
+        (inside(status), 'dim'),
+        (inside('[Refresh] [Hide]'), 'normal'),
+        (inside(keys), 'dim'),
+        ('└' + '─' * (outer - 2) + '┘', 'secondary'),
+    ]
+
 
 def token_chart(values, width):
     peak = max(values, default=0)
@@ -915,16 +955,15 @@ def watch(screen, args):
                         wrapped.append((clean(text)[:max(1, width - 2)], style))
                     else:
                         wrapped.extend((part, style) for part in (textwrap.wrap(clean(text), max(1, width - 2)) or ['']))
-                body_height = max(0, height - 5)
+                body_height = max(0, height - COMMAND_BOX_HEIGHT - 2)
                 offset = min(offset, max(0, len(wrapped) - body_height))
                 draw = wrapped[offset:offset + body_height]
                 draw += [('', '')] * max(0, body_height - len(draw))
-                draw += [('', 'dim')]
                 count = len(visible)
-                position = f' | {offset + 1}-{min(len(wrapped), offset + body_height)}/{len(wrapped)}' if len(wrapped) > body_height else ''
-                draw += [(f'{count} provider{"s" if count != 1 else ""} | every {config["interval"]}s{position}', 'dim'),
-                         ('[Refresh] [Hide]', 'normal'),
-                         ('Click | r/q | wheel/arrows', 'dim')]
+                position = (f' | {offset + 1}-{min(len(wrapped), offset + body_height)}/{len(wrapped)}'
+                            if len(wrapped) > body_height else '')
+                draw += [('', 'dim')]
+                draw.extend(command_box_rows(count, config['interval'], position, width))
                 for row, (text, style) in enumerate(draw[:max(0, height - 1)]):
                     if width > 2:
                         base = style[0] if isinstance(style, tuple) else style
@@ -942,10 +981,10 @@ def watch(screen, args):
                     _id, mouse_x, mouse_y, _z, buttons = curses.getmouse()
                 except curses.error:
                     continue
-                if buttons & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED) and mouse_y == screen.getmaxyx()[0] - 3:
-                    if 1 <= mouse_x < 10:
+                if buttons & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED) and mouse_y == screen.getmaxyx()[0] - 4:
+                    if 3 <= mouse_x < 12:
                         key = ord('r')
-                    elif 11 <= mouse_x < 17:
+                    elif 13 <= mouse_x < 19:
                         key = ord('q')
                 elif buttons & curses.BUTTON4_PRESSED:
                     offset = max(0, offset - 3)
