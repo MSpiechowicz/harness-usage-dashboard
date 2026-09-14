@@ -57,7 +57,8 @@ def _create_schema(connection):
         );
         CREATE TABLE IF NOT EXISTS tokens (
             project TEXT NOT NULL, id TEXT NOT NULL, session TEXT NOT NULL, at REAL NOT NULL,
-            provider TEXT NOT NULL, model TEXT NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL,
+            provider TEXT NOT NULL, model TEXT NOT NULL, thinking_level TEXT NOT NULL DEFAULT 'unknown',
+            input INTEGER NOT NULL, output INTEGER NOT NULL,
             cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, total INTEGER NOT NULL,
             PRIMARY KEY (project, id)
         );
@@ -70,6 +71,13 @@ def _create_schema(connection):
             PRIMARY KEY (project, session, activation, key, segment)
         );
     ''')
+
+def _ensure_thinking_level(connection):
+    columns = {row['name'] for row in connection.execute('PRAGMA table_info(tokens)')}
+    if 'thinking_level' not in columns:
+        connection.execute(
+            "ALTER TABLE tokens ADD COLUMN thinking_level TEXT NOT NULL DEFAULT 'unknown'"
+        )
 
 
 @contextmanager
@@ -91,6 +99,7 @@ def database(profile=None, cwd=None):
                     connection.execute(f'ALTER TABLE {table} RENAME TO {legacy}')
                     legacy_tables.append((table, legacy))
             _create_schema(connection)
+            _ensure_thinking_level(connection)
             columns = {
                 'sessions': 'id, started, updated',
                 'active': 'owner, session, activation, since, previous',
@@ -139,10 +148,18 @@ def ingest(payload, profile=None, now=None, cwd=None):
                 raise ValueError('Invalid session token counts.')
             if not finite(entry.get('at')):
                 raise ValueError('Invalid session usage timestamp.')
-            if not all(isinstance(entry.get(field), str) and entry[field] for field in ('id', 'provider', 'model')):
+            if not all(isinstance(entry.get(field), str) and entry[field]
+                       for field in ('id', 'provider', 'model')):
                 raise ValueError('Invalid session usage identity.')
-            db.execute('INSERT OR IGNORE INTO tokens VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                       (project, entry['id'], session, entry['at'], entry['provider'], entry['model'], *counts))
+            thinking_level = entry.get('thinkingLevel') or 'unknown'
+            if not isinstance(thinking_level, str) or not thinking_level.strip() or '\x00' in thinking_level:
+                raise ValueError('Invalid session thinking level.')
+            db.execute('''INSERT OR IGNORE INTO tokens
+                          (project, id, session, at, provider, model, thinking_level,
+                           input, output, cache_read, cache_write, total)
+                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                       (project, entry['id'], session, entry['at'], entry['provider'], entry['model'],
+                        thinking_level, *counts))
         db.execute('UPDATE sessions SET updated=? WHERE project=? AND id=?', (now, project, session))
         if payload.get('action') == 'stop':
             # Retain the last session pointer for the next startup, but reject late polls.
@@ -204,7 +221,8 @@ def summary(profile=None, owner=None, now=None, minutes=20, cwd=None):
                              (project, current or '')).fetchone()
             previous = row['id'] if row else None
         result = {
-            'current': None, 'previous': None, 'history': [], 'total_history': [], 'chart': [0] * minutes,
+            'current': None, 'previous': None, 'history': [], 'history_summaries': [],
+            'total_history': [], 'total_history_summaries': [], 'chart': [0] * minutes,
         }
         for name, identity in (('current', current), ('previous', previous)):
             if not identity:
@@ -213,11 +231,18 @@ def summary(profile=None, owner=None, now=None, minutes=20, cwd=None):
                                  (project, identity)).fetchone()
             if not session:
                 continue
-            models = [dict(row) for row in db.execute('''SELECT provider, model,
+            models = [dict(row) for row in db.execute('''SELECT provider, model, thinking_level,
                       SUM(input) AS input, SUM(output) AS output, SUM(cache_read) AS cache_read,
                       SUM(cache_write) AS cache_write, SUM(total) AS total
-                      FROM tokens WHERE project=? AND session=? GROUP BY provider, model''',
+                      FROM tokens WHERE project=? AND session=?
+                      GROUP BY provider, model, thinking_level ORDER BY provider, model, thinking_level''',
                                                      (project, identity))]
+            model_summaries = [dict(row) for row in db.execute('''SELECT provider, model,
+                      SUM(input) AS input, SUM(output) AS output, SUM(cache_read) AS cache_read,
+                      SUM(cache_write) AS cache_write, SUM(total) AS total
+                      FROM tokens WHERE project=? AND session=?
+                      GROUP BY provider, model ORDER BY provider, model''',
+                                                               (project, identity))]
             providers = {}
             for model in models:
                 totals = providers.setdefault(model['provider'], {'provider': model['provider'],
@@ -229,7 +254,7 @@ def summary(profile=None, owner=None, now=None, minutes=20, cwd=None):
                                   FROM quota WHERE project=? AND session=? GROUP BY provider, label, key''',
                                (project, identity)).fetchall()
             result[name] = {**dict(session), 'providers': list(providers.values()), 'models': models,
-                            'quota': [dict(row) for row in quota]}
+                            'model_summaries': model_summaries, 'quota': [dict(row) for row in quota]}
         if current:
             minute = int(now // 60)
             for row in db.execute('''SELECT CAST(at / 60 AS INTEGER) AS minute, SUM(total) AS total
@@ -239,12 +264,27 @@ def summary(profile=None, owner=None, now=None, minutes=20, cwd=None):
                 if 0 <= index < minutes:
                     result['chart'][index] = row['total']
         result['history'] = [dict(row) for row in db.execute(
-            'SELECT provider, model, SUM(total) AS total FROM tokens '
-            'WHERE project=? AND session != ? GROUP BY provider, model',
+            'SELECT provider, model, thinking_level, SUM(input) AS input, SUM(output) AS output, '
+            'SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write, SUM(total) AS total '
+            'FROM tokens WHERE project=? AND session != ? GROUP BY provider, model, thinking_level '
+            'ORDER BY provider, model, thinking_level',
+            (project, current or ''))]
+        result['history_summaries'] = [dict(row) for row in db.execute(
+            'SELECT provider, model, SUM(input) AS input, SUM(output) AS output, '
+            'SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write, SUM(total) AS total '
+            'FROM tokens WHERE project=? AND session != ? GROUP BY provider, model '
+            'ORDER BY provider, model',
             (project, current or ''))]
         result['total_history'] = [dict(row) for row in db.execute(
-            'SELECT provider, model, SUM(total) AS total FROM tokens '
-            'WHERE project=? GROUP BY provider, model',
+            'SELECT provider, model, thinking_level, SUM(input) AS input, SUM(output) AS output, '
+            'SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write, SUM(total) AS total '
+            'FROM tokens WHERE project=? GROUP BY provider, model, thinking_level '
+            'ORDER BY provider, model, thinking_level',
+            (project,))]
+        result['total_history_summaries'] = [dict(row) for row in db.execute(
+            'SELECT provider, model, SUM(input) AS input, SUM(output) AS output, '
+            'SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write, SUM(total) AS total '
+            'FROM tokens WHERE project=? GROUP BY provider, model ORDER BY provider, model',
             (project,))]
         return result
 

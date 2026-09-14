@@ -61,3 +61,77 @@ print(json.dumps(updater.check(cached='--cached' in sys.argv)))
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("records the effective thinking level for model usage", async () => {
+  const home = await mkdtemp(join(tmpdir(), "dashboard-thinking-"));
+  const keys = ["HOME", "PI_CODING_AGENT_DIR", "OMP_PROFILE", "PI_PROFILE", "TMUX", "TMUX_PANE"];
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  Object.assign(process.env, {
+    HOME: home,
+    PI_CODING_AGENT_DIR: join(home, "agent"),
+    OMP_PROFILE: "default",
+    PI_PROFILE: "default",
+  });
+  delete process.env.TMUX;
+  delete process.env.TMUX_PANE;
+  try {
+    const handlers = new Map();
+    usageDashboard({
+      setLabel() {},
+      registerCommand() {},
+      on(event, handler) { handlers.set(event, handler); },
+      async exec() { return { code: 0, stdout: "", stderr: "" }; },
+    });
+    const timestamp = new Date().toISOString();
+    const timestamp2 = new Date(Date.parse(timestamp) + 1000).toISOString();
+    const usage = { input: 100, output: 20, cacheRead: 30, cacheWrite: 10, totalTokens: 160 };
+    const ctx = {
+      hasUI: true,
+      cwd: process.cwd(),
+      sessionManager: {
+        getSessionId: () => "thinking-session",
+        getUsageStatistics: () => usage,
+        getLeafId: () => "request-xhigh",
+        getHeader: () => ({}),
+        getEntries: () => [
+          { type: "thinking_level_change", thinkingLevel: "high", configured: null },
+          { type: "message", id: "request-high", timestamp,
+            message: { role: "assistant", provider: "openai-codex", model: "Luna", usage } },
+          { type: "thinking_level_change", thinkingLevel: "xhigh", configured: null },
+          { type: "message", id: "request-xhigh", timestamp: timestamp2,
+            message: { role: "assistant", provider: "openai-codex", model: "Luna", usage } },
+        ],
+      },
+      setInterval: () => 1,
+      setTimeout() {},
+      ui: { notify() {} },
+    };
+    await handlers.get("session_start")({}, ctx);
+
+    const script = `
+import json
+from session_usage import summary
+print(json.dumps(summary(owner=None)))
+`;
+    const result = await execute("python3", ["-c", script], {
+      cwd: process.cwd(),
+      env: process.env,
+    });
+    const report = JSON.parse(result.stdout);
+    assert.deepEqual(report.current.models.map(item => ({
+      model: item.model,
+      thinking: item.thinking_level,
+      total: item.total,
+    })), [
+      { model: "Luna", thinking: "high", total: 160 },
+      { model: "Luna", thinking: "xhigh", total: 160 },
+    ]);
+    assert.equal(report.current.model_summaries[0].total, 320);
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    await rm(home, { recursive: true, force: true });
+  }
+});

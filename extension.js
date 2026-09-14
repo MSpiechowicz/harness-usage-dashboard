@@ -31,7 +31,7 @@ const sections = {
   window: ["on", "off", "focus", "refresh", "interval", "hide", "show"],
   update: ["check", "install"],
 };
-const help = "Sections: view (list, compact, details); position (left, right); providers (add, remove, hide, show PROVIDER); window (on, off, focus, refresh, interval SECONDS, hide/show PROVIDER FILTER); update (check, install).";
+const help = "Sections: view (list, compact, details; details separates model thinking levels and adds summaries); position (left, right); providers (add, remove, hide, show PROVIDER); window (on, off, focus, refresh, interval SECONDS, hide/show PROVIDER FILTER); update (check, install).";
 
 export default function usageDashboard(pi) {
   pi.setLabel("Usage dashboard");
@@ -47,7 +47,8 @@ export default function usageDashboard(pi) {
     const manager = ctx.sessionManager;
     const session = manager.getSessionId();
     if (!recording || recording.session !== session || action === "start") {
-      recording = { session, activation: randomUUID(), count: 0, signature: undefined, saved: false };
+      recording = { session, activation: randomUUID(), count: 0, signature: undefined,
+        thinkingLevel: "unknown", saved: false };
       action = "start";
     }
     const state = recording;
@@ -60,6 +61,11 @@ export default function usageDashboard(pi) {
     const entries = manager.getEntries();
     const batch = [];
     for (const entry of entries.slice(state.count)) {
+      if (entry.type === "thinking_level_change") {
+        const value = entry.thinkingLevel ?? entry.configured;
+        state.thinkingLevel = typeof value === "string" && value.trim() ? value.trim() : "unknown";
+        continue;
+      }
       const message = entry.type === "message" ? entry.message : undefined;
       const task = message?.role === "toolResult" && message.toolName === "task";
       const usage = entry.type === "model_usage" ? entry.usage
@@ -75,8 +81,8 @@ export default function usageDashboard(pi) {
       const total = usage.totalTokens ?? counts.reduce((sum, value) => sum + value, 0);
       if (!Number.isSafeInteger(total) || total < 0) continue;
       const id = createHash("sha256").update(JSON.stringify([entry.id, entry.timestamp, provider, model])).digest("hex");
-      batch.push({ id, at: at / 1000, provider, model, input: counts[0], output: counts[1],
-        cacheRead: counts[2], cacheWrite: counts[3], total });
+      batch.push({ id, at: at / 1000, provider, model, thinkingLevel: state.thinkingLevel,
+        input: counts[0], output: counts[1], cacheRead: counts[2], cacheWrite: counts[3], total });
     }
     const payload = { session, activation: state.activation, owner: process.env.TMUX_PANE, action, entries: batch };
     const profile = process.env.OMP_PROFILE ?? process.env.PI_PROFILE;

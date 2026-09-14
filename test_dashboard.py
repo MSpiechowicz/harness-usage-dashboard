@@ -72,5 +72,12 @@ class NestedCommandTests(unittest.TestCase):
         self.assertTrue(config['enabled'])
 
 
+    def test_view_details_toggles_persistent_model_breakdowns(self):
+        config = deepcopy(DEFAULTS)
+        change_config(config, ['view', 'details'])
+        self.assertFalse(config['compact'])
+        change_config(config, ['view', 'compact'])
+        self.assertTrue(config['compact'])
+
 if __name__ == '__main__':
     unittest.main()

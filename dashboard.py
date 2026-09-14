@@ -34,9 +34,9 @@ COMMANDS = {
     'providers': ('add', 'remove', 'hide', 'show'),
     'window': ('on', 'off', 'focus', 'refresh', 'interval', 'hide', 'show'),
 }
-HELP = ('/usage-dashboard: view list|compact|details; position left|right; '
-        'providers add|remove|hide|show PROVIDER; window on|off|focus|refresh; '
-        'window interval SECONDS; window hide|show PROVIDER FILTER')
+HELP = ('/usage-dashboard: view list|compact|details (details separates model thinking levels and '
+        'adds summaries); position left|right; providers add|remove|hide|show PROVIDER; '
+        'window on|off|focus|refresh; window interval SECONDS; window hide|show PROVIDER FILTER')
 
 
 def provider_id(value):
@@ -455,6 +455,44 @@ def token_chart(values, width):
     rows.append((' ' * (axis + 2) + labels, ('dim', 0, 0, 'dim')))
     return rows
 
+def thinking_level_label(value):
+    value = clean(value or '')
+    if not value or value.lower() == 'unknown':
+        return ''
+    return {'minimal': 'Minimal', 'low': 'Low', 'medium': 'Medium', 'high': 'High',
+            'max': 'Max', 'xhigh': 'xHigh'}.get(value.lower(), value)
+
+
+def model_usage_rows(model, width, label=None, summary=False):
+    model_name = clean(model.get('model', 'unknown'))
+    label = label or model_name
+    if summary:
+        label += ' (summary)'
+    else:
+        thinking = thinking_level_label(model.get('thinking_level'))
+        if thinking:
+            label += ' - ' + thinking
+    label += ' tokens'
+    rows = [allowance_row(label, format_tokens(model['total']), '', width, 'normal')]
+    rows.append((f'  In {format_tokens(model["input"])} / out {format_tokens(model["output"])}', 'dim'))
+    rows.append((f'  Cache r {format_tokens(model["cache_read"])} / w {format_tokens(model["cache_write"])}', 'dim'))
+    return rows
+
+
+def detailed_model_rows(entries, summaries, width, include_provider=False):
+    grouped = {}
+    for entry in entries:
+        grouped.setdefault((entry['provider'], entry['model']), []).append(entry)
+    summaries = {(entry['provider'], entry['model']): entry for entry in summaries}
+    rows = []
+    for key, variants in grouped.items():
+        provider, model = key
+        prefix = f'{NAMES.get(provider, provider)} / {clean(model)}' if include_provider else clean(model)
+        for variant in variants:
+            rows.extend(model_usage_rows(variant, width, prefix))
+        if len(variants) > 1 and key in summaries:
+            rows.extend(model_usage_rows(summaries[key], width, prefix, summary=True))
+    return rows
 
 def session_lines(history, now, width, compact=True):
     rows = []
@@ -488,11 +526,10 @@ def session_lines(history, now, width, compact=True):
                 rows.append(('', 'dim'))
             rows.append(allowance_row(label, format_tokens(item['total']), '', width, 'normal'))
             if not compact:
-                for model in session['models']:
-                    if model['provider'] == item['provider']:
-                        rows.append((f'{model["model"]}: {format_tokens(model["total"])}', 'normal'))
-                        rows.append((f'  In {format_tokens(model["input"])} / out {format_tokens(model["output"])}', 'dim'))
-                        rows.append((f'  Cache r {format_tokens(model["cache_read"])} / w {format_tokens(model["cache_write"])}', 'dim'))
+                models = [model for model in session['models'] if model['provider'] == item['provider']]
+                summaries = [model for model in session.get('model_summaries', [])
+                             if model['provider'] == item['provider']]
+                rows.extend(detailed_model_rows(models, summaries, width))
         quotas = [quota for quota in session['quota']
                   if quota['intervals'] > 0 and round(quota['points'], 2) > 0]
         if quotas:
@@ -512,23 +549,21 @@ def session_lines(history, now, width, compact=True):
         if quotas and not compact:
             rows.extend([('pp = percentage points', 'dim'), ('Account-wide; not exact billing', 'dim')])
         rows.append(('', 'dim'))
-
-    def history_rows(label, entries):
+    def history_rows(label, entries, summaries):
         if not entries:
             return []
         total = sum(item['total'] for item in entries)
         result = [allowance_row(label, format_tokens(total), '', width, 'normal')]
         if not compact:
-            result.extend((f'{NAMES.get(item["provider"], item["provider"])} / {item["model"]}: '
-                           f'{format_tokens(item["total"])}', 'dim') for item in entries)
+            result.extend(detailed_model_rows(entries, summaries, width, include_provider=True))
         return result
 
     project_history = history.get('history', [])
     total_history = history.get('total_history', [])
     if project_history or total_history:
         rows.append(section_heading('HISTORY', width))
-        rows.extend(history_rows('Other sessions', project_history))
-        rows.extend(history_rows('Project total', total_history))
+        rows.extend(history_rows('Other sessions', project_history, history.get('history_summaries', [])))
+        rows.extend(history_rows('Project total', total_history, history.get('total_history_summaries', [])))
         rows.append(('', 'dim'))
     return rows
 

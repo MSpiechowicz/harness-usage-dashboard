@@ -1,12 +1,13 @@
 """Durable accounting boundaries, without credentials or provider requests."""
 import os
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from dashboard import format_tokens, quota_samples, session_lines
-from session_usage import active_session, ingest, record_quota, summary
+from session_usage import active_session, database, ingest, record_quota, summary
 
 
 class SessionAccountingTests(unittest.TestCase):
@@ -24,9 +25,11 @@ class SessionAccountingTests(unittest.TestCase):
         ingest({'session': session, 'activation': activation, 'action': action,
                 'entries': list(entries)}, now=now, cwd=cwd)
 
-    def entry(self, identity='request-one', at=65, provider='openai-codex', model='gpt-5'):
-        return {'id': identity, 'at': at, 'provider': provider, 'model': model, 'input': 100, 'output': 20,
-                'cacheRead': 30, 'cacheWrite': 10, 'total': 160}
+    def entry(self, identity='request-one', at=65, provider='openai-codex', model='gpt-5',
+              thinking='unknown', total=160):
+        return {'id': identity, 'at': at, 'provider': provider, 'model': model,
+                'thinkingLevel': thinking, 'input': 100, 'output': 20,
+                'cacheRead': 30, 'cacheWrite': 10, 'total': total}
 
     def sample(self, at, used, reset=1000, account='account-one'):
         return {'at': at, 'used': used, 'reset': reset, 'provider': 'openai-codex',
@@ -46,6 +49,27 @@ class SessionAccountingTests(unittest.TestCase):
         self.assertEqual(report['history'][0]['total'], 160)
         # Closing and reopening connections on every call exercises actual persistence.
         self.assertEqual((self.home / 'agent/usage-dashboard.sqlite3').stat().st_mode & 0o777, 0o600)
+    def test_existing_ledger_migrates_thinking_level_without_losing_tokens(self):
+        path = self.home / 'agent' / 'usage-dashboard.sqlite3'
+        path.parent.mkdir(parents=True)
+        connection = sqlite3.connect(path)
+        connection.execute('''CREATE TABLE tokens (
+            project TEXT NOT NULL, id TEXT NOT NULL, session TEXT NOT NULL, at REAL NOT NULL,
+            provider TEXT NOT NULL, model TEXT NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL,
+            cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, total INTEGER NOT NULL,
+            PRIMARY KEY (project, id)
+        )''')
+        connection.execute(
+            'INSERT INTO tokens VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            ('project', 'old', 'session', 1, 'provider', 'model', 1, 2, 3, 4, 10),
+        )
+        connection.commit()
+        connection.close()
+
+        with database() as db:
+            row = db.execute('SELECT thinking_level, total FROM tokens WHERE id=?', ('old',)).fetchone()
+            self.assertEqual(dict(row), {'thinking_level': 'unknown', 'total': 10})
+
 
     def test_history_total_excludes_current_session(self):
         self.save(session='previous', activation='previous',
@@ -178,6 +202,63 @@ class SessionAccountingTests(unittest.TestCase):
         previous = summary(now=130)['previous']
         self.assertEqual(previous['models'], report['current']['models'])
         self.assertEqual(previous['quota'], report['current']['quota'])
+
+    def test_thinking_levels_are_stored_and_model_summaries_are_combined(self):
+        self.save(entries=[
+            self.entry('luna-max', model='Luna', thinking='max', total=5000),
+            self.entry('luna-xhigh', model='Luna', thinking='xhigh', total=4000),
+            self.entry('opus', model='Opus 5', thinking='medium'),
+        ])
+
+        report = summary(now=100)
+        current = report['current']
+        levels = {(item['model'], item['thinking_level']): item['total'] for item in current['models']}
+        combined = {(item['model'], item['total']) for item in current['model_summaries']}
+        rendered = '\n'.join(line for line, _ in session_lines(report, 100, 80, compact=False))
+
+        self.assertEqual(levels, {('Luna', 'max'): 5000, ('Luna', 'xhigh'): 4000, ('Opus 5', 'medium'): 160})
+        self.assertEqual(combined, {('Luna', 9000), ('Opus 5', 160)})
+        self.assertIn('Luna - Max tokens', rendered)
+        self.assertIn('Luna - xHigh tokens', rendered)
+        self.assertIn('Luna (summary) tokens', rendered)
+        self.assertTrue(any('Luna (summary)' in line and '9k' in line for line in rendered.splitlines()))
+        self.assertIn('Opus 5 - Medium tokens', rendered)
+
+    def test_detailed_mode_keeps_model_breakdowns_in_history(self):
+        self.save(session='previous', activation='previous', entries=[
+            self.entry('previous-luna-high', model='Luna', thinking='high', total=5000),
+            self.entry('previous-luna-xhigh', model='Luna', thinking='xhigh', total=4000),
+            self.entry('previous-opus', model='Opus 5', thinking='medium'),
+        ], now=60)
+        self.save(session='current', activation='current', entries=[
+            self.entry('current-luna-high', model='Luna', thinking='high', total=5000),
+            self.entry('current-luna-xhigh', model='Luna', thinking='xhigh', total=4000),
+            self.entry('current-opus', model='Opus 5', thinking='medium'),
+        ], now=100)
+
+        report = summary(now=110)
+        rendered = '\n'.join(line for line, _ in session_lines(report, 110, 80, compact=False))
+
+        self.assertIn('Luna - High tokens', rendered)
+        self.assertIn('Luna - xHigh tokens', rendered)
+        self.assertIn('Luna (summary) tokens', rendered)
+        self.assertIn('CODEX / Luna - High tokens', rendered)
+        self.assertIn('CODEX / Luna - xHigh tokens', rendered)
+        self.assertIn('CODEX / Luna (summary) tokens', rendered)
+        self.assertTrue(any('CODEX / Luna (summary)' in line and '9k' in line
+                            for line in rendered.splitlines()))
+        self.assertIn('Opus 5 - Medium tokens', rendered)
+        self.assertIn('In 100 / out 20', rendered)
+        self.assertIn('Cache r 30 / w 10', rendered)
+        self.assertEqual(
+            {(item['provider'], item['model'], item['thinking_level'], item['input'], item['output'],
+              item['cache_read'], item['cache_write'])
+             for item in report['history']},
+            {('openai-codex', 'Luna', 'high', 100, 20, 30, 10),
+             ('openai-codex', 'Luna', 'xhigh', 100, 20, 30, 10),
+             ('openai-codex', 'Opus 5', 'medium', 100, 20, 30, 10)},
+        )
+
 
     def test_shared_model_bucket_is_observed_once(self):
         self.save()
