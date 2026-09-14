@@ -136,112 +136,65 @@ print(json.dumps(summary(owner=None)))
   }
 });
 
-test("command menu uses rows and left arrow navigation", async () => {
+test("command menu uses native bordered selectors and left arrow navigation", async () => {
   let command;
-  let menu;
   let execArgs;
-  const tick = () => new Promise(resolve => setImmediate(resolve));
-  usageDashboard({
-    setLabel() {},
-    on() {},
-    registerCommand(_name, definition) { command = definition; },
-    async exec(_binary, args) {
-      execArgs = args;
-      return { code: 0, stdout: "", stderr: "" };
-    },
-  });
-  const ctx = {
-    hasUI: true,
-    cwd: process.cwd(),
-    models: { list: () => [] },
-    ui: {
-      custom(factory) {
-        return new Promise(resolve => {
-          const done = value => {
-            menu = undefined;
-            resolve(value);
-          };
-          menu = factory({}, {
-            fg: (name, text) => `<fg:${name}>${text}</fg>`,
-            bg: (name, text) => `<bg:${name}>${text}</bg>`,
-          }, {}, done);
-        });
-      },
-      notify() {},
-    },
-  };
-
-  const run = command.handler("", ctx);
-  await tick();
-  assert.ok(menu);
-  const rootMenu = menu.render(80).join("\n");
-  assert.match(rootMenu, /<fg:accent>Usage dashboard/);
-  assert.match(rootMenu, /┌─/);
-  assert.match(rootMenu, /<bg:selectedBg><fg:accent>› View/);
-  assert.match(rootMenu, /Esc cancel/);
-  assert.doesNotMatch(rootMenu, /\b[1-6]\./);
-
-  menu.handleInput("\r");
-  await tick();
-  assert.ok(menu);
-  const viewMenu = menu.render(80).join("\n");
-  assert.match(viewMenu, /<fg:accent>Usage dashboard \/ View/);
-  assert.match(viewMenu, /<bg:selectedBg><fg:accent>› Compact/);
-  assert.match(viewMenu, /Details/);
-  assert.doesNotMatch(viewMenu, /\b[12]\./);
-  assert.doesNotMatch(viewMenu, /\blist\b/);
-  assert.match(viewMenu, /Enter select/);
-  assert.match(viewMenu, /← back/);
-
-  menu.handleInput("\x1b[D");
-  await tick();
-  assert.ok(menu);
-  assert.match(menu.render(80).join("\n"), /Usage dashboard/);
-
-  menu.handleInput("\r");
-  await tick();
-  menu.handleInput("\x1b[B");
-  menu.handleInput("\r");
-  await run;
-  assert.deepEqual(execArgs.slice(-3), ["--", "view", "details"]);
-});
-test("native menu options stay unnumbered", async () => {
-  let command;
-  const selections = [];
+  let selectIndex = 0;
   const calls = [];
   usageDashboard({
     setLabel() {},
     on() {},
     registerCommand(_name, definition) { command = definition; },
-    async exec() { return { code: 0, stdout: "", stderr: "" }; },
+    async exec(_binary, args) {
+      execArgs = args;
+      return { code: 0, stdout: "", stderr: "" };
+    },
   });
   const ctx = {
     hasUI: true,
     cwd: process.cwd(),
     models: { list: () => [] },
     ui: {
-      async select(title, options) {
-        calls.push({ title, options });
-        return selections.shift();
+      async select(title, options, dialogOptions) {
+        calls.push({ title, options, dialogOptions });
+        if (selectIndex === 0) {
+          selectIndex += 1;
+          return "View";
+        }
+        if (selectIndex === 1) {
+          selectIndex += 1;
+          dialogOptions.onLeft();
+          return undefined;
+        }
+        if (selectIndex === 2) {
+          selectIndex += 1;
+          return "View";
+        }
+        selectIndex += 1;
+        return "Details";
       },
       notify() {},
     },
   };
-  selections.push("View", "Compact");
+
   await command.handler("", ctx);
-  assert.deepEqual(calls, [
+  assert.deepEqual(execArgs.slice(-3), ["--", "view", "details"]);
+  assert.deepEqual(calls.slice(0, 2).map(({ title, options }) => ({ title, options })), [
     { title: "Usage dashboard", options: ["View", "Position", "Providers", "Theme", "Window", "Update"] },
     { title: "Usage dashboard / View", options: ["Compact", "Details"] },
   ]);
+  assert.equal(calls[0].dialogOptions, undefined);
+  assert.equal(typeof calls[1].dialogOptions.onLeft, "function");
+  assert.match(calls[1].dialogOptions.helpText, /back/);
   assert.ok(calls.flatMap(({ options }) => options).every(option => !/^\d+\./.test(option)));
 });
-test("theme menu lists palettes and explains custom token colors", async () => {
+
+test("theme menu preserves palette descriptions with native selectors", async () => {
   let command;
-  let menu;
   let execArgs;
+  const calls = [];
   const notices = [];
   const inputs = [];
-  const tick = () => new Promise(resolve => setImmediate(resolve));
   usageDashboard({
     setLabel() {},
     on() {},
@@ -256,14 +209,9 @@ test("theme menu lists palettes and explains custom token colors", async () => {
     cwd: process.cwd(),
     models: { list: () => [] },
     ui: {
-      custom(factory) {
-        return new Promise(resolve => {
-          const done = value => {
-            menu = undefined;
-            resolve(value);
-          };
-          menu = factory({}, { fg: (_name, text) => text }, {}, done);
-        });
+      async select(title, options, dialogOptions) {
+        calls.push({ title, options, dialogOptions });
+        return "Custom  (override individual colors)";
       },
       async input(title, placeholder) {
         inputs.push({ title, placeholder });
@@ -273,18 +221,12 @@ test("theme menu lists palettes and explains custom token colors", async () => {
     },
   };
 
-  const run = command.handler("theme", ctx);
-  await tick();
-  assert.ok(menu);
-  const themeMenu = menu.render(120).join("\n");
-  assert.match(themeMenu, /Cyan\s+\(clear cyan accent\)/);
-  assert.match(themeMenu, /Magenta\s+\(bold magenta accent\)/);
-  assert.match(themeMenu, /Custom\s+\(override individual colors\)/);
-
-  for (let index = 0; index < 8; index++) menu.handleInput("\x1b[B");
-  menu.handleInput("\r");
-  await run;
-
+  await command.handler("theme", ctx);
+  const themeOptions = calls[0].options;
+  assert.match(themeOptions.find(option => option.startsWith("Cyan")), /clear cyan accent/);
+  assert.match(themeOptions.find(option => option.startsWith("Magenta")), /bold magenta accent/);
+  assert.match(themeOptions.find(option => option.startsWith("Custom")), /override individual colors/);
+  assert.equal(calls[0].dialogOptions.helpText.includes("back"), true);
   assert.deepEqual(inputs, [{
     title: "Custom theme: TOKEN COLOR (for example: accent #58a66a)",
     placeholder: "accent #58a66a",
