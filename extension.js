@@ -5,13 +5,15 @@ import { createHash, randomUUID } from "node:crypto";
 const dashboard = fileURLToPath(new URL("./dashboard.py", import.meta.url));
 const updater = fileURLToPath(new URL("./updater.py", import.meta.url));
 const sessionStore = fileURLToPath(new URL("./session_usage.py", import.meta.url));
+const thinkingLevels = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 // Only normalized counters cross this pipe: never prompts, tool output, or credentials.
-function saveSession(payload, profile, cwd) {
+function saveSession(payload, profile, cwd, environment) {
   return new Promise((resolve, reject) => {
     const args = [sessionStore];
     if (profile !== undefined) args.push("--profile", profile);
-    const child = spawn("python3", args, { cwd, stdio: ["pipe", "ignore", "ignore"] });
+    const child = spawn("python3", args, { cwd, env: { ...process.env, ...environment },
+      stdio: ["pipe", "ignore", "ignore"] });
     const timeout = setTimeout(() => child.kill(), 10000);
     child.on("error", reject);
     child.stdin.on("error", reject);
@@ -77,28 +79,178 @@ export default function usageDashboard(pi) {
   pi.setLabel("Usage dashboard");
   let recording;
   let pending = Promise.resolve();
-  let queued = 0;
+  const writes = new Set();
+  const children = new Map();
+  let writing = false;
   let timer;
   let saveFailed = false;
+  let origin;
+
+  function taskGroup(session, toolCallId) {
+    return typeof toolCallId === "string" && toolCallId.trim()
+      ? createHash("sha256").update(JSON.stringify([session, toolCallId])).digest("hex")
+      : undefined;
+  }
+
+  function flushWrites() {
+    if (writing || !writes.size) return pending;
+    writing = true;
+    pending = pending.then(async () => {
+      try {
+        for (const write of writes) {
+          const { state, payload } = write;
+          // A failed start may be retried after its owner has switched or stopped.
+          if (!state.active && payload.action === "start") payload.action = "sync";
+          try {
+            await saveSession(payload, state.profile, state.cwd, state.environment);
+          } catch {
+            if (!saveFailed) state.ctx.ui.notify("Dashboard session history could not be saved; recording will retry.", "warning");
+            saveFailed = true;
+            break;
+          }
+          writes.delete(write);
+          write.saved?.();
+          saveFailed = false;
+        }
+      } finally {
+        writing = false;
+      }
+    });
+    return pending;
+  }
+
+  function enqueue(state, entries, action = "sync", saved) {
+    writes.add({ state, payload: { session: state.session, activation: state.activation,
+      owner: state.owner, action, entries }, saved });
+    return flushWrites();
+  }
+
+  function sealChild(child) {
+    if (!child?.pending) return;
+    const entry = child.pending;
+    child.pending = undefined;
+    if (child.taskGroup) entry.taskGroup = child.taskGroup;
+    enqueue(child.origin, [entry]);
+  }
+
+  function childThinking(child, entry) {
+    return child.modelIdentity === `${entry.provider}/${entry.model}` ? child.thinkingLevel : "unknown";
+  }
+
+  pi.events?.on?.("task:subagent:lifecycle", payload => {
+    if (typeof payload?.id !== "string" || !payload.id) return;
+    let child = children.get(payload.id);
+    sealChild(child);
+    if (payload.status === "started") {
+      if (!child) {
+        child = {};
+        children.set(payload.id, child);
+      }
+      const group = origin ? taskGroup(origin.session, payload.parentToolCallId) : undefined;
+      // A name may be reused by a new task in a later session. A different
+      // spawning call is new ownership, not a late event from the old child.
+      if (group && child.taskGroup && payload.parentToolCallId !== child.toolCallId) {
+        child.origin = origin;
+        child.taskGroup = group;
+      }
+      if (group) child.toolCallId = payload.parentToolCallId;
+      if (!child.origin && origin) {
+        child.origin = origin;
+        child.started = true;
+      }
+      if (child.started && !child.taskGroup) {
+        child.taskGroup = taskGroup(child.origin.session, payload.parentToolCallId);
+      }
+    } else if (child) {
+      child.modelIdentity = undefined;
+      child.thinkingLevel = "unknown";
+    }
+  });
+
+  pi.events?.on?.("task:subagent:progress", payload => {
+    const progress = payload?.progress;
+    if (typeof progress?.id !== "string" || !progress.id) return;
+    let child = children.get(progress.id);
+    if (!child) {
+      child = {};
+      children.set(progress.id, child);
+    }
+    child.modelIdentity = typeof progress.resolvedModelIdentity === "string" ? progress.resolvedModelIdentity : undefined;
+    child.thinkingLevel = thinkingLevels.has(progress.resolvedThinkingLevel) ? progress.resolvedThinkingLevel : "unknown";
+    if (child.started && !child.taskGroup) {
+      child.taskGroup = taskGroup(child.origin.session, payload.parentToolCallId);
+    }
+    if (child.pending) child.pending.thinkingLevel = childThinking(child, child.pending);
+  });
+
+  pi.events?.on?.("task:subagent:event", payload => {
+    const id = payload?.id;
+    if (typeof id !== "string" || !id) return;
+    let child = children.get(id);
+    // Seal before another raw event can change this request's serving metadata.
+    sealChild(child);
+    const event = payload.event;
+    if (event?.type !== "message_end" || event.message?.role !== "assistant") return;
+    const message = event.message;
+    const usage = message.usage;
+    if (!usage || (!child?.origin && !origin)) return;
+    const counts = [usage.input, usage.output, usage.cacheRead, usage.cacheWrite];
+    const total = usage.totalTokens ?? counts.reduce((sum, value) => sum + value, 0);
+    const at = typeof message.timestamp === "number" ? message.timestamp : Date.parse(message.timestamp);
+    if (!Number.isFinite(at) || !counts.every(value => Number.isSafeInteger(value) && value >= 0)
+      || !Number.isSafeInteger(total) || total < 0) return;
+    if (!child) {
+      child = {};
+      children.set(id, child);
+    }
+    // Older hosts may omit lifecycle association. Capture without guessing a group.
+    if (!child.origin) child.origin = origin;
+    const provider = typeof message.provider === "string" && message.provider.trim() ? message.provider : "unknown";
+    const model = typeof message.model === "string" && message.model.trim() ? message.model : "unknown";
+    if (child.modelIdentity !== `${provider}/${model}`) {
+      child.modelIdentity = undefined;
+      child.thinkingLevel = "unknown";
+    }
+    const entry = {
+      id: createHash("sha256").update(JSON.stringify([child.origin.session, id, message.timestamp, provider, model])).digest("hex"),
+      at: at / 1000, provider, model, taskAggregate: false,
+      input: counts[0], output: counts[1], cacheRead: counts[2], cacheWrite: counts[3], total,
+    };
+    entry.thinkingLevel = childThinking(child, entry);
+    child.pending = entry;
+    // Native raw events precede their synchronous serving-model progress update.
+    queueMicrotask(() => { if (child.pending === entry) sealChild(child); });
+  });
 
   function record(ctx, action = "sync") {
     if (!ctx.hasUI) return pending;
-    if (action === "sync" && queued) return pending;
+    for (const child of children.values()) sealChild(child);
+    if (action === "sync" && writes.size) {
+      return flushWrites().then(() => writes.size ? undefined : record(ctx));
+    }
     const manager = ctx.sessionManager;
     const session = manager.getSessionId();
-    if (!recording || recording.session !== session || action === "start") {
+    if (action === "start") {
+      if (recording) recording.active = false;
       recording = { session, activation: randomUUID(), count: 0, signature: undefined,
-        thinkingLevel: "unknown", saved: false };
-      action = "start";
+        thinkingLevel: "unknown", saved: false, active: true, cwd: ctx.cwd,
+        profile: process.env.OMP_PROFILE ?? process.env.PI_PROFILE ?? "default",
+        owner: process.env.TMUX_PANE || "standalone",
+        environment: { HOME: process.env.HOME, PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR,
+          TMUX: process.env.TMUX, TMUX_PANE: process.env.TMUX_PANE },
+        ctx: { hasUI: true, sessionManager: manager, cwd: ctx.cwd, ui: ctx.ui } };
+      origin = recording;
     }
     const state = recording;
+    if (!state || state.session !== session) return flushWrites();
+    const entries = manager.getEntries();
+    const count = entries.length;
     const usage = manager.getUsageStatistics();
     const signature = JSON.stringify([manager.getLeafId(), usage.input, usage.output,
-      usage.cacheRead, usage.cacheWrite, usage.totalTokens]);
+      usage.cacheRead, usage.cacheWrite, usage.totalTokens, count]);
     if (action === "sync" && signature === state.signature) return pending;
-    if (!state.saved && action === "sync") action = "start";
+    if (!state.saved && state.active && action === "sync") action = "start";
     const header = manager.getHeader();
-    const entries = manager.getEntries();
     const batch = [];
     for (const entry of entries.slice(state.count)) {
       if (entry.type === "thinking_level_change") {
@@ -121,27 +273,19 @@ export default function usageDashboard(pi) {
       const total = usage.totalTokens ?? counts.reduce((sum, value) => sum + value, 0);
       if (!Number.isSafeInteger(total) || total < 0) continue;
       const id = createHash("sha256").update(JSON.stringify([entry.id, entry.timestamp, provider, model])).digest("hex");
-      batch.push({ id, at: at / 1000, provider, model, thinkingLevel: state.thinkingLevel,
-        input: counts[0], output: counts[1], cacheRead: counts[2], cacheWrite: counts[3], total });
+      const thinkingLevel = entry.type === "model_usage"
+        ? (thinkingLevels.has(entry.thinkingLevel) ? entry.thinkingLevel : "unknown")
+        : message?.role === "assistant" ? state.thinkingLevel : "unknown";
+      const group = task ? taskGroup(session, message.toolCallId) : undefined;
+      batch.push({ id, at: at / 1000, provider, model, thinkingLevel,
+        input: counts[0], output: counts[1], cacheRead: counts[2], cacheWrite: counts[3], total,
+        ...(group ? { taskGroup: group, taskAggregate: true } : {}) });
     }
-    const payload = { session, activation: state.activation, owner: process.env.TMUX_PANE, action, entries: batch };
-    const profile = process.env.OMP_PROFILE ?? process.env.PI_PROFILE;
-    queued++;
-    pending = pending.then(async () => {
-      try {
-        await saveSession(payload, profile, ctx.cwd);
-        state.count = Math.max(state.count, entries.length);
-        state.signature = signature;
-        state.saved = true;
-        saveFailed = false;
-      } catch {
-        if (!saveFailed) ctx.ui.notify("Dashboard session history could not be saved; recording will retry.", "warning");
-        saveFailed = true;
-      } finally {
-        queued--;
-      }
+    return enqueue(state, batch, action, () => {
+      state.count = Math.max(state.count, count);
+      state.signature = signature;
+      state.saved = true;
     });
-    return pending;
   }
   async function control(words, ctx, quiet = false) {
     const command = [dashboard, "control"];
@@ -189,13 +333,16 @@ export default function usageDashboard(pi) {
 
   pi.on("session_start", async (_event, ctx) => {
     await record(ctx, "start");
-    if (ctx.hasUI && !timer) timer = ctx.setInterval(() => record(ctx), 1000);
+    if (ctx.hasUI && !timer) timer = ctx.setInterval(() => origin ? record(origin.ctx) : flushWrites(), 1000);
     if (ctx.hasUI && process.env.TMUX && process.env.TMUX_PANE && process.env.OMP_USAGE_LAUNCHER !== "1") {
       await control(["init"], ctx, true);
     }
     if (ctx.hasUI) ctx.setTimeout(() => update("check", ctx, true), 0);
   });
   pi.on("session_shutdown", async (_event, ctx) => {
+    if (!ctx.hasUI) return;
+    if (recording) recording.active = false;
+    origin = undefined;
     if (timer) ctx.clearTimer(timer);
     timer = undefined;
     // Detach before the final usage write so a slow/forced shutdown cannot
@@ -204,12 +351,19 @@ export default function usageDashboard(pi) {
       await control(["detach"], ctx, true);
     }
     await record(ctx, "stop");
+    // Retry a transient failure once more before the interval is gone.
+    await flushWrites();
   });
   for (const event of ["message_end", "agent_end", "session_compact", "session_tree"]) {
     pi.on(event, async (_event, ctx) => { await record(ctx); });
   }
   for (const event of ["session_before_switch", "session_before_branch"]) {
-    pi.on(event, async (_event, ctx) => { await record(ctx); });
+    pi.on(event, async (_event, ctx) => {
+      if (!ctx.hasUI) return;
+      // A before-switch hook can be cancelled; keep the active origin until
+      // the corresponding switch/branch event actually starts a new recording.
+      await record(ctx);
+    });
   }
   for (const event of ["session_switch", "session_branch"]) {
     pi.on(event, async (_event, ctx) => { await record(ctx, "start"); });

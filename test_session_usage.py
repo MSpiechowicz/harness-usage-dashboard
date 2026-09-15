@@ -35,6 +35,46 @@ class SessionAccountingTests(unittest.TestCase):
         return {'at': at, 'used': used, 'reset': reset, 'provider': 'openai-codex',
                 'label': 'Weekly', 'identity': ['openai-codex', account, 'weekly']}
 
+    def test_task_aggregate_reconciles_in_either_order_and_survives_replay(self):
+        for child_first in (False, True):
+            with self.subTest(child_first=child_first):
+                group = str(child_first)
+                aggregate = {**self.entry(f'aggregate-{group}', provider='task (mixed)',
+                                         model='mixed / unattributed', total=320),
+                             'input': 200, 'output': 40, 'cacheRead': 60, 'cacheWrite': 20,
+                             'taskGroup': group, 'taskAggregate': True}
+                child = {**self.entry(f'child-{group}', model=f'model-{group}'), 'taskGroup': group}
+                self.save(entries=[child if child_first else aggregate])
+                self.save(action='sync', entries=[aggregate if child_first else child])
+                models = summary(now=90)['current']['models']
+                mixed = next(row for row in models if row['provider'] == 'task (mixed)')
+                self.assertEqual([mixed[key] for key in ('input', 'output', 'cache_read', 'cache_write', 'total')],
+                                 [100, 20, 30, 10, 160])
+                # Replaying the original parent result must not restore its full total.
+                self.save(activation='resumed', entries=[aggregate, child])
+                self.save(action='sync', entries=[{**child, 'id': f'second-child-{group}'}])
+                report = summary(now=90)
+                self.assertFalse(any(row['provider'] == 'task (mixed)' for row in report['current']['models']))
+                model = next(row for row in report['current']['models'] if row['model'] == f'model-{group}')
+                self.assertEqual([model[key] for key in ('input', 'output', 'cache_read', 'cache_write', 'total')],
+                                 [200, 40, 60, 20, 320])
+                self.assertEqual(sum(report['chart']), 320 * (1 + int(child_first)))
+
+    def test_late_child_reconciliation_does_not_reactivate_parent_or_cross_sessions(self):
+        aggregate = {**self.entry('aggregate', provider='task (mixed)'), 'taskGroup': 'shared',
+                     'taskAggregate': True}
+        self.save(entries=[aggregate])
+        self.save(session='two', activation='b',
+                  entries=[{**self.entry('new-parent-child'), 'taskGroup': 'shared'}])
+        self.assertEqual(summary(now=90)['previous']['models'][0]['total'], 160)
+        child = {**self.entry('old-parent-child', model='child-model'), 'taskGroup': 'shared'}
+        self.save(action='sync', entries=[child])
+        report = summary(now=90)
+        self.assertEqual(report['current']['id'], 'two')
+        self.assertEqual([(row['model'], row['total']) for row in report['previous']['models']],
+                         [('child-model', 160)])
+        self.assertEqual(sum(row['total'] for row in report['total_history']), 320)
+
     def test_restart_resume_and_fork_do_not_recount_requests(self):
         entry = self.entry()
         self.save(entries=[entry])

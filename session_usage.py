@@ -63,6 +63,14 @@ def _create_schema(connection):
             PRIMARY KEY (project, id)
         );
         CREATE INDEX IF NOT EXISTS tokens_project_session_time ON tokens(project, session, at);
+        CREATE TABLE IF NOT EXISTS task_tokens (
+            project TEXT NOT NULL, id TEXT NOT NULL, session TEXT NOT NULL,
+            task_group TEXT NOT NULL, task_aggregate INTEGER NOT NULL,
+            input INTEGER, output INTEGER, cache_read INTEGER, cache_write INTEGER, total INTEGER,
+            PRIMARY KEY (project, id)
+        );
+        CREATE INDEX IF NOT EXISTS task_tokens_project_session_group
+            ON task_tokens(project, session, task_group, task_aggregate);
         CREATE TABLE IF NOT EXISTS quota (
             project TEXT NOT NULL, session TEXT NOT NULL, activation TEXT NOT NULL, key TEXT NOT NULL,
             provider TEXT NOT NULL, label TEXT NOT NULL, segment INTEGER NOT NULL,
@@ -127,6 +135,25 @@ def finite(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
+def _reconcile_task(db, project, session, group):
+    captured = [0] * 5
+    for row in db.execute('''SELECT t.input, t.output, t.cache_read, t.cache_write, t.total
+                             FROM tokens AS t JOIN task_tokens AS g
+                               ON t.project=g.project AND t.session=g.session AND t.id=g.id
+                             WHERE g.project=? AND g.session=? AND g.task_group=?
+                               AND g.task_aggregate=0''', (project, session, group)):
+        for index, value in enumerate(row):
+            captured[index] += value
+    for row in db.execute('''SELECT id, input, output, cache_read, cache_write, total
+                             FROM task_tokens
+                             WHERE project=? AND session=? AND task_group=? AND task_aggregate=1''',
+                          (project, session, group)):
+        residual = [max(0, original - child) for original, child in zip(tuple(row)[1:], captured)]
+        db.execute('''UPDATE tokens SET input=?, output=?, cache_read=?, cache_write=?, total=?
+                      WHERE project=? AND session=? AND id=?''',
+                   (*residual, project, session, row['id']))
+
+
 def ingest(payload, profile=None, now=None, cwd=None):
     now = time.time() if now is None else now
     project = project_id(cwd)
@@ -142,6 +169,7 @@ def ingest(payload, profile=None, now=None, cwd=None):
             if not active or active['activation'] != activation:
                 db.execute('INSERT OR REPLACE INTO active VALUES (?, ?, ?, ?, ?, ?)',
                            (project, owner, session, activation, now, previous))
+        changed_groups = set()
         for entry in payload.get('entries', []):
             counts = [entry.get(field) for field in ('input', 'output', 'cacheRead', 'cacheWrite', 'total')]
             if not all(type(value) is int and 0 <= value <= 2**53 - 1 for value in counts):
@@ -154,12 +182,43 @@ def ingest(payload, profile=None, now=None, cwd=None):
             thinking_level = entry.get('thinkingLevel') or 'unknown'
             if not isinstance(thinking_level, str) or not thinking_level.strip() or '\x00' in thinking_level:
                 raise ValueError('Invalid session thinking level.')
+            group = entry.get('taskGroup')
+            aggregate = entry.get('taskAggregate', False)
+            if ('taskGroup' in entry and
+                    (not isinstance(group, str) or not group.strip() or '\x00' in group)):
+                raise ValueError('Invalid session task group.')
+            if type(aggregate) is not bool or (aggregate and group is None):
+                raise ValueError('Invalid session task aggregate.')
             db.execute('''INSERT OR IGNORE INTO tokens
                           (project, id, session, at, provider, model, thinking_level,
                            input, output, cache_read, cache_write, total)
                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                        (project, entry['id'], session, entry['at'], entry['provider'], entry['model'],
                         thinking_level, *counts))
+            if group is not None:
+                stored = db.execute('''SELECT session, input, output, cache_read, cache_write, total
+                                       FROM tokens WHERE project=? AND id=?''',
+                                    (project, entry['id'])).fetchone()
+                # Forked/replayed IDs belong to their first session, never the incoming group.
+                if stored['session'] != session:
+                    continue
+                # Preserve the first durable report, not potentially changed replay counts.
+                originals = tuple(stored)[1:] if aggregate else (None,) * 5
+                inserted = db.execute('''INSERT OR IGNORE INTO task_tokens
+                                         (project, id, session, task_group, task_aggregate,
+                                          input, output, cache_read, cache_write, total)
+                                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                                      (project, entry['id'], session, group, aggregate, *originals))
+                if inserted.rowcount:
+                    changed_groups.add(group)
+                else:
+                    membership = db.execute('''SELECT session, task_group, task_aggregate
+                                               FROM task_tokens WHERE project=? AND id=?''',
+                                            (project, entry['id'])).fetchone()
+                    if tuple(membership) != (session, group, aggregate):
+                        raise ValueError('Conflicting session task membership.')
+        for group in changed_groups:
+            _reconcile_task(db, project, session, group)
         db.execute('UPDATE sessions SET updated=? WHERE project=? AND id=?', (now, project, session))
         if payload.get('action') == 'stop':
             # Retain the last session pointer for the next startup, but reject late polls.
@@ -210,6 +269,11 @@ def record_quota(profile, owner, activation, samples, cwd=None):
 def summary(profile=None, owner=None, now=None, minutes=20, cwd=None):
     now = time.time() if now is None else now
     project = project_id(cwd)
+    # Keep legitimate zero native requests; only fully covered task aggregates are hidden.
+    visible = '''(input != 0 OR output != 0 OR cache_read != 0 OR cache_write != 0 OR total != 0
+                  OR NOT EXISTS (SELECT 1 FROM task_tokens AS g
+                                 WHERE g.project=tokens.project AND g.session=tokens.session
+                                   AND g.id=tokens.id AND g.task_aggregate=1))'''
     with database(profile, cwd) as db:
         active = db.execute('SELECT * FROM active WHERE project=? AND owner=?',
                             (project, owner_key(owner))).fetchone()
@@ -231,16 +295,16 @@ def summary(profile=None, owner=None, now=None, minutes=20, cwd=None):
                                  (project, identity)).fetchone()
             if not session:
                 continue
-            models = [dict(row) for row in db.execute('''SELECT provider, model, thinking_level,
+            models = [dict(row) for row in db.execute(f'''SELECT provider, model, thinking_level,
                       SUM(input) AS input, SUM(output) AS output, SUM(cache_read) AS cache_read,
                       SUM(cache_write) AS cache_write, SUM(total) AS total
-                      FROM tokens WHERE project=? AND session=?
+                      FROM tokens WHERE project=? AND session=? AND {visible}
                       GROUP BY provider, model, thinking_level ORDER BY provider, model, thinking_level''',
                                                      (project, identity))]
-            model_summaries = [dict(row) for row in db.execute('''SELECT provider, model,
+            model_summaries = [dict(row) for row in db.execute(f'''SELECT provider, model,
                       SUM(input) AS input, SUM(output) AS output, SUM(cache_read) AS cache_read,
                       SUM(cache_write) AS cache_write, SUM(total) AS total
-                      FROM tokens WHERE project=? AND session=?
+                      FROM tokens WHERE project=? AND session=? AND {visible}
                       GROUP BY provider, model ORDER BY provider, model''',
                                                                (project, identity))]
             providers = {}
@@ -266,25 +330,25 @@ def summary(profile=None, owner=None, now=None, minutes=20, cwd=None):
         result['history'] = [dict(row) for row in db.execute(
             'SELECT provider, model, thinking_level, SUM(input) AS input, SUM(output) AS output, '
             'SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write, SUM(total) AS total '
-            'FROM tokens WHERE project=? AND session != ? GROUP BY provider, model, thinking_level '
+            f'FROM tokens WHERE project=? AND session != ? AND {visible} GROUP BY provider, model, thinking_level '
             'ORDER BY provider, model, thinking_level',
             (project, current or ''))]
         result['history_summaries'] = [dict(row) for row in db.execute(
             'SELECT provider, model, SUM(input) AS input, SUM(output) AS output, '
             'SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write, SUM(total) AS total '
-            'FROM tokens WHERE project=? AND session != ? GROUP BY provider, model '
+            f'FROM tokens WHERE project=? AND session != ? AND {visible} GROUP BY provider, model '
             'ORDER BY provider, model',
             (project, current or ''))]
         result['total_history'] = [dict(row) for row in db.execute(
             'SELECT provider, model, thinking_level, SUM(input) AS input, SUM(output) AS output, '
             'SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write, SUM(total) AS total '
-            'FROM tokens WHERE project=? GROUP BY provider, model, thinking_level '
+            f'FROM tokens WHERE project=? AND {visible} GROUP BY provider, model, thinking_level '
             'ORDER BY provider, model, thinking_level',
             (project,))]
         result['total_history_summaries'] = [dict(row) for row in db.execute(
             'SELECT provider, model, SUM(input) AS input, SUM(output) AS output, '
             'SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write, SUM(total) AS total '
-            'FROM tokens WHERE project=? GROUP BY provider, model ORDER BY provider, model',
+            f'FROM tokens WHERE project=? AND {visible} GROUP BY provider, model ORDER BY provider, model',
             (project,))]
         return result
 
