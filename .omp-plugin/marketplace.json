@@ -10,11 +10,11 @@
     {
       "name": "oh-my-pi-usage-dashboard",
       "description": "Persistent provider account-usage sidebar with ordinary omp shell integration",
-      "version": "1.0.34",
+      "version": "1.0.35",
       "source": {
         "source": "github",
         "repo": "MSpiechowicz/oh-my-pi-usage-dashboard",
-        "ref": "v1.0.34"
+        "ref": "v1.0.35"
       },
       "homepage": "https://github.com/MSpiechowicz/oh-my-pi-usage-dashboard"
     }
