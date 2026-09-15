@@ -4,11 +4,11 @@ Live token charts, persistent session history, and provider allowances in a tmux
 
 See how quickly your current session is using tokens, what your previous session consumed, and how much account allowance remains—without leaving the terminal. Token usage stays attributed to the provider and model that handled each request, even when you switch models. Session history and dashboard preferences persist across restarts.
 
-[Install](#installation) · [Use](#usage) · [Update](#updating) · [Uninstall](#uninstalling) · [Troubleshoot](#troubleshooting)
+[Install](#installation) · [Use](#usage) · [Themes](#theme-preview) · [Update](#updating) · [Uninstall](#uninstalling) · [Troubleshoot](#troubleshooting)
 
-[![Compact and Details dashboard views showing populated token-rate charts, current and previous session totals, per-model token and cache breakdowns, observed quota changes, and provider allowances](docs/assets/dashboard.png)](docs/assets/dashboard.png)
+[![Green Compact and blue Details mockups showing token charts, session and project totals, thinking-level and cache breakdowns, allowance colors, and the command box](docs/assets/dashboard.png)](docs/assets/dashboard.png)
 
-*Compact (left) and Details (right), arranged side by side for comparison. Rendered from actual curses/tmux captures using **mock usage data**, not live account readings. No real conversation content, credentials, or account identifiers are included. Click to enlarge.*
+*Green Compact (left) and blue Details (right), arranged side by side at expanded widths for comparison. Mockups generated from the current dashboard row-rendering functions with **synthetic usage data** and an illustrative terminal palette—not live account readings or terminal captures. Details continues below the visible area by scrolling. No real conversation content, credentials, or account identifiers are included. Click to enlarge.*
 
 Use `/usage-dashboard view compact` for the overview, or `/usage-dashboard view details` for per-model accounting and sample information.
 
@@ -20,7 +20,7 @@ Use `/usage-dashboard view compact` for the overview, or `/usage-dashboard view 
 - **Observed quota changes:** separate comparisons for each account and allowance window, in percentage points. Rows appear only when comparable samples exist; these are observations, not exact session billing.
 - **Account allowances and balances:** remaining percentages, reset times, and reported API credit balances where supported. Multiple providers can be monitored independently of the current conversation model.
 - **A quieter sidebar:** aligned values, section dividers, and spacing; no pending-sample rows or redundant single-provider totals in Compact mode. Detailed explanations stay in Details.
-- **Persistent local state:** project-scoped session history plus profile-global totals, and saved provider selection, hidden rows, position, density, polling interval, visibility, and theme tokens.
+- **Persistent local state:** project-scoped session history stored per OMP profile, and saved provider selection, hidden rows, position, density, polling interval, visibility, and theme tokens.
 - **Design-token theming:** choose green, blue, brown, yellow, cyan, magenta, orange, or red palettes. Secondary rules and chart axes use each theme's darker secondary token; chart bars use the chart token; healthy, warning, and critical values stay green, orange, and red for clear allowance semantics.
 - **Native managed updates:** release checks and upgrades through OMP's marketplace manager.
 
@@ -168,7 +168,7 @@ The menu has six sections. Use the **Left Arrow** to return to the section list,
 
 | Section | Purpose | Example |
 | --- | --- | --- |
-| **View** | Inspect settings or switch between provider and model-level display | `/usage-dashboard view details` |
+| **View** | Switch between provider and model-level display; use `view list` directly to inspect settings | `/usage-dashboard view details` |
 | **Position** | Move the sidebar left or right | `/usage-dashboard position left` |
 | **Theme** | Choose a named palette or customize individual color tokens | `/usage-dashboard theme blue` |
 | **Providers** | Add, remove, hide, or restore provider views | `/usage-dashboard providers add claude` |
@@ -194,6 +194,23 @@ The menu has six sections. Use the **Left Arrow** to return to the section list,
 - `/usage-dashboard providers remove codex` removes that view and its saved filters. It does not log you out of OMP.
 
 Window filters are case-insensitive substrings of provider usage-window labels or IDs, **not tmux windows**.
+
+### Theme preview
+
+[![All eight built-in palettes: green, blue, brown, yellow, cyan, magenta, orange, and red, with matching chart samples and stable green, orange, and red allowance indicators](docs/assets/themes.png)](docs/assets/themes.png)
+
+*Mock-data excerpts generated from the current chart, heading, and allowance renderers. Each palette uses the same values so you can compare accents, darker rules, and chart colors. Exact shades and dimming depend on your terminal palette and color support. Click to enlarge.*
+
+Choose a palette from `/usage-dashboard theme`, or enter a command directly:
+
+```text
+/usage-dashboard theme cyan
+/usage-dashboard theme custom accent #58a66a
+/usage-dashboard theme custom chart #58a66a
+/usage-dashboard theme reset
+```
+
+`accent` changes section headings; `chart` changes the bars; `secondary` changes rules and axes. Built-in palettes keep body text neutral and allowance colors semantic: green for healthy, orange at 40% remaining or below (or a reported warning/unknown status), and red at 20% or below (or exhausted). Custom overrides can change those tokens too. `reset` restores green and clears all overrides. Preferences persist across launches.
 
 <details>
 <summary>Complete command reference</summary>
@@ -299,7 +316,7 @@ Use `omp --profile NAME` to select a profile. Keep a custom `PI_CODING_AGENT_DIR
 
 Changes affect the current dashboard and subsequent launches, not other already-running panes. Preferences use locked, atomic updates; malformed settings produce an error rather than being silently reset. Release-check metadata is stored separately in `usage-dashboard-update.json` beside the preferences file.
 
-The named palettes are built from design tokens: `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default; blue, brown, yellow, cyan, magenta, orange, and red provide additional accent choices for the primary text, headings, darker secondary rules, and chart color. Muted text stays neutral and uses terminal dimming. Allowance semantics remain stable: healthy is green, warning is orange, and critical is red. Brown and orange use the closest available terminal color when 256-color output is unavailable. Custom token values override one token on the selected palette and accept the basic terminal color names, `gray`, `brown`, `orange`, or a six-digit hexadecimal value. Use the `custom` menu option to enter a token and color, such as `accent #58a66a`; repeat it for additional tokens, or use `reset` to restore green and remove overrides.
+The named palettes are built from design tokens: `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default; blue, brown, yellow, cyan, magenta, orange, and red change headings, darker secondary rules, and chart color—not the neutral body text. See the [theme preview](#theme-preview) for all eight palettes. Muted text stays neutral and uses terminal dimming. Built-in allowance semantics remain stable: healthy is green, warning is orange, and critical is red. Brown and orange use the closest available terminal color when 256-color output is unavailable. Custom token values override one token on the selected palette and accept the basic terminal color names, `gray`, `brown`, `orange`, or a six-digit hexadecimal value. Use the `custom` menu option to enter a token and color, such as `accent #58a66a`; repeat it for additional tokens, or use `reset` to restore green and remove overrides.
 
 Session accounting is stored in **`usage-dashboard.sqlite3`** beside the preferences file, separately for each profile and project scope. It is created with owner-only permissions and updated transactionally as usage arrives, not just at shutdown. It stores hashed project scopes, session/request identifiers, timestamps, provider/model/thinking-level identities, numeric token counters, and quota observation summaries with hashed account/window identities. It does not copy prompts, responses, tool output, credentials, raw account IDs, or raw project paths. A crash can lose usage not yet reported or saved, but does not erase already committed session history. Uninstalling the integration leaves this history intact.
 
