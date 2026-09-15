@@ -4,6 +4,8 @@ Live token charts, persistent session history, and provider allowances in a tmux
 
 See how quickly your current session is using tokens, what your previous session consumed, and how much account allowance remains—without leaving the terminal. Token usage stays attributed to the provider and model that handled each request, even when you switch models. Session history and dashboard preferences persist across restarts.
 
+**Your recorded usage history stays on your machine.** Session token records and observed quota changes are saved in a local SQLite database, not a hosted dashboard service. Settings are saved separately in local JSON files. See [Settings and privacy](#settings-and-privacy) for file locations and exactly what is stored.
+
 [Install](#installation) · [Use](#usage) · [Themes](#theme-preview) · [Update](#updating) · [Uninstall](#uninstalling) · [Troubleshoot](#troubleshooting)
 
 [![Green Compact and blue Details mockups showing token charts, session and project totals, thinking-level and cache breakdowns, allowance colors, and the command box](docs/assets/dashboard.png)](docs/assets/dashboard.png)
@@ -20,7 +22,7 @@ Use `/usage-dashboard view compact` for the overview, or `/usage-dashboard view 
 - **Observed quota changes:** separate comparisons for each account and allowance window, in percentage points. Rows appear only when comparable samples exist; these are observations, not exact session billing.
 - **Account allowances and balances:** remaining percentages, reset times, and reported API credit balances where supported. Multiple providers can be monitored independently of the current conversation model.
 - **A quieter sidebar:** aligned values, section dividers, and spacing; no pending-sample rows or redundant single-provider totals in Compact mode. Detailed explanations stay in Details.
-- **Persistent local state:** project-scoped session history stored per OMP profile, and saved provider selection, hidden rows, position, density, polling interval, visibility, and theme tokens.
+- **Local storage:** recorded session usage and quota observations live in a SQLite database on your machine, scoped by project within each OMP profile. Provider selection, hidden rows, position, density, polling interval, visibility, and theme tokens persist in a separate local JSON file.
 - **Design-token theming:** choose green, blue, brown, yellow, cyan, magenta, orange, or red palettes. Secondary rules and chart axes use each theme's darker secondary token; chart bars use the chart token; healthy, warning, and critical values stay green, orange, and red for clear allowance semantics.
 - **Native managed updates:** release checks and upgrades through OMP's marketplace manager.
 
@@ -304,6 +306,26 @@ Other provider IDs are accepted when OMP can supply a compatible report. Live cr
 
 ## Settings and privacy
 
+**The dashboard stores its recorded usage history locally on the machine running OMP.** It does not upload that history to a dashboard server or synchronize it between machines. Provider usage polling and GitHub release checks still require network requests; local storage does not mean the dashboard operates entirely offline.
+
+### Local usage database
+
+Session token records and observed account-quota changes are stored in **`usage-dashboard.sqlite3`**, a local SQLite database. There is one database per OMP profile, with project-scoped records inside it—not a separate database file for every project.
+
+| Configuration | Usage database |
+| --- | --- |
+| Default | `~/.omp/agent/usage-dashboard.sqlite3` |
+| Custom default agent directory | `$PI_CODING_AGENT_DIR/usage-dashboard.sqlite3` |
+| Named profile | `~/.omp/profiles/NAME/agent/usage-dashboard.sqlite3` |
+
+The database is created with owner-only permissions and updated transactionally as usage arrives, not just at shutdown. It stores hashed project scopes, session/request identifiers, timestamps, provider/model/thinking-level identities, numeric token counters, and quota observation summaries with hashed account/window identities. Charts and session/project totals are derived from those local records.
+
+It does **not** store prompts, responses, tool output, credentials, raw account IDs, or raw project paths. A crash can lose usage not yet reported or saved, but does not erase already committed session history. Uninstalling the integration leaves this database intact.
+
+### Local settings files
+
+Preferences and release-check metadata also stay on your machine, but are stored in **JSON files, not inside the usage database**.
+
 Provider order, hidden providers, window filters, position, display mode, polling interval, on/off state, and theme tokens are saved per profile:
 
 | Configuration | Preferences file |
@@ -317,8 +339,6 @@ Use `omp --profile NAME` to select a profile. Keep a custom `PI_CODING_AGENT_DIR
 Changes affect the current dashboard and subsequent launches, not other already-running panes. Preferences use locked, atomic updates; malformed settings produce an error rather than being silently reset. Release-check metadata is stored separately in `usage-dashboard-update.json` beside the preferences file.
 
 The named palettes are built from design tokens: `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default; blue, brown, yellow, cyan, magenta, orange, and red change headings, darker secondary rules, and chart color—not the neutral body text. See the [theme preview](#theme-preview) for all eight palettes. Muted text stays neutral and uses terminal dimming. Built-in allowance semantics remain stable: healthy is green, warning is orange, and critical is red. Brown and orange use the closest available terminal color when 256-color output is unavailable. Custom token values override one token on the selected palette and accept the basic terminal color names, `gray`, `brown`, `orange`, or a six-digit hexadecimal value. Use the `custom` menu option to enter a token and color, such as `accent #58a66a`; repeat it for additional tokens, or use `reset` to restore green and remove overrides.
-
-Session accounting is stored in **`usage-dashboard.sqlite3`** beside the preferences file, separately for each profile and project scope. It is created with owner-only permissions and updated transactionally as usage arrives, not just at shutdown. It stores hashed project scopes, session/request identifiers, timestamps, provider/model/thinking-level identities, numeric token counters, and quota observation summaries with hashed account/window identities. It does not copy prompts, responses, tool output, credentials, raw account IDs, or raw project paths. A crash can lose usage not yet reported or saved, but does not erase already committed session history. Uninstalling the integration leaves this history intact.
 
 **Do not paste API keys or tokens into dashboard commands.** The dashboard uses OMP authentication, does not store credentials in its preference files, and does not render account emails or account/credential IDs. DeepSeek's fallback obtains its credential from OMP and uses it in the provider-fetch process. Release checks contact the public GitHub API without provider credentials.
 
