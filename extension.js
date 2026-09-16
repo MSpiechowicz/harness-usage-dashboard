@@ -59,7 +59,7 @@ function capitalizeLabel(label) {
 async function menuSelect(ctx, title, options, { nested = false } = {}) {
   const choices = options.map(option => typeof option === "string"
     ? { value: option, label: option }
-    : option);
+    : option).sort((a, b) => a.label.localeCompare(b.label));
   const labels = choices.map(choice => capitalizeLabel(choice.label));
   let wentBack = false;
   const dialogOptions = nested

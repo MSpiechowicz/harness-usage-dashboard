@@ -460,7 +460,7 @@ test("command menu uses native bordered selectors and left arrow navigation", as
   await command.handler("", ctx);
   assert.deepEqual(execArgs.slice(-3), ["--", "view", "details"]);
   assert.deepEqual(calls.slice(0, 2).map(({ title, options }) => ({ title, options })), [
-    { title: "Usage Dashboard", options: ["View", "Position", "Providers", "Theme", "Window", "Update"] },
+    { title: "Usage Dashboard", options: ["Position", "Providers", "Theme", "Update", "View", "Window"] },
     { title: "Usage Dashboard / View", options: ["Compact", "Details"] },
   ]);
   assert.equal(calls[0].dialogOptions, undefined);
@@ -503,6 +503,8 @@ test("theme menu preserves palette descriptions with native selectors", async ()
 
   await command.handler("theme", ctx);
   const themeOptions = calls[0].options;
+  assert.deepEqual(themeOptions.map(option => option.split(/\s/)[0]),
+    ["Blue", "Brown", "Custom", "Cyan", "Green", "Magenta", "Orange", "Red", "Reset", "Yellow"]);
   assert.match(themeOptions.find(option => option.startsWith("Cyan")), /clear cyan accent/);
   assert.match(themeOptions.find(option => option.startsWith("Magenta")), /bold magenta accent/);
   assert.match(themeOptions.find(option => option.startsWith("Custom")), /override individual colors/);
