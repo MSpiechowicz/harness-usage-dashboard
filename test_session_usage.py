@@ -1,4 +1,5 @@
 """Durable accounting boundaries, without credentials or provider requests."""
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import sqlite3
@@ -34,6 +35,40 @@ class SessionAccountingTests(unittest.TestCase):
     def sample(self, at, used, reset=1000, account='account-one'):
         return {'at': at, 'used': used, 'reset': reset, 'provider': 'openai-codex',
                 'label': 'Weekly', 'identity': ['openai-codex', account, 'weekly']}
+
+    def test_refresh_uses_one_snapshot_while_usage_arrives(self):
+        self.save(entries=[self.entry('earlier', at=65, total=370_000)])
+        with database() as db:
+            db.execute('PRAGMA journal_mode=WAL')
+
+        arrived = False
+
+        @contextmanager
+        def concurrent_database(profile=None, cwd=None):
+            nonlocal arrived
+            with database(profile, cwd) as db:
+                def receive_usage(statement):
+                    nonlocal arrived
+                    if not arrived and 'SELECT provider, model,' in statement and 'thinking_level' not in statement:
+                        arrived = True
+                        self.save(action='sync',
+                                  entries=[self.entry('incoming', at=125, total=17_000)],
+                                  now=130)
+                db.set_trace_callback(receive_usage)
+                yield db
+
+        with patch('session_usage.database', concurrent_database):
+            report = summary(now=150, minutes=3)
+        self.assertTrue(arrived)
+        self.assertEqual(report['current']['providers'][0]['total'], 370_000)
+        self.assertEqual(report['current']['model_summaries'][0]['total'], 370_000)
+        self.assertEqual(sum(row['total'] for row in report['total_history']), 370_000)
+        self.assertEqual(report['chart'], [0, 370_000, 0])
+
+        report = summary(now=150, minutes=3)
+        self.assertEqual(report['current']['providers'][0]['total'], 387_000)
+        self.assertEqual(sum(row['total'] for row in report['total_history']), 387_000)
+        self.assertEqual(report['chart'], [0, 370_000, 17_000])
 
     def test_task_aggregate_reconciles_in_either_order_and_survives_replay(self):
         for child_first in (False, True):
@@ -150,6 +185,13 @@ class SessionAccountingTests(unittest.TestCase):
         self.assertEqual(format_tokens(1_000), '1k')
         self.assertEqual(format_tokens(12_345), '12.3k')
         self.assertEqual(format_tokens(1_234_567), '1.23M')
+
+    def test_compact_totals_preserve_significant_integer_zeroes(self):
+        self.assertEqual(
+            [format_tokens(value) for value in (169_000, 170_000, 171_000)],
+            ['169k', '170k', '171k'],
+        )
+        self.assertEqual(format_tokens(99_999), '100k')
 
 
     def test_resets_and_resume_gaps_are_not_subtracted_or_charged(self):

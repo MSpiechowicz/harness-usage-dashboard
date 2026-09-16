@@ -414,7 +414,8 @@ def format_tokens(value):
                 text = f'{scaled:.1f}'
             else:
                 text = f'{scaled:.2f}'
-            text = text.rstrip('0').rstrip('.')
+            if '.' in text:
+                text = text.rstrip('0').rstrip('.')
             if text == '1000' and suffix != 'T':
                 continue
             return text + suffix
