@@ -76,7 +76,7 @@ async function menuSelect(ctx, title, options, { nested = false } = {}) {
 }
 
 export default function usageDashboard(pi) {
-  pi.setLabel("Usage dashboard");
+  pi.setLabel("Usage Dashboard");
   let recording;
   let pending = Promise.resolve();
   const writes = new Set();
@@ -300,7 +300,7 @@ export default function usageDashboard(pi) {
           result.code === 0 ? "info" : "error");
       }
     } catch (error) {
-      ctx.ui.notify(`Usage dashboard: ${error.message}`, "error");
+      ctx.ui.notify(`Usage Dashboard: ${error.message}`, "error");
     }
   }
 
@@ -322,12 +322,12 @@ export default function usageDashboard(pi) {
       if (report.updated) {
         ctx.ui.notify(report.message || `Dashboard updated to ${report.currentVersion}. Restart OMP to load it.`, "info");
       } else if (report.updateAvailable) {
-        ctx.ui.notify("Usage dashboard update available. Run `/usage-dashboard update install` to update it.", "warning");
+        ctx.ui.notify("Usage Dashboard update available. Run `/usage-dashboard update install` to update it.", "warning");
       } else if (!quiet) {
-        ctx.ui.notify(`Usage dashboard ${report.currentVersion}: ${report.message || "No newer release available."}`, "info");
+        ctx.ui.notify(`Usage Dashboard ${report.currentVersion}: ${report.message || "No newer release available."}`, "info");
       }
     } catch (error) {
-      if (!quiet) ctx.ui.notify(`Usage dashboard update: ${error.message}`, "error");
+      if (!quiet) ctx.ui.notify(`Usage Dashboard update: ${error.message}`, "error");
     }
   }
 
@@ -376,7 +376,7 @@ export default function usageDashboard(pi) {
       while (true) {
         while (words.length < 2) {
           if (words.length === 0) {
-            const section = await menuSelect(ctx, "Usage dashboard", Object.keys(menuSections));
+            const section = await menuSelect(ctx, "Usage Dashboard", Object.keys(menuSections));
             if (!section || section === MENU_BACK) return;
             words.push(section);
           }
@@ -385,7 +385,7 @@ export default function usageDashboard(pi) {
             return;
           }
           const options = words[0] === "theme" ? themeOptions : menuSections[words[0]];
-          const action = await menuSelect(ctx, `Usage dashboard / ${capitalizeLabel(words[0])}`, options, { nested: true });
+          const action = await menuSelect(ctx, `Usage Dashboard / ${capitalizeLabel(words[0])}`, options, { nested: true });
           if (!action) return;
           if (action === MENU_BACK) {
             words.length = 0;

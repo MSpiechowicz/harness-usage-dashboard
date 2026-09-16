@@ -51,7 +51,7 @@ print(json.dumps(updater.check(cached='--cached' in sys.argv)))
     assert.deepEqual(notices, [], "startup must return before the background check");
     for (const callback of scheduled) await callback();
     assert.equal(notices.length, 1);
-    assert.equal(notices[0].message, "Usage dashboard update available. Run `/usage-dashboard update install` to update it.");
+    assert.equal(notices[0].message, "Usage Dashboard update available. Run `/usage-dashboard update install` to update it.");
     assert.equal(notices[0].level, "warning");
   } finally {
     for (const key of keys) {
@@ -460,8 +460,8 @@ test("command menu uses native bordered selectors and left arrow navigation", as
   await command.handler("", ctx);
   assert.deepEqual(execArgs.slice(-3), ["--", "view", "details"]);
   assert.deepEqual(calls.slice(0, 2).map(({ title, options }) => ({ title, options })), [
-    { title: "Usage dashboard", options: ["View", "Position", "Providers", "Theme", "Window", "Update"] },
-    { title: "Usage dashboard / View", options: ["Compact", "Details"] },
+    { title: "Usage Dashboard", options: ["View", "Position", "Providers", "Theme", "Window", "Update"] },
+    { title: "Usage Dashboard / View", options: ["Compact", "Details"] },
   ]);
   assert.equal(calls[0].dialogOptions, undefined);
   assert.equal(typeof calls[1].dialogOptions.onLeft, "function");
