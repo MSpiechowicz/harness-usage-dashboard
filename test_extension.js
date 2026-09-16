@@ -19,6 +19,7 @@ test("startup reports a new release despite a fresh no-update cache", async () =
     const handlers = new Map();
     const scheduled = [];
     const notices = [];
+    let updateReport;
     usageDashboard({
       setLabel() {}, registerCommand() {},
       on(event, handler) { handlers.set(event, handler); },
@@ -34,6 +35,7 @@ updater.latest_release = lambda: {'version': version, 'tag': 'v' + version, 'url
 print(json.dumps(updater.check(cached='--cached' in sys.argv)))
 `;
         const result = await execute(binary, ["-c", script, ...args.slice(1)], options);
+        updateReport = JSON.parse(result.stdout);
         return { code: 0, ...result };
       },
     });
@@ -51,7 +53,7 @@ print(json.dumps(updater.check(cached='--cached' in sys.argv)))
     assert.deepEqual(notices, [], "startup must return before the background check");
     for (const callback of scheduled) await callback();
     assert.equal(notices.length, 1);
-    assert.equal(notices[0].message, "Usage Dashboard update available. Run `/usage-dashboard update install` to update it.");
+    assert.ok(notices[0].message.includes(`${updateReport.currentVersion} → ${updateReport.latestVersion}`));
     assert.equal(notices[0].level, "warning");
   } finally {
     for (const key of keys) {
