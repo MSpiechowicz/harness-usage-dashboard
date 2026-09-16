@@ -275,6 +275,9 @@ def summary(profile=None, owner=None, now=None, minutes=20, cwd=None):
                                  WHERE g.project=tokens.project AND g.session=tokens.session
                                    AND g.id=tokens.id AND g.task_aggregate=1))'''
     with database(profile, cwd) as db:
+        # sqlite3's connection context only starts transactions for writes.
+        # Pin every section to the same snapshot while new usage is committed.
+        db.execute('BEGIN')
         active = db.execute('SELECT * FROM active WHERE project=? AND owner=?',
                             (project, owner_key(owner))).fetchone()
         current = active['session'] if active and active['activation'] else None
