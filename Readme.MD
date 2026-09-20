@@ -52,7 +52,7 @@ Use `/usage-dashboard view compact` for the overview, or `/usage-dashboard view 
 | Automatic shell integration | Available for bash, zsh, and fish; separate from your choice of terminal application. |
 | Terminal width | At least 96 columns to open the 34-column sidebar. |
 
-**Terminal-agnostic; tmux-backed.** Use your preferred terminal application. The dashboard uses tmux and curses rather than a terminal-specific API or plugin. tmux is required, but you do not need to start it manually: the installed shell hook starts a session or attaches the dashboard inside an existing one. OMP's binary and renderer are not patched.
+**Terminal-agnostic; tmux-backed.** Use your preferred terminal application. The dashboard uses tmux and curses rather than a terminal-specific API or plugin. tmux is required, but you do not need to start it manually: the installed shell hook starts a session or attaches the dashboard inside an existing one. OMP's binary and renderer are not patched. Dashboard sessions disable tmux terminal-graphics passthrough because it is terminal-global rather than pane-local; this prevents image previews from covering the editor pane.
 
 <details>
 <summary>Install operating-system prerequisites</summary>
@@ -433,7 +433,7 @@ Repeat with the original `--agent-dir PATH` for custom agent directories. Use th
 | Values look old | Inspect `view details`, then request `window refresh`. The provider may still return cached data. |
 | Update says the installation is unmanaged | Use the source-checkout update instructions or migrate to marketplace installation. |
 | Marketplace installation cannot find a release tag | Check the Releases page and wait for a successful release workflow, or use the source-checkout method. |
-| Mouse selection behaves differently | tmux owns mouse input inside the session; try your terminal's selection override, often Shift. Inline graphics also depend on terminal/tmux support. |
+| Mouse selection behaves differently | tmux owns mouse input inside the session; try your terminal's selection override, often Shift. Dashboard sessions disable terminal-graphics passthrough so inline images cannot cover sibling panes. |
 
 For a temporary shell-launcher bypass, use `command omp`. Noninteractive invocations, help/version requests, and CLI subcommands pass through without opening a dashboard session. Inside an existing tmux session, a bypassed OMP can still load the extension; `window off` disables its sidebar.
 

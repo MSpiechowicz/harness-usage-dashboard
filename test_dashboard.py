@@ -6,7 +6,7 @@ import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
 from dashboard import (FetchJob, allowance_color, change_config, clean, command_box_rows,
-                       owned_panes, provider_lines, resolve_tokens,
+                       control, launch, owned_panes, provider_lines, resolve_tokens,
                        section_heading, session_lines, token_chart, watch)
 from preferences import DEFAULTS, THEME_NAMES
 
@@ -220,6 +220,51 @@ class PaneOwnershipTests(unittest.TestCase):
         self.assertEqual(owned_panes('%owner'), ['%1', '%3'])
         mux.assert_called_once_with('list-panes', '-a', '-F',
                                      '#{pane_id}\t#{@omp_usage_owner}')
+
+
+class PassthroughContainmentTests(unittest.TestCase):
+    @patch('dashboard.mux')
+    def test_existing_dashboard_disables_terminal_passthrough(self, mux):
+        config = dict(DEFAULTS, profile='default', refresh=0)
+        args = Namespace(owner='%1', profile='default', providers=None, side=None, interval=None)
+        with patch('builtins.print'), \
+             patch('dashboard.defaults', return_value=config), \
+             patch('dashboard.load_config', return_value=config), \
+             patch('dashboard.owned_panes', return_value=['%2']):
+            control(args, ['init'])
+
+        passthrough = [call.args for call in mux.call_args_list
+                       if 'allow-passthrough' in call.args]
+        self.assertEqual(len(passthrough), 1)
+        self.assertEqual(passthrough[0][-2:], ('allow-passthrough', 'off'))
+
+    @patch('dashboard.mux')
+    def test_detaching_dashboard_disables_terminal_passthrough(self, mux):
+        args = Namespace(owner='%1', profile='default', providers=None, side=None, interval=None)
+        with patch('dashboard.owned_panes', return_value=['%2']):
+            control(args, ['detach'])
+
+        passthrough = [call.args for call in mux.call_args_list
+                       if 'allow-passthrough' in call.args]
+        self.assertEqual(len(passthrough), 1)
+        self.assertEqual(passthrough[0][-2:], ('allow-passthrough', 'off'))
+
+    @patch('dashboard.os.execv', side_effect=RuntimeError('stop launch'))
+    @patch('dashboard.shutil.get_terminal_size', return_value=Namespace(columns=120, lines=40))
+    @patch('dashboard.tmux_binary', return_value='/tmux')
+    @patch('dashboard.mux')
+    def test_new_dashboard_disables_terminal_passthrough(self, mux, _tmux_binary,
+                                                         _terminal_size, _execv):
+        mux.return_value = '%1'
+        args = Namespace(profile=None, native=True)
+        with patch.dict('dashboard.os.environ', {'TMUX': ''}), \
+             self.assertRaisesRegex(RuntimeError, 'stop launch'):
+            launch(args, [])
+
+        passthrough = [call.args for call in mux.call_args_list
+                       if 'allow-passthrough' in call.args]
+        self.assertEqual(len(passthrough), 1)
+        self.assertEqual(passthrough[0][-2:], ('allow-passthrough', 'off'))
 
 
 class NestedCommandTests(unittest.TestCase):

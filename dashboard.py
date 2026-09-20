@@ -248,6 +248,11 @@ def owned_panes(owner):
     return [row.split('\t')[0] for row in rows if row.endswith('\t' + owner)]
 
 
+def disable_passthrough(target):
+    # Terminal graphics passthrough is not pane-local and can cover sibling panes.
+    mux('set-option', '-t', target, 'allow-passthrough', 'off')
+
+
 def change_config(config, words):
     if words == ['init']:
         return config
@@ -330,6 +335,7 @@ def control(args, words):
         raise ValueError('Invalid OMP pane identity.')
     if words == ['detach']:
         if owner:
+            disable_passthrough(owner)
             for pane in owned_panes(owner):
                 mux('kill-pane', '-t', pane)
             mux('set-option', '-p', '-u', '-t', owner, '@omp_usage_config')
@@ -351,6 +357,7 @@ def control(args, words):
     if words == ['view', 'list']:
         print(describe(config))
         return
+    disable_passthrough(owner)
     if words == ['window', 'focus'] and not config['enabled']:
         raise ValueError('Dashboard is off; use /usage-dashboard window on first.')
     panes = owned_panes(owner)
@@ -1056,7 +1063,7 @@ def launch(args, omp_args):
                 '-c', os.getcwd(), '-P', '-F', '#{pane_id}', shlex.join(command))
     try:
         mux('set-option', '-t', session, 'status', 'off')
-        mux('set-option', '-t', session, 'allow-passthrough', 'on')
+        disable_passthrough(session)
         args.owner = owner
         # Native discovery owns scope selection and initialization, including project overrides.
         if not native:
