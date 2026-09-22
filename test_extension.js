@@ -20,7 +20,7 @@ test("Commands menu and direct commands persist footer visibility without hiding
   delete environment.TMUX;
   delete environment.TMUX_PANE;
   let command;
-  const choices = ["Commands", "Hide"];
+  const choices = ["Section Visibility", "Commands", "Hide"];
   try {
     usageDashboard({
       setLabel() {}, on() {},
@@ -35,8 +35,13 @@ test("Commands menu and direct commands persist footer visibility without hiding
       hasUI: true, cwd: process.cwd(),
       ui: {
         theme,
-        async select(_title, options) {
+        async select(_title, options, dialogOptions) {
           const choice = choices.shift();
+          if (choice === "BACK") {
+            dialogOptions.onLeft();
+            return;
+          }
+          if (choice === undefined) return;
           assert.ok(options.includes(choice));
           return choice;
         },
@@ -56,6 +61,26 @@ test("Commands menu and direct commands persist footer visibility without hiding
     assert.equal((await settings()).commands_visible, false);
     await command.handler("view list", ctx);
     assert.match(notices.at(-1), /commands hidden/);
+    for (const section of ["previous", "history"]) {
+      choices.push("Section Visibility", section[0].toUpperCase() + section.slice(1), "Hide");
+      await command.handler("", ctx);
+      assert.equal((await settings())[`${section}_visible`], false);
+      assert.equal((await settings()).enabled, true);
+      await command.handler(`${section} show`, ctx);
+      assert.equal((await settings())[`${section}_visible`], true);
+      await command.handler(`${section} hide`, ctx);
+      assert.equal((await settings())[`${section}_visible`], false);
+    }
+    await command.handler("previous show", ctx);
+    assert.equal((await settings()).history_visible, false);
+    assert.equal((await settings()).commands_visible, false);
+    choices.push("Section Visibility", "BACK", "Section Visibility", "Previous", "BACK", "History", "Show");
+    await command.handler("", ctx);
+    assert.equal((await settings()).history_visible, true);
+    assert.equal((await settings()).previous_visible, true);
+    choices.push("Section Visibility", "History", undefined);
+    await command.handler("", ctx);
+    assert.equal((await settings()).history_visible, true);
   } finally {
     for (const key of keys) {
       if (saved[key] === undefined) delete process.env[key];

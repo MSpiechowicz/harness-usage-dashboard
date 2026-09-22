@@ -23,6 +23,8 @@ DEFAULTS = {
     'side': 'right',
     'compact': True,
     'commands_visible': True,
+    'previous_visible': True,
+    'history_visible': True,
     'interval': 60,
     'enabled': True,
     'theme': 'green',
@@ -101,7 +103,7 @@ def _validated(data):
             raise ValueError(f'Unknown dashboard token: {name}.')
         normalized_tokens[name] = normalize_color(color)
     result['tokens'] = normalized_tokens
-    for field in ('compact', 'enabled', 'commands_visible'):
+    for field in ('compact', 'enabled', 'commands_visible', 'previous_visible', 'history_visible'):
         if type(result[field]) is not bool:
             raise ValueError(f'Dashboard {field} must be a boolean.')
     if type(result['interval']) is not int or result['interval'] < 15:

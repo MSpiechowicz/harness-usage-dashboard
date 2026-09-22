@@ -173,12 +173,14 @@ Dashboard command results, help, warnings, and errors use a bold **Usage Dashboa
 | Section | Purpose | Example |
 | --- | --- | --- |
 | **View** | Switch between provider and model-level display; use `view list` directly to inspect settings | `/usage-dashboard view details` |
-| **Commands** | Hide or restore the sidebar's Commands footer | `/usage-dashboard commands hide` |
+| **Section Visibility** | Choose Commands, Previous, or History, then Hide or Show | `/usage-dashboard history hide` |
 | **Position** | Move the sidebar left or right | `/usage-dashboard position left` |
 | **Theme** | Choose a named palette or customize individual color tokens | `/usage-dashboard theme blue` |
 | **Providers** | Add, remove, hide, or restore provider views | `/usage-dashboard providers add claude` |
 | **Window** | Control the sidebar, polling, and usage-window filters | `/usage-dashboard window interval 60` |
 | **Update** | Check for or install a dashboard release | `/usage-dashboard update check` |
+
+**Section Visibility** controls each section independently in Compact and Details. All three are visible by default. Hiding Previous removes the previous-session section; hiding History removes both Other sessions and Project total. These settings only affect presentation: recording continues, stored usage is preserved, and Show restores the accumulated data.
 
 ### Common tasks
 
@@ -229,6 +231,10 @@ All commands below are entered inside OMP.
 | `/usage-dashboard view details` | Enable model-and-thinking-level rows for current/previous sessions and both history totals, including input/output and cache-read/write counts. |
 | `/usage-dashboard commands hide` | Hide the Commands footer and use its space for dashboard content. Keyboard shortcuts and scrolling remain available. |
 | `/usage-dashboard commands show` | Restore the Commands footer (visible by default). |
+| `/usage-dashboard previous hide` | Hide the Previous session section without changing recorded usage. |
+| `/usage-dashboard previous show` | Restore the Previous session section (visible by default when available). |
+| `/usage-dashboard history hide` | Hide History, including Other sessions and Project total. |
+| `/usage-dashboard history show` | Restore History (visible by default when available). |
 | `/usage-dashboard position left` | Place the sidebar on the left. |
 | `/usage-dashboard position right` | Place the sidebar on the right. |
 | `/usage-dashboard theme green|blue|brown|yellow|cyan|magenta|orange|red` | Choose the named design-token palette. |
@@ -335,7 +341,7 @@ It does **not** store prompts, responses, tool output, credentials, raw account 
 
 Preferences and release-check metadata also stay on your machine, but are stored in **JSON files, not inside the usage database**.
 
-Provider order, hidden providers, window filters, position, display mode, Commands footer visibility, polling interval, on/off state, and theme tokens are saved per profile:
+Provider order, hidden providers, window filters, position, display mode, Commands footer visibility, Previous session visibility, History visibility, polling interval, on/off state, and theme tokens are saved per profile:
 
 | Configuration | Preferences file |
 | --- | --- |
