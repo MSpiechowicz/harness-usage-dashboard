@@ -166,11 +166,12 @@ Inside OMP, enter:
 ```text
 /usage-dashboard
 ```
-The menu has six sections. Use the **Left Arrow** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/usage-dashboard providers`, opens its submenu.
+The menu has seven sections. Use the **Left Arrow** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/usage-dashboard providers`, opens its submenu.
 
 | Section | Purpose | Example |
 | --- | --- | --- |
 | **View** | Switch between provider and model-level display; use `view list` directly to inspect settings | `/usage-dashboard view details` |
+| **Commands** | Hide or restore the sidebar's Commands footer | `/usage-dashboard commands hide` |
 | **Position** | Move the sidebar left or right | `/usage-dashboard position left` |
 | **Theme** | Choose a named palette or customize individual color tokens | `/usage-dashboard theme blue` |
 | **Providers** | Add, remove, hide, or restore provider views | `/usage-dashboard providers add claude` |
@@ -224,6 +225,8 @@ All commands below are entered inside OMP.
 | `/usage-dashboard view list` | Show the current configuration. |
 | `/usage-dashboard view compact` | Show the token chart, concise session/provider totals, measured quota changes, and dense allowance rows. |
 | `/usage-dashboard view details` | Enable model-and-thinking-level rows for current/previous sessions and both history totals, including input/output and cache-read/write counts. |
+| `/usage-dashboard commands hide` | Hide the Commands footer and use its space for dashboard content. Keyboard shortcuts and scrolling remain available. |
+| `/usage-dashboard commands show` | Restore the Commands footer (visible by default). |
 | `/usage-dashboard position left` | Place the sidebar on the left. |
 | `/usage-dashboard position right` | Place the sidebar on the right. |
 | `/usage-dashboard theme green|blue|brown|yellow|cyan|magenta|orange|red` | Choose the named design-token palette. |
@@ -330,7 +333,7 @@ It does **not** store prompts, responses, tool output, credentials, raw account 
 
 Preferences and release-check metadata also stay on your machine, but are stored in **JSON files, not inside the usage database**.
 
-Provider order, hidden providers, window filters, position, display mode, polling interval, on/off state, and theme tokens are saved per profile:
+Provider order, hidden providers, window filters, position, display mode, Commands footer visibility, polling interval, on/off state, and theme tokens are saved per profile:
 
 | Configuration | Preferences file |
 | --- | --- |

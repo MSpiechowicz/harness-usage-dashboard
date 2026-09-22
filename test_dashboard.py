@@ -1,12 +1,15 @@
 """User-visible allowance semantics; no live provider calls."""
 from argparse import Namespace
 from copy import deepcopy
+from contextlib import ExitStack
+import curses
+import json
 import signal
 import subprocess
 import unittest
 from unittest.mock import MagicMock, patch
 from dashboard import (FetchJob, allowance_color, change_config, clean, command_box_rows,
-                       control, launch, owned_panes, provider_lines, resolve_tokens,
+                       control, launch, load_config, owned_panes, provider_lines, resolve_tokens,
                        section_heading, session_lines, token_chart, watch)
 from preferences import DEFAULTS, THEME_NAMES
 
@@ -136,6 +139,70 @@ class RemainingAllowanceTests(unittest.TestCase):
         self.assertIn('[Refresh] [Hide]', writes[footer_row + 2])
         self.assertIn('r Refresh | q Hide | Scroll', writes[footer_row + 3])
         self.assertTrue(writes[footer_row + 4].startswith('└'))
+
+class CommandsVisibilityTests(unittest.TestCase):
+    def test_old_live_config_inherits_new_preferences_without_losing_pane_settings(self):
+        fallback = dict(DEFAULTS, profile='default', refresh=0)
+        old = dict(fallback, compact=False)
+        del old['commands_visible']
+        with patch('dashboard.mux', return_value=json.dumps(old)):
+            config = load_config('%1', fallback)
+        self.assertTrue(config['commands_visible'])
+        change_config(config, ['commands', 'hide'])
+        self.assertFalse(config['commands_visible'])
+        self.assertFalse(config['compact'])
+        self.assertTrue(config['enabled'])
+        change_config(config, ['commands', 'show'])
+        self.assertTrue(config['commands_visible'])
+
+    def test_live_toggle_reclaims_space_and_clamps_scroll_offset(self):
+        config = dict(DEFAULTS, profile='default', refresh=0)
+        frames = []
+        screen = MagicMock()
+        screen.getmaxyx.return_value = (12, 40)
+        screen.refresh.side_effect = lambda: frames.append(
+            {call.args[0]: call.args[2] for call in screen.addnstr.call_args_list})
+        screen.erase.side_effect = screen.addnstr.reset_mock
+        screen.getch.side_effect = [curses.KEY_NPAGE, -1, -1, SystemExit]
+        updates = [config, config, dict(config, commands_visible=False), config]
+        args = Namespace(owner='%1', profile='default', providers=None, side=None, interval=None)
+        with ExitStack() as stack:
+            for name in ('curs_set', 'mousemask', 'mouseinterval'):
+                stack.enter_context(patch('dashboard.curses.' + name))
+            stack.enter_context(patch('dashboard.defaults', return_value=config))
+            stack.enter_context(patch('dashboard.initialize_colors', return_value={}))
+            stack.enter_context(patch('dashboard.mux', return_value='0'))
+            stack.enter_context(patch('dashboard.load_config', side_effect=updates))
+            stack.enter_context(patch('dashboard.time.monotonic', side_effect=[0, 1, 2, 3]))
+            stack.enter_context(patch('dashboard.session_summary', return_value={}))
+            stack.enter_context(patch('dashboard.session_lines',
+                                      side_effect=lambda *_: [(f'entry {i}', 'normal') for i in range(12)]))
+            with self.assertRaises(SystemExit):
+                watch(screen, args)
+        self.assertTrue(any('COMMANDS' in text for text in frames[0].values()))
+        self.assertFalse(any('COMMANDS' in text for text in frames[2].values()))
+        self.assertEqual(frames[2][10], 'Choose Add to select a provider.')
+        self.assertEqual(frames[2][0], 'entry 4')
+        self.assertTrue(any('COMMANDS' in text for text in frames[3].values()))
+
+    def test_hidden_footer_click_does_not_close_sidebar(self):
+        config = dict(DEFAULTS, commands_visible=False, profile='default', refresh=0)
+        screen = MagicMock()
+        screen.getmaxyx.return_value = (12, 40)
+        screen.getch.side_effect = [curses.KEY_MOUSE, SystemExit]
+        args = Namespace(owner=None, profile='default', providers=None, side=None, interval=None)
+        with ExitStack() as stack:
+            for name in ('curs_set', 'mousemask', 'mouseinterval'):
+                stack.enter_context(patch('dashboard.curses.' + name))
+            stack.enter_context(patch('dashboard.curses.getmouse',
+                                      return_value=(0, 14, 8, 0, curses.BUTTON1_CLICKED)))
+            stack.enter_context(patch('dashboard.defaults', return_value=config))
+            stack.enter_context(patch('dashboard.initialize_colors', return_value={}))
+            stack.enter_context(patch('dashboard.session_summary', return_value={}))
+            stack.enter_context(patch('dashboard.session_lines', return_value=[]))
+            with self.assertRaises(SystemExit):
+                watch(screen, args)
+
 
 class DashboardShutdownTests(unittest.TestCase):
     @patch('dashboard.os.killpg')

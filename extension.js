@@ -28,6 +28,7 @@ function saveSession(payload, profile, cwd, environment) {
 const popular = ["codex", "claude", "copilot", "grok", "xai-oauth", "deepseek", "gemini", "google-antigravity", "cursor", "kimi-code", "minimax-code", "openrouter"];
 const sections = {
   view: ["list", "compact", "details"],
+  commands: ["hide", "show"],
   position: ["left", "right"],
   providers: ["add", "remove", "hide", "show"],
   theme: ["green", "blue", "brown", "yellow", "cyan", "magenta", "orange", "red", "custom", "reset"],
@@ -46,7 +47,7 @@ const themeOptions = [
   { value: "custom", label: "custom  (override individual colors)" },
   { value: "reset", label: "reset   (restore green and remove custom colors)" },
 ];
-const help = "Sections: view (compact, details; list remains available as a command for showing settings); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, cyan, magenta, orange, red, custom TOKEN COLOR, reset); window (on, off, focus, refresh, interval, hide/show PROVIDER FILTER); update (check, install).";
+const help = "Sections: view (compact, details; list remains available as a command for showing settings); commands (hide, show); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, cyan, magenta, orange, red, custom TOKEN COLOR, reset); window (on, off, focus, refresh, interval, hide/show PROVIDER FILTER); update (check, install).";
 const menuSections = {...sections, view: ["compact", "details"]};
 const MENU_BACK = Symbol("menu-back");
 const MENU_HELP = "up/down navigate  enter select  ← back  esc cancel";
@@ -369,7 +370,7 @@ export default function usageDashboard(pi) {
     pi.on(event, async (_event, ctx) => { await record(ctx, "start"); });
   }
   pi.registerCommand("usage-dashboard", {
-    description: "Manage usage dashboard: view, position, providers, theme, window, and updates",
+    description: "Manage usage dashboard: view, commands, position, providers, theme, window, and updates",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const words = args.trim().split(/\s+/).filter(Boolean);

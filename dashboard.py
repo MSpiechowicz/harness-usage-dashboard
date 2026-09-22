@@ -72,6 +72,7 @@ _BASIC_RGB = {
 }
 COMMANDS = {
     'view': ('list', 'compact', 'details'),
+    'commands': ('hide', 'show'),
     'position': ('left', 'right'),
     'providers': ('add', 'remove', 'hide', 'show'),
     'theme': (*THEME_NAMES, 'custom', 'reset'),
@@ -81,7 +82,7 @@ THEME_OPTIONS = '|'.join(THEME_NAMES)
 HELP = (f'/usage-dashboard: view list|compact|details; position left|right; '
         f'providers add|remove|hide|show PROVIDER; theme {THEME_OPTIONS}; '
         'theme custom TOKEN COLOR; theme reset; window on|off|focus|refresh; '
-        'window interval SECONDS; window hide|show PROVIDER FILTER')
+        'window interval SECONDS; window hide|show PROVIDER FILTER; commands hide|show')
 
 
 def resolve_tokens(config):
@@ -240,7 +241,7 @@ def defaults(args):
 
 def load_config(owner, fallback):
     raw = mux('show-options', '-p', '-v', '-q', '-t', owner, '@omp_usage_config')
-    return json.loads(raw) if raw else fallback
+    return {**fallback, **json.loads(raw)} if raw else fallback
 
 
 def owned_panes(owner):
@@ -292,6 +293,8 @@ def change_config(config, words):
             patterns.append(pattern)
         elif action == 'show':
             config['windows'][provider] = [p for p in patterns if p != pattern]
+    elif section == 'commands':
+        config['commands_visible'] = action == 'show'
     elif section == 'theme':
         _theme_config(config, action, params)
     elif action in ('left', 'right'):
@@ -319,7 +322,7 @@ def describe(config):
                   if custom else '')
     lines = [f"Dashboard {'on' if config['enabled'] else 'off'} / {config['side']} / "
              f"{'compact' if config['compact'] else 'details'} / {config['interval']}s / "
-             f"theme {theme}{token_note}"]
+             f"theme {theme}{token_note} / commands {'shown' if config['commands_visible'] else 'hidden'}"]
     if not config['providers']:
         lines.extend(['Add at least one provider.', '/usage-dashboard providers add PROVIDER'])
     for provider in config['providers']:
@@ -981,15 +984,17 @@ def watch(screen, args):
                         wrapped.append((clean(text)[:max(1, width - 2)], style))
                     else:
                         wrapped.extend((part, style) for part in (textwrap.wrap(clean(text), max(1, width - 2)) or ['']))
-                body_height = max(0, height - COMMAND_BOX_HEIGHT - 2)
+                footer_height = COMMAND_BOX_HEIGHT + 1 if config['commands_visible'] else 0
+                body_height = max(0, height - footer_height - 1)
                 offset = min(offset, max(0, len(wrapped) - body_height))
                 draw = wrapped[offset:offset + body_height]
                 draw += [('', '')] * max(0, body_height - len(draw))
-                count = len(visible)
-                position = (f' | {offset + 1}-{min(len(wrapped), offset + body_height)}/{len(wrapped)}'
-                            if len(wrapped) > body_height else '')
-                draw += [('', 'dim')]
-                draw.extend(command_box_rows(count, config['interval'], position, width))
+                if config['commands_visible']:
+                    count = len(visible)
+                    position = (f' | {offset + 1}-{min(len(wrapped), offset + body_height)}/{len(wrapped)}'
+                                if len(wrapped) > body_height else '')
+                    draw += [('', 'dim')]
+                    draw.extend(command_box_rows(count, config['interval'], position, width))
                 for row, (text, style) in enumerate(draw[:max(0, height - 1)]):
                     if width > 2:
                         base = style[0] if isinstance(style, tuple) else style
@@ -1007,7 +1012,9 @@ def watch(screen, args):
                     _id, mouse_x, mouse_y, _z, buttons = curses.getmouse()
                 except curses.error:
                     continue
-                if buttons & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED) and mouse_y == screen.getmaxyx()[0] - 4:
+                if (config['commands_visible']
+                        and buttons & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED)
+                        and mouse_y == screen.getmaxyx()[0] - 4):
                     if 3 <= mouse_x < 12:
                         key = ord('r')
                     elif 13 <= mouse_x < 19:

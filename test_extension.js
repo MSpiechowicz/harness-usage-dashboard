@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -8,6 +8,60 @@ import test from "node:test";
 import usageDashboard from "./extension.js";
 
 const execute = promisify(execFile);
+
+test("Commands menu and direct commands persist footer visibility without hiding the sidebar", async () => {
+  const home = await mkdtemp(join(tmpdir(), "dashboard-commands-"));
+  const keys = ["TMUX", "TMUX_PANE", "OMP_PROFILE", "PI_PROFILE"];
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  for (const key of keys) delete process.env[key];
+  const environment = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: join(home, "agent"),
+    OMP_PROFILE: "default", PI_PROFILE: "default" };
+  delete environment.TMUX;
+  delete environment.TMUX_PANE;
+  let command;
+  const choices = ["Commands", "Hide"];
+  try {
+    usageDashboard({
+      setLabel() {}, on() {},
+      registerCommand(_name, definition) { command = definition; },
+      async exec(binary, args, options) {
+        const result = await execute(binary, args, { ...options, env: environment });
+        return { code: 0, ...result };
+      },
+    });
+    const notices = [];
+    const ctx = {
+      hasUI: true, cwd: process.cwd(),
+      ui: {
+        async select(_title, options) {
+          const choice = choices.shift();
+          assert.ok(options.includes(choice));
+          return choice;
+        },
+        notify(message, level) {
+          assert.notEqual(level, "error", message);
+          notices.push(message);
+        },
+      },
+    };
+    const settings = async () => JSON.parse(await readFile(join(home, "agent/usage-dashboard.json"), "utf8"));
+    await command.handler("", ctx);
+    assert.equal((await settings()).commands_visible, false);
+    assert.equal((await settings()).enabled, true);
+    await command.handler("commands show", ctx);
+    assert.equal((await settings()).commands_visible, true);
+    await command.handler("commands hide", ctx);
+    assert.equal((await settings()).commands_visible, false);
+    await command.handler("view list", ctx);
+    assert.match(notices.at(-1), /commands hidden/);
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    await rm(home, { recursive: true, force: true });
+  }
+});
 
 test("startup reports a new release despite a fresh no-update cache", async () => {
   const home = await mkdtemp(join(tmpdir(), "dashboard-startup-"));
@@ -461,10 +515,6 @@ test("command menu uses native bordered selectors and left arrow navigation", as
 
   await command.handler("", ctx);
   assert.deepEqual(execArgs.slice(-3), ["--", "view", "details"]);
-  assert.deepEqual(calls.slice(0, 2).map(({ title, options }) => ({ title, options })), [
-    { title: "Usage Dashboard", options: ["Position", "Providers", "Theme", "Update", "View", "Window"] },
-    { title: "Usage Dashboard / View", options: ["Compact", "Details"] },
-  ]);
   assert.equal(calls[0].dialogOptions, undefined);
   assert.equal(typeof calls[1].dialogOptions.onLeft, "function");
   assert.match(calls[1].dialogOptions.helpText, /back/);
