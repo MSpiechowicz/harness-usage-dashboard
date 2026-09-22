@@ -24,7 +24,8 @@ DEFAULTS = {
     'compact': True,
     'commands_visible': True,
     'previous_visible': True,
-    'history_visible': True,
+    'history_other_visible': True,
+    'history_total_visible': True,
     'interval': 60,
     'enabled': True,
     'theme': 'green',
@@ -74,9 +75,25 @@ def _validate_strings(value, field):
         raise ValueError(f'Dashboard {field} must be a list of nonempty strings.')
 
 
+def migrate_history_visibility(data):
+    """Expand the deprecated combined history visibility setting."""
+    if not isinstance(data, dict):
+        raise ValueError('Dashboard preferences must be a JSON object.')
+    result = deepcopy(data)
+    if 'history_visible' in result:
+        visible = result.pop('history_visible')
+        if type(visible) is not bool:
+            raise ValueError('Dashboard history_visible must be a boolean.')
+        result.setdefault('history_other_visible', visible)
+        result.setdefault('history_total_visible', visible)
+    return result
+
+
+
 def _validated(data):
     if not isinstance(data, dict):
         raise ValueError('Dashboard preferences must be a JSON object.')
+    data = migrate_history_visibility(data)
     if data.keys() - DEFAULTS.keys() - _TRANSIENT:
         raise ValueError('Unknown dashboard preference field.')
     result = deepcopy(DEFAULTS)
@@ -103,7 +120,8 @@ def _validated(data):
             raise ValueError(f'Unknown dashboard token: {name}.')
         normalized_tokens[name] = normalize_color(color)
     result['tokens'] = normalized_tokens
-    for field in ('compact', 'enabled', 'commands_visible', 'previous_visible', 'history_visible'):
+    for field in ('compact', 'enabled', 'commands_visible', 'previous_visible',
+                  'history_other_visible', 'history_total_visible'):
         if type(result[field]) is not bool:
             raise ValueError(f'Dashboard {field} must be a boolean.')
     if type(result['interval']) is not int or result['interval'] < 15:

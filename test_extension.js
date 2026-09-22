@@ -10,7 +10,7 @@ import usageDashboard from "./extension.js";
 const execute = promisify(execFile);
 const theme = { fg: (_color, text) => text, bold: text => text };
 
-test("Commands menu and direct commands persist footer visibility without hiding the sidebar", async () => {
+test("Commands menu and direct commands independently persist footer visibility without hiding the sidebar", async () => {
   const home = await mkdtemp(join(tmpdir(), "dashboard-commands-"));
   const keys = ["TMUX", "TMUX_PANE", "OMP_PROFILE", "PI_PROFILE"];
   const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
@@ -61,26 +61,40 @@ test("Commands menu and direct commands persist footer visibility without hiding
     assert.equal((await settings()).commands_visible, false);
     await command.handler("view list", ctx);
     assert.match(notices.at(-1), /commands hidden/);
-    for (const section of ["previous", "history"]) {
-      choices.push("Section Visibility", section[0].toUpperCase() + section.slice(1), "Hide");
+    const visibility = [
+      ["previous", "Previous", "previous_visible"],
+      ["history-other", "History Other Sessions", "history_other_visible"],
+      ["history-total", "History Total", "history_total_visible"],
+    ];
+    for (const [section, label, preference] of visibility) {
+      choices.push("Section Visibility", label, "Hide");
       await command.handler("", ctx);
-      assert.equal((await settings())[`${section}_visible`], false);
+      assert.equal((await settings())[preference], false);
       assert.equal((await settings()).enabled, true);
       await command.handler(`${section} show`, ctx);
-      assert.equal((await settings())[`${section}_visible`], true);
+      assert.equal((await settings())[preference], true);
       await command.handler(`${section} hide`, ctx);
-      assert.equal((await settings())[`${section}_visible`], false);
+      assert.equal((await settings())[preference], false);
     }
     await command.handler("previous show", ctx);
-    assert.equal((await settings()).history_visible, false);
+    assert.equal((await settings()).history_other_visible, false);
+    assert.equal((await settings()).history_total_visible, false);
     assert.equal((await settings()).commands_visible, false);
-    choices.push("Section Visibility", "BACK", "Section Visibility", "Previous", "BACK", "History", "Show");
+    await command.handler("history-other show", ctx);
+    assert.equal((await settings()).history_other_visible, true);
+    assert.equal((await settings()).history_total_visible, false);
+    await command.handler("history hide", ctx);
+    assert.match(notices.at(-1), /history-other \(hide, show\); history-total \(hide, show\)/);
+    assert.equal(Object.hasOwn(await settings(), "history_visible"), false);
+    await command.handler("history-other hide", ctx);
+    choices.push("Section Visibility", "BACK", "Section Visibility", "Previous", "BACK", "History Total", "Show");
     await command.handler("", ctx);
-    assert.equal((await settings()).history_visible, true);
+    assert.equal((await settings()).history_total_visible, true);
+    assert.equal((await settings()).history_other_visible, false);
     assert.equal((await settings()).previous_visible, true);
-    choices.push("Section Visibility", "History", undefined);
+    choices.push("Section Visibility", "History Other Sessions", undefined);
     await command.handler("", ctx);
-    assert.equal((await settings()).history_visible, true);
+    assert.equal((await settings()).history_other_visible, false);
   } finally {
     for (const key of keys) {
       if (saved[key] === undefined) delete process.env[key];

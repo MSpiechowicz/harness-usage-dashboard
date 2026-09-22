@@ -20,7 +20,8 @@ import uuid
 
 from usage_source import ALIASES, UsageSourceError, fetch_usage
 from preferences import (DEFAULTS, THEME_NAMES, TOKEN_NAMES, agent_dir,
-                         load_preferences, normalize_color, resolve_profile, update_preferences)
+                         load_preferences, migrate_history_visibility, normalize_color,
+                         resolve_profile, update_preferences)
 from session_usage import active_session, record_quota, summary as session_summary
 
 ROOT = Path(__file__).resolve().parent
@@ -74,7 +75,8 @@ COMMANDS = {
     'view': ('list', 'compact', 'details'),
     'commands': ('hide', 'show'),
     'previous': ('hide', 'show'),
-    'history': ('hide', 'show'),
+    'history-other': ('hide', 'show'),
+    'history-total': ('hide', 'show'),
     'position': ('left', 'right'),
     'providers': ('add', 'remove', 'hide', 'show'),
     'theme': (*THEME_NAMES, 'custom', 'reset'),
@@ -85,7 +87,7 @@ HELP = (f'/usage-dashboard: view list|compact|details; position left|right; '
         f'providers add|remove|hide|show PROVIDER; theme {THEME_OPTIONS}; '
         'theme custom TOKEN COLOR; theme reset; window on|off|focus|refresh; '
         'window interval SECONDS; window hide|show PROVIDER FILTER; commands hide|show; '
-        'previous hide|show; history hide|show')
+        'previous hide|show; history-other hide|show; history-total hide|show')
 
 
 def resolve_tokens(config):
@@ -244,7 +246,7 @@ def defaults(args):
 
 def load_config(owner, fallback):
     raw = mux('show-options', '-p', '-v', '-q', '-t', owner, '@omp_usage_config')
-    return {**fallback, **json.loads(raw)} if raw else fallback
+    return {**fallback, **migrate_history_visibility(json.loads(raw))} if raw else fallback
 
 
 def owned_panes(owner):
@@ -296,8 +298,8 @@ def change_config(config, words):
             patterns.append(pattern)
         elif action == 'show':
             config['windows'][provider] = [p for p in patterns if p != pattern]
-    elif section in ('commands', 'previous', 'history'):
-        config[f'{section}_visible'] = action == 'show'
+    elif section in ('commands', 'previous', 'history-other', 'history-total'):
+        config[f'{section.replace("-", "_")}_visible'] = action == 'show'
     elif section == 'theme':
         _theme_config(config, action, params)
     elif action in ('left', 'right'):
@@ -327,7 +329,8 @@ def describe(config):
              f"{'compact' if config['compact'] else 'details'} / {config['interval']}s / "
              f"theme {theme}{token_note} / commands {'shown' if config['commands_visible'] else 'hidden'} / "
              f"previous {'shown' if config['previous_visible'] else 'hidden'} / "
-             f"history {'shown' if config['history_visible'] else 'hidden'}"]
+             f"history other sessions {'shown' if config['history_other_visible'] else 'hidden'} / "
+             f"history total {'shown' if config['history_total_visible'] else 'hidden'}"]
     if not config['providers']:
         lines.extend(['Add at least one provider.', '/usage-dashboard providers add PROVIDER'])
     for provider in config['providers']:
@@ -723,7 +726,8 @@ def detailed_model_rows(entries, width, include_provider=False):
             rows.extend(model_usage_rows(variant, width, prefix))
     return rows
 
-def session_lines(history, now, width, compact=True, previous_visible=True, history_visible=True):
+def session_lines(history, now, width, compact=True, previous_visible=True,
+                  history_other_visible=True, history_total_visible=True):
     rows = []
     current = history['current']
     if current:
@@ -780,29 +784,25 @@ def session_lines(history, now, width, compact=True, previous_visible=True, hist
         if quotas and not compact:
             rows.extend([('% = percentage-point change', 'dim'), ('Account-wide; not exact billing', 'dim')])
         rows.append(('', 'dim'))
-    def history_rows(label, entries):
-        if not entries:
-            return []
+
+    def history_rows(entries):
         total = sum(item['total'] for item in entries)
         if compact:
-            return [allowance_row(label, format_tokens(total), '', width, 'normal')]
-        result = [total_heading(label, total, width)]
+            return [allowance_row('Tokens', format_tokens(total), '', width, 'normal')]
+        result = [total_heading('Tokens', total, width)]
         details = detailed_model_rows(entries, width, include_provider=True)
         if details:
             result.append(('', 'dim'))
             result.extend(details)
         return result
 
-    project_history = history.get('history', [])
-    total_history = history.get('total_history', [])
-    if history_visible and (project_history or total_history):
-        rows.append(section_heading('HISTORY', width))
-        other_rows = history_rows('Other sessions', project_history)
-        total_rows = history_rows('Project total', total_history)
-        rows.extend(other_rows)
-        if other_rows and total_rows and not compact:
-            rows.append(('', 'dim'))
-        rows.extend(total_rows)
+    for title, entries, visible in (
+            ('HISTORY OTHER SESSIONS', history.get('history', []), history_other_visible),
+            ('HISTORY TOTAL', history.get('total_history', []), history_total_visible)):
+        if not visible or not entries:
+            continue
+        rows.append(section_heading(title, width))
+        rows.extend(history_rows(entries))
         rows.append(('', 'dim'))
     return rows
 
@@ -953,7 +953,8 @@ def watch(screen, args):
                 try:
                     rows = session_lines(session_summary(config['profile'], args.owner, now),
                                          now, width - 2, config['compact'],
-                                         config['previous_visible'], config['history_visible'])
+                                         config['previous_visible'], config['history_other_visible'],
+                                         config['history_total_visible'])
                 except (OSError, sqlite3.Error):
                     rows = [('Session history unavailable', 'warn')]
                 if history_error:
@@ -1121,7 +1122,8 @@ def main():
         elif args.once:
             print('\n'.join(text for text, _ in session_lines(
                 session_summary(config['profile'], args.owner), time.time(), 32, config['compact'],
-                config['previous_visible'], config['history_visible'])))
+                config['previous_visible'], config['history_other_visible'],
+                config['history_total_visible'])))
             if not config['providers']:
                 print(describe(config))
             for provider in config['providers']:

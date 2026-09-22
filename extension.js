@@ -30,7 +30,8 @@ const sections = {
   view: ["list", "compact", "details"],
   commands: ["hide", "show"],
   previous: ["hide", "show"],
-  history: ["hide", "show"],
+  "history-other": ["hide", "show"],
+  "history-total": ["hide", "show"],
   position: ["left", "right"],
   providers: ["add", "remove", "hide", "show"],
   theme: ["green", "blue", "brown", "yellow", "cyan", "magenta", "orange", "red", "custom", "reset"],
@@ -49,9 +50,13 @@ const themeOptions = [
   { value: "custom", label: "custom  (override individual colors)" },
   { value: "reset", label: "reset   (restore green and remove custom colors)" },
 ];
-const help = "Sections: view (compact, details; list remains available as a command for showing settings); commands (hide, show); previous (hide, show); history (hide, show); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, cyan, magenta, orange, red, custom TOKEN COLOR, reset); window (on, off, focus, refresh, interval, hide/show PROVIDER FILTER); update (check, install).";
+const help = "Sections: view (compact, details; list remains available as a command for showing settings); commands (hide, show); previous (hide, show); history-other (hide, show); history-total (hide, show); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, cyan, magenta, orange, red, custom TOKEN COLOR, reset); window (on, off, focus, refresh, interval, hide/show PROVIDER FILTER); update (check, install).";
 const menuSections = {...sections, view: ["compact", "details"]};
-const visibilitySections = ["commands", "previous", "history"];
+const visibilitySections = ["commands", "previous", "history-other", "history-total"];
+const visibilityLabels = {
+  "history-other": "History Other Sessions",
+  "history-total": "History Total",
+};
 const rootMenuSections = [
   ...Object.keys(menuSections).filter(section => !visibilitySections.includes(section)),
   { value: "visibility", label: "Section Visibility" },
@@ -95,10 +100,10 @@ async function menuSelect(ctx, title, options, { nested = false } = {}) {
 async function visibilityMenu(ctx) {
   while (true) {
     const section = await menuSelect(ctx, "Usage Dashboard / Section Visibility",
-      visibilitySections, { nested: true });
+      visibilitySections.map(value => ({ value, label: visibilityLabels[value] ?? value })), { nested: true });
     if (!section || section === MENU_BACK) return section;
     const action = await menuSelect(ctx,
-      `Usage Dashboard / Section Visibility / ${capitalizeLabel(section)}`,
+      `Usage Dashboard / Section Visibility / ${visibilityLabels[section] ?? capitalizeLabel(section)}`,
       sections[section], { nested: true });
     if (!action) return;
     if (action === MENU_BACK) continue;
@@ -400,7 +405,7 @@ export default function usageDashboard(pi) {
     pi.on(event, async (_event, ctx) => { await record(ctx, "start"); });
   }
   pi.registerCommand("usage-dashboard", {
-    description: "Manage usage dashboard: view, commands, previous, history, position, providers, theme, window, and updates",
+    description: "Manage usage dashboard: view, commands, previous, history-other, history-total, position, providers, theme, window, and updates",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const words = args.trim().split(/\s+/).filter(Boolean);

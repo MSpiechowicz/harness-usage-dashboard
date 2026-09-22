@@ -173,14 +173,14 @@ Dashboard command results, help, warnings, and errors use a bold **Usage Dashboa
 | Section | Purpose | Example |
 | --- | --- | --- |
 | **View** | Switch between provider and model-level display; use `view list` directly to inspect settings | `/usage-dashboard view details` |
-| **Section Visibility** | Choose Commands, Previous, or History, then Hide or Show | `/usage-dashboard history hide` |
+| **Section Visibility** | Choose Commands, Previous, History Other Sessions, or History Total, then Hide or Show | `/usage-dashboard history-other hide` |
 | **Position** | Move the sidebar left or right | `/usage-dashboard position left` |
 | **Theme** | Choose a named palette or customize individual color tokens | `/usage-dashboard theme blue` |
 | **Providers** | Add, remove, hide, or restore provider views | `/usage-dashboard providers add claude` |
 | **Window** | Control the sidebar, polling, and usage-window filters | `/usage-dashboard window interval 60` |
 | **Update** | Check for or install a dashboard release | `/usage-dashboard update check` |
 
-**Section Visibility** controls each section independently in Compact and Details. All three are visible by default. Hiding Previous removes the previous-session section; hiding History removes both Other sessions and Project total. These settings only affect presentation: recording continues, stored usage is preserved, and Show restores the accumulated data.
+**Section Visibility** controls each section independently in Compact and Details. All four are visible by default when applicable. Hiding Previous removes the previous-session section; History Other Sessions and History Total can each be hidden without hiding the other. These settings only affect presentation: recording continues, stored usage is preserved, and Show restores the accumulated data. The former `history hide|show` command is replaced by `history-other hide|show` and `history-total hide|show`. Existing saved History visibility initializes both new settings, so previously hidden history stays hidden.
 
 ### Common tasks
 
@@ -233,8 +233,10 @@ All commands below are entered inside OMP.
 | `/usage-dashboard commands show` | Restore the Commands footer (visible by default). |
 | `/usage-dashboard previous hide` | Hide the Previous session section without changing recorded usage. |
 | `/usage-dashboard previous show` | Restore the Previous session section (visible by default when available). |
-| `/usage-dashboard history hide` | Hide History, including Other sessions and Project total. |
-| `/usage-dashboard history show` | Restore History (visible by default when available). |
+| `/usage-dashboard history-other hide` | Hide History Other Sessions without changing History Total or recorded usage. |
+| `/usage-dashboard history-other show` | Restore History Other Sessions (visible by default when available). |
+| `/usage-dashboard history-total hide` | Hide History Total without changing History Other Sessions or recorded usage. |
+| `/usage-dashboard history-total show` | Restore History Total (visible by default when available). |
 | `/usage-dashboard position left` | Place the sidebar on the left. |
 | `/usage-dashboard position right` | Place the sidebar on the right. |
 | `/usage-dashboard theme green|blue|brown|yellow|cyan|magenta|orange|red` | Choose the named design-token palette. |
@@ -284,9 +286,9 @@ Cache-write counts are reported values, not estimates of how much input might be
 
 Each refresh reads one consistent database snapshot, so the chart and session/project totals cannot mix records from before and after an incoming usage update. Chart buckets contain the sum of individual request totals for that minute, not the cumulative session total: requests of 370k and 17k in consecutive minutes produce bars of 370k and 17k and a session total of 387k. Compact numbers preserve significant zeroes (`170k` stays `170k`, not `17k`).
 
-Section dividers separate token rate, session summaries, history, and account allowances. Every section has a blank separator row in Compact and Details modes; Details also separates model, history, and provider entries for readability. In Details, provider totals under Current/Previous session and the Other sessions/Project total subsections use theme-colored headings with totals at the right. Model names retain normal text contrast; input/output and cache-read/write rows use the secondary theme color, like Reset credits. Compact mode avoids repeating the total for a single provider, hides history when the project has no recorded usage, and omits a nonexistent previous session.
+Section dividers separate token rate, session summaries, both history sections, and account allowances. Every section has a blank separator row in Compact and Details modes; Details also separates model, history, and provider entries for readability. Each history section has its own heading and Tokens total row. In Details, provider totals under Current/Previous session and history Tokens totals use theme-colored headings with totals at the right. Model names retain normal text contrast; input/output and cache-read/write rows use the secondary theme color, like Reset credits. Compact mode avoids repeating the total for a single provider, hides history when the project has no recorded usage, and omits a nonexistent previous session.
 
-**Recorded history** is split into two views. **Other sessions** is the total of locally recorded requests from sessions other than the current one in the current Git repository (or current working directory when no repository root is found). **Project total** is the aggregate of all recorded requests in the current project, including the current session. In Details mode, both views expand to the model/thinking-level rows and token dimensions used by the session summaries. `/new` preserves both totals. Resuming the same conversation continues its record, while inherited fork context is excluded from new consumption. Large token totals use compact `k`, `M`, `B`,…
+**Recorded history** is split into two independently visible sections. **HISTORY OTHER SESSIONS** is the total of locally recorded requests from sessions other than the current one in the current Git repository (or current working directory when no repository root is found). **HISTORY TOTAL** is the aggregate of all recorded requests in the current project, including the current session. In Details mode, both sections expand to the model/thinking-level rows and token dimensions used by the session summaries. `/new` preserves both totals. Resuming the same conversation continues its record, while inherited fork context is excluded from new consumption. Large token totals use compact `k`, `M`, `B`,…
 
 OMP's main-session assistant messages and auxiliary `model_usage` records retain their provider/model attribution. The dashboard also listens for completed native subagent requests, including background tasks while the parent is idle. Each request keeps its actual serving provider/model, including model changes within a child. Native child thinking levels require explicit progress metadata matching that serving model; auxiliary thinking levels come from each record's explicit `thinkingLevel`. Missing or invalid metadata is shown as **unknown**, never as the parent session's selected level. Main-session assistant messages still use the session's effective thinking level.
 
@@ -343,7 +345,7 @@ It does **not** store prompts, responses, tool output, credentials, raw account 
 
 Preferences and release-check metadata also stay on your machine, but are stored in **JSON files, not inside the usage database**.
 
-Provider order, hidden providers, window filters, position, display mode, Commands footer visibility, Previous session visibility, History visibility, polling interval, on/off state, and theme tokens are saved per profile:
+Provider order, hidden providers, window filters, position, display mode, Commands footer visibility, Previous session visibility, separate History Other Sessions and History Total visibility, polling interval, on/off state, and theme tokens are saved per profile:
 
 | Configuration | Preferences file |
 | --- | --- |

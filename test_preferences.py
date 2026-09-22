@@ -7,7 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from preferences import DEFAULTS, agent_dir, load_preferences, preferences_path, resolve_profile, update_preferences
+from preferences import (DEFAULTS, agent_dir, load_preferences, migrate_history_visibility,
+                         preferences_path, resolve_profile, update_preferences)
 
 
 class PreferencesTests(unittest.TestCase):
@@ -39,7 +40,8 @@ class PreferencesTests(unittest.TestCase):
             'compact': False,
             'commands_visible': False,
             'previous_visible': False,
-            'history_visible': False,
+            'history_other_visible': False,
+            'history_total_visible': True,
             'interval': 15,
             'enabled': False,
             'theme': 'blue',
@@ -61,23 +63,64 @@ class PreferencesTests(unittest.TestCase):
         self.assertEqual(result['interval'], 120)
         self.assertEqual(result['side'], 'left')
 
-    def test_section_visibility_upgrades_old_settings_and_remains_profile_local(self):
+    def test_legacy_history_visibility_migrates_without_defaults_or_mutation(self):
+        legacy = {'history_visible': False}
+        self.assertEqual(migrate_history_visibility({}), {})
+        self.assertEqual(migrate_history_visibility(legacy), {
+            'history_other_visible': False,
+            'history_total_visible': False,
+        })
+        self.assertEqual(legacy, {'history_visible': False})
+        self.assertEqual(migrate_history_visibility({'history_visible': True}), {
+            'history_other_visible': True,
+            'history_total_visible': True,
+        })
+        self.assertEqual(migrate_history_visibility({
+            'history_visible': True,
+            'history_other_visible': False,
+            'history_total_visible': False,
+        }), {
+            'history_other_visible': False,
+            'history_total_visible': False,
+        })
+
+    def test_history_visibility_rejects_non_boolean_legacy_values(self):
+        for value in (0, 1, 'false', None):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    migrate_history_visibility({'history_visible': value})
+
+    def test_history_visibility_migrates_independently_and_remains_profile_local(self):
         path = preferences_path(None)
         path.parent.mkdir(parents=True)
-        path.write_text('{"compact": false}')
-        for field in ('commands_visible', 'previous_visible', 'history_visible'):
-            self.assertTrue(load_preferences(None)[field])
-            update_preferences(None, {field: False})
-            self.assertFalse(load_preferences(None)[field])
-            self.assertTrue(load_preferences('other')[field])
-            update_preferences(None, {field: True})
-            self.assertTrue(load_preferences(None)[field])
-        self.assertFalse(load_preferences(None)['compact'])
+        path.write_text('{"compact": false, "history_visible": false}')
+        loaded = load_preferences(None)
+        self.assertFalse(loaded['history_other_visible'])
+        self.assertFalse(loaded['history_total_visible'])
+        update_preferences(None, {'history_other_visible': True})
+        self.assertEqual(
+            (load_preferences(None)['history_other_visible'], load_preferences(None)['history_total_visible']),
+            (True, False),
+        )
+        stored = json.loads(path.read_text())
+        self.assertNotIn('history_visible', stored)
+        self.assertEqual(
+            (stored['history_other_visible'], stored['history_total_visible']),
+            (True, False),
+        )
+        self.assertTrue(load_preferences('other')['history_other_visible'])
+        self.assertTrue(load_preferences('other')['history_total_visible'])
+        update_preferences('other', {'history_total_visible': False})
+        self.assertTrue(load_preferences('other')['history_other_visible'])
+        self.assertFalse(load_preferences('other')['history_total_visible'])
+        self.assertTrue(load_preferences(None)['history_other_visible'])
+        self.assertFalse(load_preferences(None)['history_total_visible'])
 
     def test_malformed_file_is_neither_hidden_nor_overwritten(self):
         path = preferences_path(None)
         path.parent.mkdir(parents=True)
-        for content in (b'{broken', b'[]', b'{"interval": true}', b'{"windows": {"deepseek": "daily"}}', b'\xff'):
+        for content in (b'{broken', b'[]', b'{"interval": true}', b'{"history_visible": 1}',
+                        b'{"windows": {"deepseek": "daily"}}', b'\xff'):
             with self.subTest(content=content):
                 path.write_bytes(content)
                 with self.assertRaises(ValueError):
@@ -96,9 +139,10 @@ class PreferencesTests(unittest.TestCase):
             {'theme': 'violet'}, {'tokens': {'unknown': 'green'}},
             {'tokens': {'accent': '#12345'}}, {'tokens': {'warn': 'not-a-color'}},
             {'compact': 1}, {'enabled': 'false'}, {'interval': True},
-            {'commands_visible': 'false'},
-            {'previous_visible': 0}, {'history_visible': 'false'},
-            {'interval': 14}, {'interval': 15.5}, {'apiKey': 'not-a-setting'},
+            {'commands_visible': 'false'}, {'previous_visible': 0},
+            {'history_other_visible': 1}, {'history_total_visible': 'false'},
+            {'history_visible': 0}, {'interval': 14}, {'interval': 15.5},
+            {'apiKey': 'not-a-setting'},
         )
         for changes in invalid:
             with self.subTest(changes=changes):

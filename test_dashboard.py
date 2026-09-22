@@ -163,26 +163,32 @@ class RemainingAllowanceTests(unittest.TestCase):
         self.assertTrue(writes[footer_row + 4].startswith('└'))
 
 class CommandsVisibilityTests(unittest.TestCase):
-    def test_old_live_config_inherits_new_preferences_without_losing_pane_settings(self):
+    def test_old_live_config_migrates_history_visibility_before_fallback_merge(self):
         fallback = dict(DEFAULTS, profile='default', refresh=0)
-        old = dict(fallback, compact=False)
-        for field in ('commands_visible', 'previous_visible', 'history_visible'):
-            del old[field]
+        old = dict(fallback, compact=False, history_visible=False)
+        del old['history_other_visible']
+        del old['history_total_visible']
         with patch('dashboard.mux', return_value=json.dumps(old)):
             config = load_config('%1', fallback)
-        self.assertTrue(config['commands_visible'])
-        change_config(config, ['commands', 'hide'])
-        self.assertFalse(config['commands_visible'])
+        self.assertFalse(config['history_other_visible'])
+        self.assertFalse(config['history_total_visible'])
         self.assertFalse(config['compact'])
         self.assertTrue(config['enabled'])
-        change_config(config, ['commands', 'show'])
-        self.assertTrue(config['commands_visible'])
-        for section in ('previous', 'history'):
-            self.assertTrue(config[f'{section}_visible'])
-            change_config(config, [section, 'hide'])
-            self.assertFalse(config[f'{section}_visible'])
-            change_config(config, [section, 'show'])
-            self.assertTrue(config[f'{section}_visible'])
+        change_config(config, ['history-other', 'show'])
+        self.assertTrue(config['history_other_visible'])
+        self.assertFalse(config['history_total_visible'])
+        change_config(config, ['history-total', 'show'])
+        self.assertTrue(config['history_total_visible'])
+
+    def test_visibility_commands_change_only_the_target_section(self):
+        config = deepcopy(DEFAULTS)
+        for section in ('commands', 'previous', 'history-other', 'history-total'):
+            with self.subTest(section=section):
+                change_config(config, [section, 'hide'])
+                self.assertFalse(config[f'{section.replace("-", "_")}_visible'])
+                change_config(config, [section, 'show'])
+                self.assertTrue(config[f'{section.replace("-", "_")}_visible'])
+        self.assertNotIn('history_visible', config)
 
     def test_session_sections_hide_independently_without_changing_usage(self):
         session = {'id': 'session-1', 'updated': 0,
@@ -195,14 +201,19 @@ class CommandsVisibilityTests(unittest.TestCase):
                    'total_history': [dict(model, total=20000)]}
         original = deepcopy(history)
         for compact in (True, False):
-            for previous, historical in ((False, True), (True, False), (False, False), (True, True)):
-                with self.subTest(compact=compact, previous=previous, history=historical):
-                    rows = session_lines(history, 0, 60, compact, previous, historical)
+            for previous, other, total in (
+                    (previous, other, total)
+                    for previous in (False, True)
+                    for other in (False, True)
+                    for total in (False, True)):
+                with self.subTest(compact=compact, previous=previous, other=other, total=total):
+                    rows = session_lines(history, 0, 60, compact, previous, other, total)
                     text = '\n'.join(line for line, _ in rows)
                     self.assertEqual('PREVIOUS SESSION' in text, previous)
-                    self.assertEqual('HISTORY' in text, historical)
-                    self.assertEqual('Other sessions' in text, historical)
-                    self.assertEqual('Project total' in text, historical)
+                    self.assertEqual('HISTORY OTHER SESSIONS' in text, other)
+                    self.assertEqual('HISTORY TOTAL' in text, total)
+                    self.assertNotIn('Other sessions', text)
+                    self.assertNotIn('Project total', text)
                     self.assertIn('CURRENT SESSION', text)
                     self.assertIn('TOKEN RATE', text)
                     self.assertIn('12k', text)
@@ -215,10 +226,11 @@ class CommandsVisibilityTests(unittest.TestCase):
                    'history': [], 'total_history': []}
         for compact in (True, False):
             text = '\n'.join(line for line, _ in session_lines(
-                history, 0, 32, compact, False, False))
+                history, 0, 32, compact, False, True, True))
             self.assertIn('Waiting for OMP session', text)
             self.assertNotIn('PREVIOUS SESSION', text)
-            self.assertNotIn('HISTORY', text)
+            self.assertNotIn('HISTORY OTHER SESSIONS', text)
+            self.assertNotIn('HISTORY TOTAL', text)
 
     def test_live_toggle_reclaims_space_and_clamps_scroll_offset(self):
         config = dict(DEFAULTS, profile='default', refresh=0)
@@ -452,7 +464,7 @@ class NestedCommandTests(unittest.TestCase):
         self.assertEqual(texts[first - 1], '')
         self.assertEqual(texts[second - 1], '')
 
-    def test_details_headings_preserve_totals_at_minimum_pane_width(self):
+    def test_details_history_totals_survive_minimum_pane_width(self):
         model = {'provider': 'a-very-long-provider-name', 'model': 'model-a',
                  'total': 170000, 'input': 170000, 'output': 0,
                  'cache_read': 0, 'cache_write': 0}
@@ -461,13 +473,20 @@ class NestedCommandTests(unittest.TestCase):
         history = {'chart': [], 'current': session, 'previous': session,
                    'history': [model], 'total_history': [model]}
         rows = session_lines(history, 0, 20, compact=False)
-        for prefix in ('a-very', 'Other', 'Project'):
-            with self.subTest(prefix=prefix):
-                headings = [text for text, _style in rows if text.startswith(prefix)]
-                self.assertTrue(headings)
-                for text in headings:
-                    self.assertTrue(text.endswith('170k'), text)
-                    self.assertLessEqual(len(text), 20)
+        for prefix in ('a-very', 'Tokens'):
+            totals = [text for text, _style in rows if text.startswith(prefix)]
+            self.assertTrue(totals)
+            for text in totals:
+                self.assertTrue(text.endswith('170k'), text)
+                self.assertLessEqual(len(text), 20)
+
+    def test_history_headings_fit_standard_content_width(self):
+        model = {'provider': 'openai-codex', 'total': 1}
+        history = {'chart': [], 'current': None, 'previous': None,
+                   'history': [model], 'total_history': [model]}
+        texts = [text for text, _style in session_lines(history, 0, 32)]
+        self.assertTrue(any(text.startswith('HISTORY OTHER SESSIONS') for text in texts))
+        self.assertTrue(any(text.startswith('HISTORY TOTAL') for text in texts))
 
     def test_details_separate_history_entries_from_totals(self):
         model = {'provider': 'openai-codex', 'model': 'model-a',
@@ -479,11 +498,11 @@ class NestedCommandTests(unittest.TestCase):
         }
         texts = [text for text, _style in session_lines(history, 0, 60, compact=False)]
         other = next(index for index, text in enumerate(texts)
-                     if text.startswith('Other sessions'))
+                     if text.startswith('HISTORY OTHER SESSIONS'))
         other_model = next(index for index, text in enumerate(texts[other + 1:], other + 1)
                            if text.startswith('CODEX / model-a'))
         total = next(index for index, text in enumerate(texts)
-                     if text.startswith('Project total'))
+                     if text.startswith('HISTORY TOTAL'))
         total_model = next(index for index, text in enumerate(texts[total + 1:], total + 1)
                            if text.startswith('CODEX / model-a'))
         self.assertEqual(texts[other_model - 1], '')
@@ -503,13 +522,13 @@ class NestedCommandTests(unittest.TestCase):
         texts = [text for text, _style in session_lines(history, 0, 60, compact=True)]
         headings = [
             next(index for index, text in enumerate(texts) if text.startswith(prefix))
-            for prefix in ('TOKEN RATE', 'CURRENT SESSION', 'PREVIOUS SESSION', 'HISTORY')
+            for prefix in ('TOKEN RATE', 'CURRENT SESSION', 'PREVIOUS SESSION',
+                           'HISTORY OTHER SESSIONS', 'HISTORY TOTAL')
         ]
         self.assertEqual(texts[1], '')
-        self.assertEqual([texts[index - 1] for index in headings[1:]], ['', '', ''])
-        project_total = next(index for index, text in enumerate(texts)
-                             if text.startswith('Project total'))
-        self.assertTrue(texts[project_total - 1].startswith('Other sessions'))
+        self.assertEqual([texts[index - 1] for index in headings[1:]], ['', '', '', ''])
+        self.assertNotIn('Other sessions', texts)
+        self.assertNotIn('Project total', texts)
         self.assertEqual(texts[-1], '')
 
     def test_named_themes_and_custom_tokens_preserve_status_semantics(self):
