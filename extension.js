@@ -57,6 +57,15 @@ function capitalizeLabel(label) {
     `${whitespace}${letter.toUpperCase()}`);
 }
 
+function notify(ctx, message, level = "info") {
+  const theme = ctx.ui.theme;
+  const color = level === "info" ? "accent" : level;
+  const label = level === "info" ? "Usage Dashboard" : `Usage Dashboard · ${capitalizeLabel(level)}`;
+  const heading = theme.bold(theme.fg(color, label));
+  const body = message.split("\n").map(line => theme.fg("text", line)).join("\n");
+  ctx.ui.notify(`${heading}\n${body}`, level);
+}
+
 async function menuSelect(ctx, title, options, { nested = false } = {}) {
   const choices = options.map(option => typeof option === "string"
     ? { value: option, label: option }
@@ -105,7 +114,7 @@ export default function usageDashboard(pi) {
           try {
             await saveSession(payload, state.profile, state.cwd, state.environment);
           } catch {
-            if (!saveFailed) state.ctx.ui.notify("Dashboard session history could not be saved; recording will retry.", "warning");
+            if (!saveFailed) notify(state.ctx, "Dashboard session history could not be saved; recording will retry.", "warning");
             saveFailed = true;
             break;
           }
@@ -297,11 +306,11 @@ export default function usageDashboard(pi) {
     try {
       const result = await pi.exec("python3", command, { timeout: 15000, cwd: ctx.cwd });
       if (!quiet || result.code !== 0) {
-        ctx.ui.notify(result.code === 0 ? result.stdout.trim() : (result.stderr.trim() || "Could not update usage dashboard"),
+        notify(ctx, result.code === 0 ? result.stdout.trim() : (result.stderr.trim() || "Could not update usage dashboard"),
           result.code === 0 ? "info" : "error");
       }
     } catch (error) {
-      ctx.ui.notify(`Usage Dashboard: ${error.message}`, "error");
+      notify(ctx, `Usage Dashboard: ${error.message}`, "error");
     }
   }
 
@@ -382,7 +391,7 @@ export default function usageDashboard(pi) {
             words.push(section);
           }
           if (!Object.hasOwn(sections, words[0])) {
-            ctx.ui.notify(help, "info");
+            notify(ctx, help);
             return;
           }
           const options = words[0] === "theme" ? themeOptions : menuSections[words[0]];
@@ -396,7 +405,7 @@ export default function usageDashboard(pi) {
         }
         const [section, action] = words;
         if (!Object.hasOwn(sections, section) || !sections[section].includes(action)) {
-          ctx.ui.notify(help, "info");
+          notify(ctx, help);
           return;
         }
         if (section === "update") {
@@ -408,12 +417,12 @@ export default function usageDashboard(pi) {
           return;
         }
         if (section === "theme" && action === "custom" && words.length === 2) {
-          ctx.ui.notify("Custom changes one token on the selected palette. Use one of: text, muted, secondary, accent, chart, good, warn, error. Colors can be terminal names, gray, brown, orange, or #RRGGBB. Example: accent #58a66a. Repeat for more tokens; reset restores the green palette.", "info");
+          notify(ctx, "Custom changes one token on the selected palette. Use one of: text, muted, secondary, accent, chart, good, warn, error. Colors can be terminal names, gray, brown, orange, or #RRGGBB. Example: accent #58a66a. Repeat for more tokens; reset restores the green palette.");
           const value = await ctx.ui.input("Custom theme: TOKEN COLOR (for example: accent #58a66a)", "accent #58a66a");
           if (!value?.trim()) return;
           const custom = value.trim().split(/\s+/);
           if (custom.length !== 2) {
-            ctx.ui.notify("Usage: /usage-dashboard theme custom TOKEN COLOR", "info");
+            notify(ctx, "Usage: /usage-dashboard theme custom TOKEN COLOR");
             return;
           }
           words.push(...custom);
