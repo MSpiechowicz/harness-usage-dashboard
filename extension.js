@@ -249,7 +249,9 @@ export default function usageDashboard(pi) {
     }
     const entry = {
       id: createHash("sha256").update(JSON.stringify([child.origin.session, id, message.timestamp, provider, model])).digest("hex"),
-      at: at / 1000, provider, model, taskAggregate: false,
+      // Native message timestamps mark request start, not when usage becomes known.
+      // Keep that timestamp in the stable ID, but chart the completed report now.
+      at: Date.now() / 1000, provider, model, taskAggregate: false,
       input: counts[0], output: counts[1], cacheRead: counts[2], cacheWrite: counts[3], total,
     };
     entry.thinkingLevel = childThinking(child, entry);

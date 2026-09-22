@@ -310,7 +310,7 @@ print(json.dumps({'report': summary(owner=None), 'requests': requests}))
   }
 });
 
-test("native child requests retain serving models while idle and across parent switches", async () => {
+test("native child requests retain serving models and completion buckets across replay and parent switches", async (t) => {
   const home = await mkdtemp(join(tmpdir(), "dashboard-native-"));
   const keys = ["HOME", "PI_CODING_AGENT_DIR", "OMP_PROFILE", "PI_PROFILE", "TMUX", "TMUX_PANE"];
   const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
@@ -321,6 +321,8 @@ test("native child requests retain serving models while idle and across parent s
   delete process.env.TMUX;
   delete process.env.TMUX_PANE;
   try {
+    let clock = 1_800_000_030_000;
+    t.mock.method(Date, "now", () => clock);
     const handlers = new Map();
     const events = new Map();
     let tick;
@@ -361,7 +363,7 @@ test("native child requests retain serving models while idle and across parent s
       const result = await execute("python3", ["-c", `
 import json
 from session_usage import summary
-print(json.dumps(summary()))
+print(json.dumps(summary(now=${clock / 1000})))
 `], { cwd: process.cwd(), env: process.env });
       return JSON.parse(result.stdout);
     };
@@ -370,7 +372,7 @@ print(json.dumps(summary()))
     await handlers.get("session_before_switch")({}, ctx);
     emit("lifecycle", { id: "First", status: "started", parentToolCallId: "task-one" });
     emit("lifecycle", { id: "Second", status: "started", parentToolCallId: "task-two" });
-    const now = Date.now();
+    const now = Date.now() - 5 * 60_000;
     const first = request("First", "openai-codex", "Luna", now, "high");
     await Promise.resolve();
     request("Second", "anthropic", "Claude", now + 1, "max");
@@ -378,13 +380,16 @@ print(json.dumps(summary()))
     assert.deepEqual(history.current.models.map(row => [row.provider, row.model, row.thinking_level, row.total]), [
       ["anthropic", "Claude", "max", 160], ["openai-codex", "Luna", "high", 160],
     ]);
+    assert.deepEqual(history.chart, [...Array(19).fill(0), 320]);
     // Repeated delivery is not another request; sync task totals aren't extra usage.
+    clock += 60_000;
     emit("event", first);
     entries.push({ type: "message", id: "task-result", timestamp: new Date(now + 2).toISOString(),
       message: { role: "toolResult", toolName: "task", toolCallId: "task-one", details: { usage } } });
     history = await report();
     assert.equal(history.current.models.reduce((sum, row) => sum + row.total, 0), 320);
     assert.ok(history.current.models.every(row => row.provider !== "task (mixed)"));
+    assert.deepEqual(history.chart, [...Array(18).fill(0), 320, 0]);
     await handlers.get("session_before_switch")({}, ctx);
     session = "next-parent";
     entries = [];
@@ -394,6 +399,7 @@ print(json.dumps(summary()))
     history = await report();
     assert.equal(history.current.id, "next-parent");
     assert.deepEqual(history.current.models, []);
+    assert.deepEqual(history.chart, Array(20).fill(0));
     assert.equal(history.previous.id, "native-parent");
     assert.deepEqual(history.previous.models.map(row => [row.model, row.thinking_level, row.total]), [
       ["Claude", "max", 160], ["Astra", "xhigh", 160], ["Luna", "high", 160],
@@ -403,6 +409,7 @@ print(json.dumps(summary()))
     history = await report();
     assert.deepEqual(history.current.models.map(row => [row.model, row.thinking_level, row.total]),
       [["NewModel", "low", 160]]);
+    assert.deepEqual(history.chart, [...Array(19).fill(0), 160]);
     assert.equal(history.previous.models.reduce((sum, row) => sum + row.total, 0), 480);
     assert.deepEqual(warnings, []);
     // Force a real SQLite-open failure, then restore storage before the retry.
@@ -412,10 +419,12 @@ print(json.dumps(summary()))
     await Promise.resolve();
     await tick();
     assert.deepEqual(warnings, ["warning"]);
+    clock += 60_000;
     await rm(join(home, "agent"));
     await rename(join(home, "saved-agent"), join(home, "agent"));
     history = await report();
     assert.equal(history.current.models[0].total, 320);
+    assert.deepEqual(history.chart, [...Array(18).fill(0), 320, 0]);
     assert.equal(history.previous.models.reduce((sum, row) => sum + row.total, 0), 480);
     await handlers.get("session_shutdown")({}, ctx);
   } finally {
