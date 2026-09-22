@@ -38,6 +38,8 @@ class PreferencesTests(unittest.TestCase):
             'side': 'left',
             'compact': False,
             'commands_visible': False,
+            'previous_visible': False,
+            'history_visible': False,
             'interval': 15,
             'enabled': False,
             'theme': 'blue',
@@ -59,16 +61,17 @@ class PreferencesTests(unittest.TestCase):
         self.assertEqual(result['interval'], 120)
         self.assertEqual(result['side'], 'left')
 
-    def test_commands_visibility_upgrades_old_settings_and_remains_profile_local(self):
+    def test_section_visibility_upgrades_old_settings_and_remains_profile_local(self):
         path = preferences_path(None)
         path.parent.mkdir(parents=True)
         path.write_text('{"compact": false}')
-        self.assertTrue(load_preferences(None)['commands_visible'])
-        update_preferences(None, {'commands_visible': False})
-        self.assertFalse(load_preferences(None)['commands_visible'])
-        self.assertTrue(load_preferences('other')['commands_visible'])
-        update_preferences(None, {'commands_visible': True})
-        self.assertTrue(load_preferences(None)['commands_visible'])
+        for field in ('commands_visible', 'previous_visible', 'history_visible'):
+            self.assertTrue(load_preferences(None)[field])
+            update_preferences(None, {field: False})
+            self.assertFalse(load_preferences(None)[field])
+            self.assertTrue(load_preferences('other')[field])
+            update_preferences(None, {field: True})
+            self.assertTrue(load_preferences(None)[field])
         self.assertFalse(load_preferences(None)['compact'])
 
     def test_malformed_file_is_neither_hidden_nor_overwritten(self):
@@ -94,6 +97,7 @@ class PreferencesTests(unittest.TestCase):
             {'tokens': {'accent': '#12345'}}, {'tokens': {'warn': 'not-a-color'}},
             {'compact': 1}, {'enabled': 'false'}, {'interval': True},
             {'commands_visible': 'false'},
+            {'previous_visible': 0}, {'history_visible': 'false'},
             {'interval': 14}, {'interval': 15.5}, {'apiKey': 'not-a-setting'},
         )
         for changes in invalid:

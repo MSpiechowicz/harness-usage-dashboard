@@ -73,6 +73,8 @@ _BASIC_RGB = {
 COMMANDS = {
     'view': ('list', 'compact', 'details'),
     'commands': ('hide', 'show'),
+    'previous': ('hide', 'show'),
+    'history': ('hide', 'show'),
     'position': ('left', 'right'),
     'providers': ('add', 'remove', 'hide', 'show'),
     'theme': (*THEME_NAMES, 'custom', 'reset'),
@@ -82,7 +84,8 @@ THEME_OPTIONS = '|'.join(THEME_NAMES)
 HELP = (f'/usage-dashboard: view list|compact|details; position left|right; '
         f'providers add|remove|hide|show PROVIDER; theme {THEME_OPTIONS}; '
         'theme custom TOKEN COLOR; theme reset; window on|off|focus|refresh; '
-        'window interval SECONDS; window hide|show PROVIDER FILTER; commands hide|show')
+        'window interval SECONDS; window hide|show PROVIDER FILTER; commands hide|show; '
+        'previous hide|show; history hide|show')
 
 
 def resolve_tokens(config):
@@ -293,8 +296,8 @@ def change_config(config, words):
             patterns.append(pattern)
         elif action == 'show':
             config['windows'][provider] = [p for p in patterns if p != pattern]
-    elif section == 'commands':
-        config['commands_visible'] = action == 'show'
+    elif section in ('commands', 'previous', 'history'):
+        config[f'{section}_visible'] = action == 'show'
     elif section == 'theme':
         _theme_config(config, action, params)
     elif action in ('left', 'right'):
@@ -322,7 +325,9 @@ def describe(config):
                   if custom else '')
     lines = [f"Dashboard {'on' if config['enabled'] else 'off'} / {config['side']} / "
              f"{'compact' if config['compact'] else 'details'} / {config['interval']}s / "
-             f"theme {theme}{token_note} / commands {'shown' if config['commands_visible'] else 'hidden'}"]
+             f"theme {theme}{token_note} / commands {'shown' if config['commands_visible'] else 'hidden'} / "
+             f"previous {'shown' if config['previous_visible'] else 'hidden'} / "
+             f"history {'shown' if config['history_visible'] else 'hidden'}"]
     if not config['providers']:
         lines.extend(['Add at least one provider.', '/usage-dashboard providers add PROVIDER'])
     for provider in config['providers']:
@@ -709,7 +714,7 @@ def detailed_model_rows(entries, width, include_provider=False):
             rows.extend(model_usage_rows(variant, width, prefix))
     return rows
 
-def session_lines(history, now, width, compact=True):
+def session_lines(history, now, width, compact=True, previous_visible=True, history_visible=True):
     rows = []
     current = history['current']
     if current:
@@ -721,7 +726,7 @@ def session_lines(history, now, width, compact=True):
         rows.append(('', 'dim'))
     for name, title in (('current', 'CURRENT SESSION'), ('previous', 'PREVIOUS SESSION')):
         session = history[name]
-        if not session:
+        if not session or (name == 'previous' and not previous_visible):
             continue
         rows.append(section_heading(title, width, session['id'][:8] if not compact else ''))
         providers = session['providers']
@@ -778,7 +783,7 @@ def session_lines(history, now, width, compact=True):
 
     project_history = history.get('history', [])
     total_history = history.get('total_history', [])
-    if project_history or total_history:
+    if history_visible and (project_history or total_history):
         rows.append(section_heading('HISTORY', width))
         other_rows = history_rows('Other sessions', project_history)
         total_rows = history_rows('Project total', total_history)
@@ -935,7 +940,8 @@ def watch(screen, args):
                 screen.erase()
                 try:
                     rows = session_lines(session_summary(config['profile'], args.owner, now),
-                                         now, width - 2, config['compact'])
+                                         now, width - 2, config['compact'],
+                                         config['previous_visible'], config['history_visible'])
                 except (OSError, sqlite3.Error):
                     rows = [('Session history unavailable', 'warn')]
                 if history_error:
@@ -1102,7 +1108,8 @@ def main():
             parser.error('Unexpected arguments after --')
         elif args.once:
             print('\n'.join(text for text, _ in session_lines(
-                session_summary(config['profile'], args.owner), time.time(), 32, config['compact'])))
+                session_summary(config['profile'], args.owner), time.time(), 32, config['compact'],
+                config['previous_visible'], config['history_visible'])))
             if not config['providers']:
                 print(describe(config))
             for provider in config['providers']:

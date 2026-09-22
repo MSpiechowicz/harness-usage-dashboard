@@ -166,7 +166,8 @@ class CommandsVisibilityTests(unittest.TestCase):
     def test_old_live_config_inherits_new_preferences_without_losing_pane_settings(self):
         fallback = dict(DEFAULTS, profile='default', refresh=0)
         old = dict(fallback, compact=False)
-        del old['commands_visible']
+        for field in ('commands_visible', 'previous_visible', 'history_visible'):
+            del old[field]
         with patch('dashboard.mux', return_value=json.dumps(old)):
             config = load_config('%1', fallback)
         self.assertTrue(config['commands_visible'])
@@ -176,6 +177,48 @@ class CommandsVisibilityTests(unittest.TestCase):
         self.assertTrue(config['enabled'])
         change_config(config, ['commands', 'show'])
         self.assertTrue(config['commands_visible'])
+        for section in ('previous', 'history'):
+            self.assertTrue(config[f'{section}_visible'])
+            change_config(config, [section, 'hide'])
+            self.assertFalse(config[f'{section}_visible'])
+            change_config(config, [section, 'show'])
+            self.assertTrue(config[f'{section}_visible'])
+
+    def test_session_sections_hide_independently_without_changing_usage(self):
+        session = {'id': 'session-1', 'updated': 0,
+                   'providers': [{'provider': 'openai-codex', 'total': 12000}],
+                   'models': [], 'quota': []}
+        model = {'provider': 'openai-codex', 'model': 'model-a', 'input': 100,
+                 'output': 20, 'cache_read': 30, 'cache_write': 10}
+        history = {'chart': [0, 1, 2], 'current': session, 'previous': session,
+                   'history': [dict(model, total=8000)],
+                   'total_history': [dict(model, total=20000)]}
+        original = deepcopy(history)
+        for compact in (True, False):
+            for previous, historical in ((False, True), (True, False), (False, False), (True, True)):
+                with self.subTest(compact=compact, previous=previous, history=historical):
+                    rows = session_lines(history, 0, 60, compact, previous, historical)
+                    text = '\n'.join(line for line, _ in rows)
+                    self.assertEqual('PREVIOUS SESSION' in text, previous)
+                    self.assertEqual('HISTORY' in text, historical)
+                    self.assertEqual('Other sessions' in text, historical)
+                    self.assertEqual('Project total' in text, historical)
+                    self.assertIn('CURRENT SESSION', text)
+                    self.assertIn('TOKEN RATE', text)
+                    self.assertIn('12k', text)
+                    self.assertFalse(any(not rows[i][0] and not rows[i + 1][0]
+                                         for i in range(len(rows) - 1)))
+        self.assertEqual(history, original)
+
+    def test_empty_project_has_no_hidden_section_headings(self):
+        history = {'current': None, 'previous': None, 'chart': [],
+                   'history': [], 'total_history': []}
+        for compact in (True, False):
+            text = '\n'.join(line for line, _ in session_lines(
+                history, 0, 32, compact, False, False))
+            self.assertIn('Waiting for OMP session', text)
+            self.assertNotIn('PREVIOUS SESSION', text)
+            self.assertNotIn('HISTORY', text)
 
     def test_live_toggle_reclaims_space_and_clamps_scroll_offset(self):
         config = dict(DEFAULTS, profile='default', refresh=0)
