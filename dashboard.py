@@ -512,9 +512,8 @@ def provider_lines(data, provider, config, now, width):
         age = max(0, int(now - fetched / 1000)) if number(fetched) else None
         if label:
             lines.append((label, 'title'))
-        if age is not None and (age > config['interval'] + 5 or not config['compact']):
-            cached = ' (cached)' if age > config['interval'] + 5 else ''
-            lines.append((f'Source age: {age}s{cached}', 'dim'))
+        if age is not None and age > config['interval'] + 5:
+            lines.append((f'Source age: {age}s (cached)', 'dim'))
         if report.get('metadata', {}).get('limitReached'):
             lines.append(('ACCOUNT LIMIT REACHED', 'error'))
         if report.get('metadata', {}).get('isAvailable') is False:
@@ -554,11 +553,7 @@ def provider_lines(data, provider, config, now, width):
             for note in limit.get('notes', []):
                 lines.append((clean(note), 'dim'))
             if not config['compact']:
-                used = fraction(amount)
-                if used is not None:
-                    lines.append((f'{used:.0%} used', 'dim'))
                 lines.append(('ID: ' + clean(limit.get('id', '')), 'dim'))
-                lines.append(('', ''))
         if not shown:
             lines.append(('All windows hidden' if report.get('limits') else 'No usage windows reported', 'dim'))
         credits = report.get('resetCredits', {}).get('availableCount')
@@ -720,8 +715,6 @@ def session_lines(history, now, width, compact=True):
     if current:
         rows.append(section_heading('TOKEN RATE', width, 'tok/min'))
         rows.extend(token_chart(history['chart'], width))
-        if not compact:
-            rows.append(('All models; reported usage', 'dim'))
         rows.append(('', 'dim'))
     elif not history['previous']:
         rows.append(('Waiting for OMP session', 'dim'))
@@ -953,14 +946,9 @@ def watch(screen, args):
                     if rows and rows[-1][0]:
                         rows.append(('', 'dim'))
                     tail = ''
-                    if config['compact'] and state['checked'] is not None:
+                    if state['checked'] is not None:
                         tail = 'checking' if provider in jobs else f'checked {max(0, int(tick - state["checked"]))}s'
                     rows.append(section_heading(name, width - 2, tail))
-                    if state['checked'] is not None and not config['compact']:
-                        age = max(0, int(tick - state['checked']))
-                        next_check = max(0, int(state['next'] - tick))
-                        progress = 'checking...' if provider in jobs else f'next {next_check}s'
-                        rows.append((f'Checked {age}s ago | {progress}', 'dim'))
                     if state['error']:
                         rows.append(('STALE DATA' if state['data'] else 'USAGE UNAVAILABLE', 'error'))
                         rows.append((state['error'], 'warn'))

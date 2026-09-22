@@ -37,6 +37,28 @@ class RemainingAllowanceTests(unittest.TestCase):
         lines = provider_lines(data, 'openai-codex', {'interval': 60, 'compact': True, 'windows': {}}, 0, 32)
         self.assertEqual(next(style for text, style in lines if text.startswith('Reset credits:')), 'secondary')
 
+    def test_details_keep_credits_adjacent_to_final_window_id(self):
+        data = {'reports': [{'provider': 'openai-codex', 'fetchedAt': 0, 'limits': [
+            {'id': 'hourly', 'label': 'Hourly', 'amount': {'usedFraction': .2}},
+            {'id': 'weekly', 'label': 'Weekly', 'amount': {'usedFraction': .45}},
+        ], 'resetCredits': {'availableCount': 1}}]}
+        config = {'interval': 60, 'compact': False, 'windows': {}}
+        rows = [text for text, _ in provider_lines(data, 'openai-codex', config, 0, 32)]
+        self.assertTrue(any('80% left' in text for text in rows))
+        self.assertTrue(any('55% left' in text for text in rows))
+        self.assertIn('ID: hourly', rows)
+        self.assertEqual(rows[rows.index('ID: weekly') + 1], 'Reset credits: 1')
+        self.assertFalse(any('% used' in text for text in rows))
+        self.assertFalse(any('Source age:' in text for text in rows))
+
+    def test_cached_source_warning_survives_in_both_views(self):
+        data = {'reports': [{'provider': 'openai-codex', 'fetchedAt': 0, 'limits': []}]}
+        for compact in (True, False):
+            with self.subTest(compact=compact):
+                config = {'interval': 60, 'compact': compact, 'windows': {}}
+                rows = [text for text, _ in provider_lines(data, 'openai-codex', config, 66, 32)]
+                self.assertIn('Source age: 66s (cached)', rows)
+
     def test_reported_remaining_takes_precedence_over_used_estimate(self):
         self.assertIn('20% left', self.render({'remainingFraction': .2, 'usedFraction': .55}))
         self.assertIn('25% left', self.render({'remaining': 25, 'limit': 100}))
