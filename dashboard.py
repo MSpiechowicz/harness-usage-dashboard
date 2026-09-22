@@ -601,6 +601,15 @@ def section_heading(label, width, tail=''):
     text = label + ' ' + rule + (' ' + tail if tail else '')
     return text[:max(1, width)], ('secondary', 0, len(label), 'title')
 
+
+def total_heading(label, total, width):
+    tail = format_tokens(total)
+    label = clean(label)
+    room = max(1, width - len(tail) - 3)
+    if len(label) > room:
+        label = label[:max(0, room - 3)] + '.' * min(3, room)
+    return section_heading(label, width, tail)
+
 def command_box_rows(count, interval, position, width):
     outer = max(3, width - 2)
     inner = max(1, outer - 2)
@@ -695,8 +704,8 @@ def model_usage_rows(model, width, label=None):
         label += ' - ' + thinking
     label += ' tokens'
     rows = [allowance_row(label, format_tokens(model['total']), '', width, 'normal')]
-    rows.append((f'  In {format_tokens(model["input"])} / out {format_tokens(model["output"])}', 'dim'))
-    rows.append((f'  Cache r {format_tokens(model["cache_read"])} / w {format_tokens(model["cache_write"])}', 'dim'))
+    rows.append((f'  In {format_tokens(model["input"])} / out {format_tokens(model["output"])}', 'secondary'))
+    rows.append((f'  Cache r {format_tokens(model["cache_read"])} / w {format_tokens(model["cache_write"])}', 'secondary'))
     return rows
 
 
@@ -743,8 +752,10 @@ def session_lines(history, now, width, compact=True, previous_visible=True, hist
             label = NAMES.get(item['provider'], item['provider'])
             if not compact:
                 rows.append(('', 'dim'))
-            rows.append(allowance_row(label, format_tokens(item['total']), '', width, 'normal'))
-            if not compact:
+            if compact:
+                rows.append(allowance_row(label, format_tokens(item['total']), '', width, 'normal'))
+            else:
+                rows.append(total_heading(label, item['total'], width))
                 models = [model for model in session['models'] if model['provider'] == item['provider']]
                 if models:
                     rows.append(('', 'dim'))
@@ -773,12 +784,13 @@ def session_lines(history, now, width, compact=True, previous_visible=True, hist
         if not entries:
             return []
         total = sum(item['total'] for item in entries)
-        result = [allowance_row(label, format_tokens(total), '', width, 'normal')]
-        if not compact:
-            details = detailed_model_rows(entries, width, include_provider=True)
-            if details:
-                result.append(('', 'dim'))
-                result.extend(details)
+        if compact:
+            return [allowance_row(label, format_tokens(total), '', width, 'normal')]
+        result = [total_heading(label, total, width)]
+        details = detailed_model_rows(entries, width, include_provider=True)
+        if details:
+            result.append(('', 'dim'))
+            result.extend(details)
         return result
 
     project_history = history.get('history', [])

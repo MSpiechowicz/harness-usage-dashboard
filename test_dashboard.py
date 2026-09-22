@@ -452,6 +452,23 @@ class NestedCommandTests(unittest.TestCase):
         self.assertEqual(texts[first - 1], '')
         self.assertEqual(texts[second - 1], '')
 
+    def test_details_headings_preserve_totals_at_minimum_pane_width(self):
+        model = {'provider': 'a-very-long-provider-name', 'model': 'model-a',
+                 'total': 170000, 'input': 170000, 'output': 0,
+                 'cache_read': 0, 'cache_write': 0}
+        session = {'id': 'session', 'updated': 0, 'providers': [model],
+                   'models': [model], 'quota': []}
+        history = {'chart': [], 'current': session, 'previous': session,
+                   'history': [model], 'total_history': [model]}
+        rows = session_lines(history, 0, 20, compact=False)
+        for prefix in ('a-very', 'Other', 'Project'):
+            with self.subTest(prefix=prefix):
+                headings = [text for text, _style in rows if text.startswith(prefix)]
+                self.assertTrue(headings)
+                for text in headings:
+                    self.assertTrue(text.endswith('170k'), text)
+                    self.assertLessEqual(len(text), 20)
+
     def test_details_separate_history_entries_from_totals(self):
         model = {'provider': 'openai-codex', 'model': 'model-a',
                  'thinking_level': 'high', 'total': 15,
