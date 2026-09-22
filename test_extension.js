@@ -8,6 +8,7 @@ import test from "node:test";
 import usageDashboard from "./extension.js";
 
 const execute = promisify(execFile);
+const theme = { fg: (_color, text) => text, bold: text => text };
 
 test("Commands menu and direct commands persist footer visibility without hiding the sidebar", async () => {
   const home = await mkdtemp(join(tmpdir(), "dashboard-commands-"));
@@ -33,6 +34,7 @@ test("Commands menu and direct commands persist footer visibility without hiding
     const ctx = {
       hasUI: true, cwd: process.cwd(),
       ui: {
+        theme,
         async select(_title, options) {
           const choice = choices.shift();
           assert.ok(options.includes(choice));
@@ -160,7 +162,7 @@ test("records the effective thinking level for model usage", async () => {
       },
       setInterval: () => 1,
       setTimeout() {},
-      ui: { notify() {} },
+      ui: { theme, notify() {} },
     };
     await handlers.get("session_start")({}, ctx);
 
@@ -233,7 +235,7 @@ test("auxiliary usage keeps its own thinking variants while the parent stays Low
         getLeafId: () => "parent-low", getHeader: () => ({}), getEntries: () => entries.slice(),
       },
       setInterval: () => 1, setTimeout() {},
-      ui: { notify(message) { assert.fail(message); } },
+      ui: { theme, notify(message) { assert.fail(message); } },
     };
     await handlers.get("session_start")({}, ctx);
     await handlers.get("agent_end")({}, ctx);
@@ -302,7 +304,7 @@ test("native child requests retain serving models while idle and across parent s
       },
       setInterval(callback) { tick = callback; return 1; },
       setTimeout() {}, clearTimer() {},
-      ui: { notify(message, type) { warnings.push(type); } },
+      ui: { theme, notify(message, type) { warnings.push(type); } },
     };
     const emit = (channel, payload) => events.get(`task:subagent:${channel}`)?.(payload);
     const request = (id, provider, model, timestamp, level) => {
@@ -427,7 +429,7 @@ test("periodic sync records idle-parent bursts and entries appended during a wri
         return 1;
       },
       setTimeout() {},
-      ui: { notify(message) { assert.fail(message); } },
+      ui: { theme, notify(message) { assert.fail(message); } },
     };
     await handlers.get("session_start")({}, ctx);
     const timestamp = new Date().toISOString();
@@ -491,6 +493,7 @@ test("command menu uses native bordered selectors and left arrow navigation", as
     cwd: process.cwd(),
     models: { list: () => [] },
     ui: {
+      theme,
       async select(title, options, dialogOptions) {
         calls.push({ title, options, dialogOptions });
         if (selectIndex === 0) {
@@ -541,6 +544,7 @@ test("theme menu preserves palette descriptions with native selectors", async ()
     cwd: process.cwd(),
     models: { list: () => [] },
     ui: {
+      theme,
       async select(title, options, dialogOptions) {
         calls.push({ title, options, dialogOptions });
         return "Custom  (override individual colors)";
@@ -605,7 +609,7 @@ test("detaches the dashboard before waiting for shutdown recording", async () =>
         getHeader: () => ({}),
         getEntries: () => [],
       },
-      ui: { notify() {} },
+      ui: { theme, notify() {} },
     };
     await handlers.get("session_shutdown")({}, ctx);
     assert.deepEqual(calls[0].slice(-2), ["--", "detach"]);

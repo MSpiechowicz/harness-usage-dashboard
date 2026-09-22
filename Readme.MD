@@ -168,6 +168,8 @@ Inside OMP, enter:
 ```
 The menu has seven sections. Use the **Left Arrow** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/usage-dashboard providers`, opens its submenu.
 
+Dashboard command results, help, warnings, and errors use a bold **Usage Dashboard** heading and readable body text in the active OMP theme. Warning and error headings retain their severity colors. Update check/install notifications keep their native presentation.
+
 | Section | Purpose | Example |
 | --- | --- | --- |
 | **View** | Switch between provider and model-level display; use `view list` directly to inspect settings | `/usage-dashboard view details` |
