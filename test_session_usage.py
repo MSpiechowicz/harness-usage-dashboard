@@ -358,7 +358,7 @@ class SessionAccountingTests(unittest.TestCase):
         self.assertEqual(quota[0]['intervals'], 1)
 
     def test_quota_rows_require_a_visible_accumulated_change(self):
-        self.save()
+        self.save(entries=[self.entry(model='Quota model')])
         waiting = self.sample(61, .2, account='pending-account')
         waiting['label'] = 'Pending quota'
         record_quota(None, None, 'a', [waiting])
@@ -372,20 +372,38 @@ class SessionAccountingTests(unittest.TestCase):
         record_quota(None, None, 'a', [measured, {**measured, 'at': 80}])
         for at, used in ((90, .4), (100, .40004), (110, .40008), (120, .40008)):
             record_quota(None, None, 'a', [{**measured, 'at': at, 'used': used}])
+            report = summary()
             for compact in (True, False):
                 with self.subTest(at=at, compact=compact):
-                    rendered = '\n'.join(line for line, _ in session_lines(summary(), at, 48, compact))
+                    rendered = '\n'.join(line for line, _ in session_lines(report, at, 48, compact))
                     self.assertNotIn('Pending quota', rendered)
                     self.assertNotIn('+0.00%', rendered)
                     if at < 110:
                         self.assertNotIn('Measured quota', rendered)
                         self.assertNotIn('Quota change', rendered)
-                    else:
+                    elif compact:
                         self.assertIn('Measured quota', rendered)
                         self.assertIn('+0.01%', rendered)
                         lines = rendered.splitlines()
                         heading = lines.index('Quota change (observed)')
                         self.assertEqual(lines[heading - 1], '')
+                    else:
+                        quota = next(item for item in report['current']['quota']
+                                     if item['label'] == 'Measured quota')
+                        self.assertAlmostEqual(quota['points'], .008)
+                        self.assertGreater(quota['intervals'], 0)
+                        self.assertNotIn('Measured quota', rendered)
+                        self.assertNotIn('+0.01%', rendered)
+                        self.assertNotIn('Quota change (observed)', rendered)
+                        self.assertNotIn('[' + quota['key'][:6] + ']', rendered)
+                        self.assertNotIn('observation segments', rendered)
+                        self.assertNotIn('Last sample', rendered)
+                        self.assertNotIn('% = percentage-point change', rendered)
+                        self.assertNotIn('Account-wide; not exact billing', rendered)
+                        self.assertIn('CURRENT SESSION', rendered)
+                        self.assertIn('Quota model tokens', rendered)
+                        self.assertIn('In 100 / out 20', rendered)
+                        self.assertIn('HISTORY TOTAL', rendered)
 
 if __name__ == '__main__':
     unittest.main()

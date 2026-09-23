@@ -764,25 +764,20 @@ def session_lines(history, now, width, compact=True, previous_visible=True,
                 if models:
                     rows.append(('', 'dim'))
                 rows.extend(detailed_model_rows(models, width))
-        quotas = [quota for quota in session['quota']
-                  if quota['intervals'] > 0 and round(quota['points'], 2) > 0]
-        if quotas:
-            rows.append(('', 'dim'))
-            rows.append(('Quota change (observed)', 'dim'))
-        for quota in quotas:
-            label = NAMES.get(quota['provider'], quota['provider']) + ' ' + quota['label']
-            duplicates = sum(item['provider'] == quota['provider'] and item['label'] == quota['label']
-                             for item in quotas)
-            if duplicates > 1 or not compact:
-                # Put the fingerprint first so width fitting cannot erase its identity.
-                label = '[' + quota['key'][:6] + '] ' + label
-            rows.append(allowance_row(label, f'+{quota["points"]:.2f}%', '', width, 'normal'))
-            if not compact:
-                if quota['segments'] > 1:
-                    rows.append((f'{quota["segments"]} observation segments', 'dim'))
-                rows.append((f'Last sample {max(0, int(now - quota["last"]))}s ago', 'dim'))
-        if quotas and not compact:
-            rows.extend([('% = percentage-point change', 'dim'), ('Account-wide; not exact billing', 'dim')])
+        if compact:
+            quotas = [quota for quota in session['quota']
+                      if quota['intervals'] > 0 and round(quota['points'], 2) > 0]
+            if quotas:
+                rows.append(('', 'dim'))
+                rows.append(('Quota change (observed)', 'dim'))
+            for quota in quotas:
+                label = NAMES.get(quota['provider'], quota['provider']) + ' ' + quota['label']
+                duplicates = sum(item['provider'] == quota['provider'] and item['label'] == quota['label']
+                                 for item in quotas)
+                if duplicates > 1:
+                    # Put the fingerprint first so width fitting cannot erase its identity.
+                    label = '[' + quota['key'][:6] + '] ' + label
+                rows.append(allowance_row(label, f'+{quota["points"]:.2f}%', '', width, 'normal'))
         rows.append(('', 'dim'))
 
     def history_rows(entries):

@@ -8,20 +8,16 @@ See how quickly your current session is using tokens, what your previous session
 
 [Install](#installation) · [Use](#usage) · [Themes](#theme-preview) · [Update](#updating) · [Uninstall](#uninstalling) · [Troubleshoot](#troubleshooting)
 
-[![Green Compact and blue Details mockups showing token charts, session and project totals, thinking-level and cache breakdowns, allowance colors, and the command box](docs/assets/dashboard.png)](docs/assets/dashboard.png)
-
-*Green Compact (left) and blue Details (right), arranged side by side at expanded widths for comparison. Mockups generated from the current dashboard row-rendering functions with **synthetic usage data** and an illustrative terminal palette—not live account readings or terminal captures. Details continues below the visible area by scrolling. No real conversation content, credentials, or account identifiers are included. Click to enlarge.*
-
-Use `/usage-dashboard view compact` for the overview, or `/usage-dashboard view details` for per-model accounting and sample information.
+Use `/usage-dashboard view compact` for the overview and observed session quota changes, or `/usage-dashboard view details` for per-model token accounting.
 
 ## What it does
 
 - **Live token-rate chart:** the last 20 minutes of reported usage across all models, with solid bars, a labelled scale, and an idle state.
 - **Current and previous sessions:** cumulative token totals and recorded allowance changes survive `/new`, restarts, and resumes. Inherited fork context is not counted as new consumption.
 - **Provider and model breakdowns:** Compact mode groups tokens by provider; Details separates each model by effective thinking level and includes input/output and cache-read/write counts. Unattributed task aggregates remain explicitly labelled.
-- **Observed quota changes:** separate comparisons for each account and allowance window, in percentage points. Rows appear only when comparable samples exist; these are observations, not exact session billing.
+- **Observed quota changes:** Compact shows separate comparisons for each account and allowance window, in percentage points. Rows appear only when comparable samples exist; these are observations, not exact session billing.
 - **Account allowances and balances:** remaining percentages, reset times, and reported API credit balances where supported. Multiple providers can be monitored independently of the current conversation model.
-- **A quieter sidebar:** aligned values, section dividers, and spacing; no pending-sample rows or redundant single-provider totals in Compact mode. Detailed explanations stay in Details.
+- **A quieter sidebar:** aligned values, section dividers, and spacing; no pending-sample rows or redundant single-provider totals in Compact mode.
 - **Local storage:** recorded session usage and quota observations live in a SQLite database on your machine, scoped by project within each OMP profile. Provider selection, hidden rows, position, density, polling interval, visibility, and theme tokens persist in a separate local JSON file.
 - **Design-token theming:** choose green, blue, brown, yellow, cyan, magenta, orange, or red palettes. Secondary rules and chart axes use each theme's darker secondary token; chart bars use the chart token; healthy, warning, and critical values stay green, orange, and red for clear allowance semantics.
 - **Native managed updates:** release checks and upgrades through OMP's marketplace manager.
@@ -300,10 +296,12 @@ Captured child requests remain assigned to the session that spawned them, even i
 
 Each supported account/window gets its own **observed quota change**, shown as a percentage-style delta. For example, an allowance moving from 20% used to 24.2% used contributes **+4.20%**, meaning **+4.20 percentage points**. Hourly, five-hour, weekly, monthly, or other labels come from the provider; the dashboard does not invent an hourly or total quota if none is reported.
 
+Session quota-change rows appear in Compact only, once their measured increase reaches the display threshold. Details omits these session comparisons while retaining per-model token breakdowns and live provider allowance rows.
+
 - Token totals can be combined across models; quota percentages cannot be combined across providers, accounts, or distinct allowance windows. Shared model buckets are observed once, not multiplied by the number of models used.
 - Different accounts/buckets remain separate. Short bracketed bucket fingerprints distinguish otherwise identical labels without displaying raw account IDs.
-- A fresh baseline and a comparable second sample are required. Quota rows and their heading stay hidden until the accumulated change rounds to a positive value at two decimal places; there are no “awaiting samples” or “+0.00%” rows. Unchanged samples and smaller increases remain recorded, so small increases can accumulate into a visible change. Old cached samples, late responses from a previous session, and duplicate timestamps do not establish new consumption.
-- A changed reset/limit, decreasing counter, or resumed session starts a separate observation segment. The summary adds only observed increases inside those segments; it never subtracts across a reset or charges the inactive resume gap. Segment counts, sample ages, and explanatory notes appear only in Details mode.
+- A fresh baseline and a comparable second sample are required. In Compact, quota rows and their heading stay hidden until the accumulated change rounds to a positive value at two decimal places; there are no “awaiting samples” or “+0.00%” rows. Unchanged samples and smaller increases remain recorded, so small increases can accumulate into a visible change. Old cached samples, late responses from a previous session, and duplicate timestamps do not establish new consumption.
+- A changed reset/limit, decreasing counter, or resumed session starts a separate observation segment. The summary adds only observed increases inside those segments; it never subtracts across a reset or charges the inactive resume gap.
 - Provider counters can lag and include other sessions, applications, or machines. Changes before the first sample or after the last sample cannot be attributed. These values are **not exact per-session or per-model subscription charges**, and tokens are not converted into quota percentages or dollar charges.
 - Account sampling runs at the configured polling interval while the sidebar and provider view are visible. Hidden providers are not polled. A provider without a stable account scope or percentage cannot produce a session quota comparison; its quota summary stays hidden rather than implying zero. Historical summaries remain visible regardless of the current account-view filters.
 
