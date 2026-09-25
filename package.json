@@ -1,6 +1,6 @@
 {
   "name": "harness-usage-dashboard",
-  "version": "1.0.54",
+  "version": "1.0.55",
   "private": true,
   "type": "module",
   "description": "Persistent tmux usage sidebar for OMP and Claude Code, with shell hooks and a Claude personal skill",
