@@ -19,7 +19,7 @@ Inside either host, use `/usage-dashboard view compact` for the overview or `/us
 - **Account allowances and balances:** OMP displays remaining percentages, reset times, and reported API credit balances where supported. Claude Code can show five-hour and seven-day limits only when its status-line payload includes them.
 - **A quieter sidebar:** aligned values, section dividers, and spacing; no pending-sample rows or redundant single-provider totals in Compact mode.
 - **Local storage:** recorded usage lives in host-separated SQLite databases. OMP records are scoped by project within each OMP profile; Claude Code records are scoped by project in Claude's own storage. Preferences persist in separate local JSON files.
-- **Design-token theming:** choose green, blue, brown, yellow, cyan, magenta, orange, or red palettes. Secondary rules and chart axes use each theme's darker secondary token; chart bars use the chart token; healthy, warning, and critical values stay green, orange, and red for clear allowance semantics.
+- **Design-token theming:** choose from nine named palettes: green, blue, brown, yellow, cyan, magenta, orange, red, and the opt-in Claude palette inspired by Anthropic's brand colors. Rules, chart bars, and body text follow each palette's tokens; healthy, warning, and critical values stay green, orange, and red for clear allowance semantics.
 - **Host-specific updates:** OMP uses its native marketplace manager; Claude's personal skill can check a source-checkout release and install it only when the original checkout is eligible for a safe Git fast-forward.
 
 ### When it is useful
@@ -243,7 +243,7 @@ python3 dashboard.py control --host claude -- history-total hide
 python3 dashboard.py control --host claude -- history-total show
 ```
 
-Choose the sidebar side or one of the eight named palettes:
+Choose the sidebar side or one of the nine named palettes, including the opt-in Claude palette:
 
 ```sh
 python3 dashboard.py control --host claude -- position left
@@ -256,6 +256,7 @@ python3 dashboard.py control --host claude -- theme cyan
 python3 dashboard.py control --host claude -- theme magenta
 python3 dashboard.py control --host claude -- theme orange
 python3 dashboard.py control --host claude -- theme red
+python3 dashboard.py control --host claude -- theme claude
 ```
 
 Override the heading accent or chart color with a quoted hex color. Choosing another named theme keeps custom overrides; `theme reset` returns to green **and clears all overrides**.
@@ -347,20 +348,21 @@ Window filters are case-insensitive substrings of provider usage-window labels o
 
 ### Theme preview
 
-[![All eight built-in palettes: green, blue, brown, yellow, cyan, magenta, orange, and red, with matching chart samples and stable green, orange, and red allowance indicators](docs/assets/themes.png)](docs/assets/themes.png)
+[![Preview of the original eight palettes—green, blue, brown, yellow, cyan, magenta, orange, and red—with chart samples and green, orange, and red allowance indicators; Claude is not shown](docs/assets/themes.png)](docs/assets/themes.png)
 
-*Mock-data excerpts generated from the current chart, heading, and allowance renderers. Each palette uses the same values so you can compare accents, darker rules, and chart colors. Exact shades and dimming depend on your terminal palette and color support. Click to enlarge.*
+*Mock-data excerpts of the original eight palettes, not a preview of the Claude palette. Each uses the same values to compare accents, darker rules, and chart colors. Exact shades and dimming depend on your terminal palette and color support. Click to enlarge.*
 
 Choose a palette from `/usage-dashboard theme`, or enter a command directly:
 
 ```text
 /usage-dashboard theme cyan
+/usage-dashboard theme claude
 /usage-dashboard theme custom accent #58a66a
 /usage-dashboard theme custom chart #58a66a
 /usage-dashboard theme reset
 ```
 
-`accent` changes section headings; `chart` changes the bars; `secondary` changes rules and axes. Built-in palettes keep body text neutral and allowance colors semantic: green for healthy, orange at 40% remaining or below (or a reported warning/unknown status), and red at 20% or below (or exhausted). Custom overrides can change those tokens too. `reset` restores green and clears all overrides. Preferences persist across launches.
+`accent` changes section headings; `chart` changes the bars; `secondary` changes rules and axes. The original eight palettes use neutral body text and darker secondary rules; Claude instead uses warm light body text and a mid-gray secondary token. All built-in palettes keep allowance colors semantic: green for healthy, orange at 40% remaining or below (or a reported warning/unknown status), and red at 20% or below (or exhausted). Custom overrides can change those tokens too. `reset` restores green and clears all overrides. Preferences persist across launches.
 
 <details>
 <summary>Complete command reference</summary>
@@ -382,7 +384,7 @@ All commands below are entered inside OMP.
 | `/usage-dashboard history-total show` | Restore History Total (visible by default when available). |
 | `/usage-dashboard position left` | Place the sidebar on the left. |
 | `/usage-dashboard position right` | Place the sidebar on the right. |
-| `/usage-dashboard theme green|blue|brown|yellow|cyan|magenta|orange|red` | Choose the named design-token palette. |
+| `/usage-dashboard theme green|blue|brown|yellow|cyan|magenta|orange|red|claude` | Choose one of nine named design-token palettes; `claude` opts into Anthropic brand-inspired colors. |
 | `/usage-dashboard theme custom TOKEN COLOR` | Override one token on the selected palette. Tokens are `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`; colors can be terminal names, `gray`, `brown`, `orange`, or `#RRGGBB`. Example: `/usage-dashboard theme custom accent #58a66a`. |
 | `/usage-dashboard theme reset` | Restore the green palette and remove custom token overrides. |
 | `/usage-dashboard providers add ID` | Add a provider view. |
@@ -510,7 +512,11 @@ Use `omp --profile NAME` to select a profile. Keep a custom `PI_CODING_AGENT_DIR
 
 Changes affect the current dashboard and subsequent launches, not other already-running panes. Preferences use locked, atomic updates; malformed settings produce an error rather than being silently reset. Release-check metadata is stored separately in `usage-dashboard-update.json` beside the preferences file.
 
-The named palettes are built from design tokens: `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default; blue, brown, yellow, cyan, magenta, orange, and red change headings, darker secondary rules, and chart color—not the neutral body text. See the [theme preview](#theme-preview) for all eight palettes. Muted text stays neutral and uses terminal dimming. Built-in allowance semantics remain stable: healthy is green, warning is orange, and critical is red. Brown and orange use the closest available terminal color when 256-color output is unavailable. Custom token values override one token on the selected palette and accept the basic terminal color names, `gray`, `brown`, `orange`, or a six-digit hexadecimal value. Use the `custom` menu option to enter a token and color, such as `accent #58a66a`; repeat it for additional tokens, or use `reset` to restore green and remove overrides.
+The nine named palettes use design tokens: `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default. The original eight palettes—green, blue, brown, yellow, cyan, magenta, orange, and red—keep neutral body and muted text while varying headings, darker secondary rules, and chart color; only those eight appear in the [theme preview](#theme-preview).
+
+Opt into `claude` with `/usage-dashboard theme claude` in OMP or `python3 dashboard.py control --host claude -- theme claude` for Claude Code. Inspired by [Anthropic's published brand colors](https://raw.githubusercontent.com/anthropics/skills/main/skills/brand-guidelines/SKILL.md), it sets `text` to warm light `#faf9f5`, `muted` and `secondary` to mid-gray `#b0aea5`, and `accent` and `chart` to orange `#d97757`. This is a dashboard palette for an assumed dark terminal, not a verified match for Claude Code's built-in terminal theme; it inherits your terminal background rather than setting one. Muted text also uses terminal dimming. Hex colors are mapped to the nearest xterm color on 256-color terminals and the nearest basic color on basic-color terminals, so displayed shades depend on terminal support and palette.
+
+All built-in palettes preserve allowance semantics: `good` is green, `warn` is orange, and `error` is red; orange falls back to yellow without 256-color support. Custom token values override one token on the selected palette and accept basic terminal color names, `gray`, `brown`, `orange`, or a six-digit hexadecimal value. Use the `custom` menu option to enter a token and color, such as `accent #58a66a`; repeat it for additional tokens, or use `reset` to restore green and remove overrides.
 
 **Do not paste API keys or tokens into dashboard commands.** OMP uses its own authentication, does not store credentials in preference files, and does not render account emails or account/credential IDs. DeepSeek's fallback obtains its credential from OMP and uses it in the provider-fetch process. Claude Code remains responsible for Claude authentication; this launcher does not add an OMP login flow. OMP release checks contact the public GitHub API without provider credentials.
 

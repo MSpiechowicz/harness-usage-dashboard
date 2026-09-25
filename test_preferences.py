@@ -204,6 +204,32 @@ class PreferencesTests(unittest.TestCase):
             self.assertEqual(load_preferences(None, host='claude')['providers'], ['anthropic'])
             self.assertFalse((self.home / '.claude/usage-dashboard/usage-dashboard.json').exists())
 
+    def test_claude_named_theme_round_trips_independently_per_host(self):
+        omp_path = preferences_path(None)
+        claude_path = preferences_path(None, host='claude')
+        self.assertNotEqual(omp_path, claude_path)
+        self.assertEqual(load_preferences(None)['theme'], 'green')
+        self.assertEqual(load_preferences(None, host='claude')['theme'], 'green')
+
+        update_preferences(None, {'theme': 'claude', 'tokens': {'accent': '#123456'}})
+        self.assertEqual(load_preferences(None, host='claude')['theme'], 'green')
+        self.assertEqual(load_preferences(None, host='claude')['tokens'], {})
+
+        update_preferences(None, {'theme': 'claude', 'tokens': {'text': '#abcdef'}},
+                           host='claude')
+        self.assertEqual(load_preferences(None)['theme'], 'claude')
+        self.assertEqual(load_preferences(None)['tokens'], {'accent': '#123456'})
+        self.assertEqual(load_preferences(None, host='claude')['theme'], 'claude')
+        self.assertEqual(load_preferences(None, host='claude')['tokens'], {'text': '#abcdef'})
+        self.assertEqual(json.loads(omp_path.read_text())['theme'], 'claude')
+        self.assertEqual(json.loads(claude_path.read_text())['theme'], 'claude')
+
+        update_preferences(None, {'theme': 'green'}, host='claude')
+        self.assertEqual(load_preferences(None, host='claude')['theme'], 'green')
+        self.assertEqual(load_preferences(None, host='claude')['tokens'], {'text': '#abcdef'})
+        self.assertEqual(load_preferences(None)['theme'], 'claude')
+        self.assertEqual(load_preferences(None)['tokens'], {'accent': '#123456'})
+
     def test_claude_provider_override_and_invalid_host(self):
         update_preferences(None, {'providers': []}, host='claude')
         self.assertEqual(load_preferences(None, host='claude')['providers'], [])

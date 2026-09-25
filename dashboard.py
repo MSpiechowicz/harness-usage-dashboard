@@ -68,6 +68,10 @@ THEME_TOKENS = {
     'red': {'text': 'white', 'muted': 'default', 'secondary': '#9e2f3f',
             'accent': 'red', 'chart': 'red', 'good': 'green', 'warn': 'orange',
             'error': 'red'},
+    # Anthropic brand-inspired palette; not a claim about Claude Code's terminal defaults.
+    'claude': {'text': '#faf9f5', 'muted': '#b0aea5', 'secondary': '#b0aea5',
+               'accent': '#d97757', 'chart': '#d97757', 'good': 'green',
+               'warn': 'orange', 'error': 'red'},
 }
 _BASIC_RGB = {
     'black': (0, 0, 0),
@@ -92,7 +96,8 @@ COMMANDS = {
 }
 THEME_OPTIONS = '|'.join(THEME_NAMES)
 HELP = (f'/usage-dashboard: view list|compact|details; position left|right; '
-        f'providers add|remove|hide|show PROVIDER; theme {THEME_OPTIONS}; '
+        f'providers add|remove|hide|show PROVIDER; theme {THEME_OPTIONS} '
+        '(claude: Anthropic brand-inspired); '
         'theme custom TOKEN COLOR; theme reset; window on|off|focus|refresh; '
         'window interval SECONDS; window hide|show PROVIDER FILTER; commands hide|show; '
         'previous hide|show; history-other hide|show; history-total hide|show')

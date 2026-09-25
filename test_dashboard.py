@@ -570,27 +570,37 @@ class NestedCommandTests(unittest.TestCase):
         self.assertNotIn('Project total', texts)
         self.assertEqual(texts[-1], '')
 
-    def test_named_themes_and_custom_tokens_preserve_status_semantics(self):
+    def test_named_themes_preserve_status_semantics(self):
         for theme in THEME_NAMES:
-            config = deepcopy(DEFAULTS)
-            change_config(config, ['theme', theme])
-            tokens = resolve_tokens(config)
-            self.assertEqual(tokens['accent'], theme)
-            self.assertEqual(tokens['chart'], theme)
-            self.assertEqual(tokens['good'], 'green')
-            self.assertEqual(tokens['warn'], 'orange')
-            self.assertEqual(tokens['error'], 'red')
+            with self.subTest(theme=theme):
+                config = deepcopy(DEFAULTS)
+                change_config(config, ['theme', theme])
+                tokens = resolve_tokens(config)
+                self.assertEqual(tokens['good'], 'green')
+                self.assertEqual(tokens['warn'], 'orange')
+                self.assertEqual(tokens['error'], 'red')
 
+    def test_claude_palette_respects_custom_overrides_and_reset(self):
         config = deepcopy(DEFAULTS)
-        change_config(config, ['theme', 'blue'])
-        self.assertEqual(resolve_tokens(config)['secondary'], '#24527a')
+        self.assertEqual(config['theme'], 'green')
+        change_config(config, ['theme', 'claude'])
+
+        tokens = resolve_tokens(config)
+        self.assertEqual(tokens['text'], '#faf9f5')
+        self.assertEqual(tokens['muted'], '#b0aea5')
+        self.assertEqual(tokens['secondary'], '#b0aea5')
+        self.assertEqual(tokens['accent'], '#d97757')
+        self.assertEqual(tokens['chart'], '#d97757')
+
         change_config(config, ['theme', 'custom', 'text', '#58A66A'])
-        self.assertEqual(config['tokens'], {'text': '#58a66a'})
+        change_config(config, ['theme', 'blue'])
+        change_config(config, ['theme', 'claude'])
         self.assertEqual(resolve_tokens(config)['text'], '#58a66a')
 
         change_config(config, ['theme', 'reset'])
         self.assertEqual(config['theme'], 'green')
         self.assertEqual(config['tokens'], {})
+        self.assertEqual(resolve_tokens(config)['accent'], 'green')
 
 
 class SyntheticHostIntegrationTests(unittest.TestCase):

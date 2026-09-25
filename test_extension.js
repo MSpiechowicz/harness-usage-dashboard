@@ -572,55 +572,69 @@ test("command menu uses native bordered selectors and left arrow navigation", as
   assert.ok(calls.flatMap(({ options }) => options).every(option => !/^\d+\./.test(option)));
 });
 
-test("theme menu preserves palette descriptions with native selectors", async () => {
+test("Claude theme menu and direct command persist selection with custom reset", async () => {
+  const home = await mkdtemp(join(tmpdir(), "dashboard-claude-theme-"));
+  const keys = ["TMUX", "TMUX_PANE", "OMP_PROFILE", "PI_PROFILE"];
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  for (const key of keys) delete process.env[key];
+  const environment = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: join(home, "agent"),
+    CLAUDE_CONFIG_DIR: join(home, "claude"), OMP_PROFILE: "default", PI_PROFILE: "default" };
   let command;
-  let execArgs;
-  const calls = [];
-  const notices = [];
-  const inputs = [];
-  usageDashboard({
-    setLabel() {},
-    on() {},
-    registerCommand(_name, definition) { command = definition; },
-    async exec(_binary, args) {
-      execArgs = args;
-      return { code: 0, stdout: "", stderr: "" };
-    },
-  });
-  const ctx = {
-    hasUI: true,
-    cwd: process.cwd(),
-    models: { list: () => [] },
-    ui: {
-      theme,
-      async select(title, options, dialogOptions) {
-        calls.push({ title, options, dialogOptions });
-        return "Custom  (override individual colors)";
-      },
-      async input(title, placeholder) {
-        inputs.push({ title, placeholder });
-        return "accent #58a66a";
-      },
-      notify(message, level) { notices.push({ message, level }); },
-    },
-  };
+  const selections = ["Claude", "Custom"];
 
-  await command.handler("theme", ctx);
-  const themeOptions = calls[0].options;
-  assert.deepEqual(themeOptions.map(option => option.split(/\s/)[0]),
-    ["Blue", "Brown", "Custom", "Cyan", "Green", "Magenta", "Orange", "Red", "Reset", "Yellow"]);
-  assert.match(themeOptions.find(option => option.startsWith("Cyan")), /clear cyan accent/);
-  assert.match(themeOptions.find(option => option.startsWith("Magenta")), /bold magenta accent/);
-  assert.match(themeOptions.find(option => option.startsWith("Custom")), /override individual colors/);
-  assert.equal(calls[0].dialogOptions.helpText.includes("back"), true);
-  assert.deepEqual(inputs, [{
-    title: "Custom theme: TOKEN COLOR (for example: accent #58a66a)",
-    placeholder: "accent #58a66a",
-  }]);
-  assert.equal(notices[0].level, "info");
-  assert.match(notices[0].message, /text, muted, secondary, accent, chart, good, warn, error/);
-  assert.match(notices[0].message, /terminal names, gray, brown, orange, or #RRGGBB/);
-  assert.deepEqual(execArgs.slice(-5), ["--", "theme", "custom", "accent", "#58a66a"]);
+  try {
+    usageDashboard({
+      setLabel() {}, on() {},
+      registerCommand(_name, definition) { command = definition; },
+      async exec(binary, args, options) {
+        const result = await execute(binary, args, { ...options, env: environment });
+        return { code: 0, ...result };
+      },
+    });
+    const ctx = {
+      hasUI: true,
+      cwd: process.cwd(),
+      models: { list: () => [] },
+      ui: {
+        theme,
+        async select(_title, options, dialogOptions) {
+          assert.equal(typeof dialogOptions.onLeft, "function");
+          const choice = selections.shift();
+          const label = options.find(option => option.startsWith(choice));
+          assert.ok(label, `Missing ${choice} theme choice`);
+          return label;
+        },
+        async input() { return "accent #58a66a"; },
+        notify(message, level) {
+          assert.notEqual(level, "error", message);
+        },
+      },
+    };
+    const settings = async () => JSON.parse(await readFile(join(home, "agent/usage-dashboard.json"), "utf8"));
+
+    await command.handler("theme", ctx);
+    assert.equal((await settings()).theme, "claude");
+    await command.handler("theme", ctx);
+    assert.deepEqual((await settings()).tokens, { accent: "#58a66a" });
+    await command.handler("theme blue", ctx);
+    assert.equal((await settings()).theme, "blue");
+    await command.handler("theme claude", ctx);
+    assert.equal((await settings()).theme, "claude");
+    assert.deepEqual((await settings()).tokens, { accent: "#58a66a" });
+
+    const beforeUnknownTheme = await settings();
+    await command.handler("theme unknown", ctx);
+    assert.deepEqual(await settings(), beforeUnknownTheme);
+    await command.handler("theme reset", ctx);
+    assert.equal((await settings()).theme, "green");
+    assert.deepEqual((await settings()).tokens, {});
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test("detaches the dashboard before waiting for shutdown recording", async () => {

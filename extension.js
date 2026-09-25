@@ -34,7 +34,7 @@ const sections = {
   "history-total": ["hide", "show"],
   position: ["left", "right"],
   providers: ["add", "remove", "hide", "show"],
-  theme: ["green", "blue", "brown", "yellow", "cyan", "magenta", "orange", "red", "custom", "reset"],
+  theme: ["green", "blue", "brown", "yellow", "cyan", "magenta", "orange", "red", "claude", "custom", "reset"],
   window: ["on", "off", "focus", "refresh", "interval", "hide", "show"],
   update: ["check", "install"],
 };
@@ -47,10 +47,11 @@ const themeOptions = [
   { value: "magenta", label: "magenta (bold magenta accent)" },
   { value: "orange", label: "orange  (warm orange accent)" },
   { value: "red", label: "red     (strong red accent)" },
+  { value: "claude", label: "claude  (Anthropic brand-inspired colors)" },
   { value: "custom", label: "custom  (override individual colors)" },
   { value: "reset", label: "reset   (restore green and remove custom colors)" },
 ];
-const help = "Sections: view (compact, details; list remains available as a command for showing settings); commands (hide, show); previous (hide, show); history-other (hide, show); history-total (hide, show); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, cyan, magenta, orange, red, custom TOKEN COLOR, reset); window (on, off, focus, refresh, interval, hide/show PROVIDER FILTER); update (check, install).";
+const help = "Sections: view (compact, details; list remains available as a command for showing settings); commands (hide, show); previous (hide, show); history-other (hide, show); history-total (hide, show); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, cyan, magenta, orange, red, claude [Anthropic brand-inspired], custom TOKEN COLOR, reset); window (on, off, focus, refresh, interval, hide/show PROVIDER FILTER); update (check, install).";
 const menuSections = {...sections, view: ["compact", "details"]};
 const visibilitySections = ["commands", "previous", "history-other", "history-total"];
 const visibilityLabels = {

@@ -10,7 +10,7 @@ import tempfile
 from host_adapters import get_host
 
 
-THEME_NAMES = ('green', 'blue', 'brown', 'yellow', 'cyan', 'magenta', 'orange', 'red')
+THEME_NAMES = ('green', 'blue', 'brown', 'yellow', 'cyan', 'magenta', 'orange', 'red', 'claude')
 TOKEN_NAMES = ('text', 'muted', 'secondary', 'accent', 'chart', 'good', 'warn', 'error')
 COLOR_NAMES = frozenset(('default', 'black', 'red', 'green', 'yellow', 'blue',
                          'magenta', 'cyan', 'white', 'gray', 'brown', 'orange'))
