@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "harness-usage-dashboard",
-      "description": "Persistent account-usage sidebar with OMP shell integration and a separate Claude Code launcher",
+      "description": "Persistent usage sidebar with OMP and Claude Code shell hooks and a Claude personal skill",
       "version": "1.0.51",
       "source": {
         "source": "github",

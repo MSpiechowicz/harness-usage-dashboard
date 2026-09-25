@@ -1,6 +1,6 @@
 # Harness Usage Dashboard
 
-Live token charts and persistent session history in a tmux sidebar for [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi) and, through a separate opt-in launcher, Claude Code.
+Live token charts and persistent session history in a tmux sidebar for [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi) and, through a separate opt-in shell hook, Claude Code.
 
 For OMP, see how quickly your current session is using tokens, what your previous session consumed, and how much account allowance remains—without leaving the terminal. Token usage stays attributed to the provider and model that handled each request, even when you switch models. Session history and dashboard preferences persist across restarts. The standalone Claude Code path records locally reported API-request tokens and, when available, displays its status-line rate limits; it does not use OMP's provider accounting or provide account-specific quota-change history.
 
@@ -8,7 +8,7 @@ For OMP, see how quickly your current session is using tokens, what your previou
 
 [Install](#installation) · [Use](#usage) · [Themes](#theme-preview) · [Update](#updating) · [Uninstall](#uninstalling) · [Troubleshoot](#troubleshooting)
 
-Inside OMP, use `/usage-dashboard view compact` for the overview and observed session quota changes, or `/usage-dashboard view details` for per-model token accounting. Claude Code does not expose this OMP slash command.
+Inside either host, use `/usage-dashboard view compact` for the overview or `/usage-dashboard view details` for per-model token accounting. OMP's command and Claude's personal skill are separate integrations; only OMP records observed account-specific session quota changes.
 
 ## What it does
 
@@ -20,7 +20,7 @@ Inside OMP, use `/usage-dashboard view compact` for the overview and observed se
 - **A quieter sidebar:** aligned values, section dividers, and spacing; no pending-sample rows or redundant single-provider totals in Compact mode.
 - **Local storage:** recorded usage lives in host-separated SQLite databases. OMP records are scoped by project within each OMP profile; Claude Code records are scoped by project in Claude's own storage. Preferences persist in separate local JSON files.
 - **Design-token theming:** choose green, blue, brown, yellow, cyan, magenta, orange, or red palettes. Secondary rules and chart axes use each theme's darker secondary token; chart bars use the chart token; healthy, warning, and critical values stay green, orange, and red for clear allowance semantics.
-- **Native managed updates (OMP only):** release checks and upgrades through OMP's marketplace manager.
+- **Host-specific updates:** OMP uses its native marketplace manager; Claude's personal skill can check a source-checkout release and install it only when the original checkout is eligible for a safe Git fast-forward.
 
 ### When it is useful
 
@@ -46,10 +46,10 @@ Inside OMP, use `/usage-dashboard view compact` for the overview and observed se
 | tmux | Version 3.3 or later. |
 | Git | Required for OMP marketplace Git sources and source-checkout installation; use it to obtain/update the Claude Code checkout. |
 | Terminal application | No specific application required; it must support tmux and curses. |
-| Automatic OMP shell integration | Available for bash, zsh, and fish; separate from your choice of terminal application. Claude Code uses the `claude-usage` executable instead. |
+| Automatic shell integration | Separate bash, zsh, and fish hooks for OMP and Claude Code; use ordinary `omp` or `claude` after activating the corresponding hook. |
 | Terminal width | At least 96 columns to open the 34-column sidebar. |
 
-**Terminal-agnostic; tmux-backed.** Use your preferred terminal application. The dashboard uses tmux and curses rather than a terminal-specific API or plugin. tmux is required, but you do not need to start it manually: OMP's installed shell hook or the Claude Code launcher starts a session or attaches the dashboard inside an existing one. Neither host's binary and renderer are patched. Dashboard sessions disable tmux terminal-graphics passthrough because it is terminal-global rather than pane-local; this prevents image previews from covering the editor pane.
+**Terminal-agnostic; tmux-backed.** Use your preferred terminal application. The dashboard uses tmux and curses rather than a terminal-specific API or plugin. tmux is required, but you do not need to start it manually: each host's installed shell hook starts a session or attaches the dashboard inside an existing one. Neither host's binary and renderer are patched. Dashboard sessions disable tmux terminal-graphics passthrough because it is terminal-global rather than pane-local; this prevents image previews from covering the editor pane.
 
 <details>
 <summary>Install operating-system prerequisites</summary>
@@ -72,7 +72,7 @@ The OMP installer validates Python, curses, OMP, and tmux; the Claude Code insta
 </details>
 
 ## Installation
-Choose **one or both** independent host integrations. OMP installation uses its native marketplace; Claude Code installs a separate `claude-usage` command and does not require OMP.
+Choose **one or both** independent host integrations. OMP installation uses its native marketplace; Claude Code installs a shell hook and a personal skill from a source checkout, without requiring OMP.
 
 ### Recommended for OMP: marketplace
 
@@ -125,7 +125,7 @@ python3 install.py
 
 Then run `omp`, using the shell-activation guidance above. **Keep the checkout in place:** the shell hook and extension point to its files. This installation is not managed by native marketplace upgrades; see [Updating a source checkout](#updating-a-source-checkout).
 
-### Claude Code: independent source-checkout launcher
+### Claude Code: independent source-checkout integration
 
 Install the Claude CLI first. Clone this repository if needed (or use your existing source checkout), then run:
 
@@ -135,14 +135,18 @@ cd harness-usage-dashboard
 python3 claude_install.py
 ```
 
-The installer creates `~/.local/bin/claude-usage`; add `~/.local/bin` to `PATH` if it is not already there. **Keep the checkout in place** because the executable points to `claude_launcher.py` in that checkout. This is not an OMP plugin installation and does not add `/usage-dashboard` to Claude Code, alter OMP, or require OMP credentials.
+Keep the checkout in place: the shell hook and Claude's personal `/usage-dashboard` skill refer to its files. The skill is installed under `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/usage-dashboard/`. Open a new shell to activate the bash or zsh hook (fish autoloads its function), then start an interactive session:
 
 ```sh
-claude-usage
-claude-usage --continue
+claude
+claude --continue
 ```
 
-Ordinary interactive arguments launch Claude Code beside the sidebar; noninteractive commands, help, and CLI subcommands pass through to the Claude CLI without the sidebar. Use `claude-usage` instead of `claude` when you want capture; direct `claude` runs are not captured by this integration. See [Claude Code usage](#claude-code-usage) for capture and availability limits.
+The hook launches interactive Claude Code beside the sidebar. Help, subcommands, and noninteractive invocations pass straight through to the Claude CLI. Use `command claude` to bypass the hook temporarily. `python3 claude_install.py --shell none` installs only the personal skill on a fresh setup; on an existing owned installation it removes that installation's owned hooks. It does not remove other owners' files or an already-loaded shell function. Claude's skill controls only the Anthropic-backed Claude dashboard, not OMP or other providers. This is not a native Claude marketplace installation.
+
+The installer respects `CLAUDE_CONFIG_DIR` for Claude's personal skill and dashboard data. Use the same environment when launching Claude and when uninstalling. Existing shell customizations and unrelated files at managed destinations are not overwritten: resolve a collision explicitly rather than deleting or replacing another owner's files. An exact legacy wrapper from this checkout can be migrated; if it was installed in a custom location, provide its original `--bin-dir PATH`. See [Claude Code usage](#claude-code-usage) for skill commands and capture limits.
+
+To choose a shell explicitly, use `python3 claude_install.py --shell bash`, `--shell zsh`, `--shell fish`, or `--shell all`; the default detects your shell. For manual activation, source `~/.config/claude-usage-dashboard/bash.sh` in bash, `~/.config/claude-usage-dashboard/zsh.sh` in zsh, or `~/.config/fish/functions/claude.fish` in fish (replace `~/.config` with `$XDG_CONFIG_HOME` when set). These are Claude-specific paths; OMP's hook remains separate.
 
 ### Migrating a source installation to the marketplace
 
@@ -193,9 +197,24 @@ These paths follow `XDG_CONFIG_HOME` when set. Existing aliases, functions, abbr
 
 ### Claude Code usage
 
-Run `claude-usage` or `claude-usage --continue` from your shell to start interactive Claude Code alongside the tmux sidebar. The launcher forwards ordinary Claude arguments; help, subcommands, and noninteractive invocations pass through to the installed Claude CLI. This mode does not install an OMP extension or add OMP's `/usage-dashboard` command to Claude Code. Use the sidebar's mouse/keyboard controls for its views, refresh, and visibility.
+Run `claude` or `claude --continue` in a shell with the installed hook to start interactive Claude Code alongside the tmux sidebar. The hook forwards ordinary Claude arguments; help, subcommands, and noninteractive invocations pass through. For a temporary hook bypass, use `command claude`. This mode does not install an OMP extension. Inside Claude Code, use the separately installed **personal skill** `/usage-dashboard`; this is model-mediated skill guidance, not OMP's native command or menu. Enter `/usage-dashboard` with no arguments to see help and the current configuration, not an interactive section menu. For example:
 
-Claude Code request totals come from its locally emitted OTLP `api_request` log events, tied to Claude session lifecycle hooks. Only complete reported requests can count; no requests are inferred from transcripts or a provider's account allowance. Capture may be incomplete or unavailable when Claude is not emitting compatible events, when its telemetry destination conflicts, or before a completed request arrives. **Missing capture means unknown usage, not zero tokens.** The sidebar displays a token-capture warning even when separate allowance windows are available. Existing Claude telemetry and status-line destinations are not overwritten; a conflicting configuration can prevent this integration from receiving the affected data.
+```text
+/usage-dashboard previous hide
+/usage-dashboard previous show
+/usage-dashboard view compact
+/usage-dashboard view details
+/usage-dashboard theme blue
+/usage-dashboard position left
+/usage-dashboard window off
+/usage-dashboard window on
+/usage-dashboard update check
+/usage-dashboard update install
+```
+
+Visibility settings change presentation, not recorded tokens; `previous show` restores the section when data is available. The skill may invoke local tools to change preferences, control the sidebar, or check/install an update. Claude Code's tool-permission prompts and your own authorization still apply: installing the skill does **not** auto-approve commands. Claude's dashboard has only the Anthropic provider; OMP provider management and OMP account comparisons are unavailable here.
+
+Claude Code request totals come from its locally emitted OTLP `api_request` log events, tied to Claude session lifecycle hooks. The launcher creates owner-only temporary settings **for that run** rather than rewriting Claude's global settings. Only complete reported requests can count; no requests are inferred from transcripts or a provider's account allowance. Capture may be incomplete or unavailable when Claude is not emitting compatible events, when its telemetry destination conflicts, or before a completed request arrives. **Missing capture means unknown usage, not zero tokens.** The sidebar displays a token-capture warning even when separate allowance windows are available. Existing Claude telemetry and status-line destinations are not overwritten; a conflicting configuration can prevent this integration from receiving the affected data.
 
 When Claude supplies `rate_limits` in a compatible status-line payload, the sidebar can display five-hour and seven-day allowance windows. These fields may be absent on unsupported plans or early in a session, and an existing status-line command may prevent capture. The dashboard does **not** know a stable Claude account identity, so it does not record or display account-specific session quota-change history. Its OMP `claude` provider view and OMP quota observations are separate and cannot be used as Claude Code session totals.
 
@@ -205,7 +224,7 @@ Run `omp` normally, including `omp --resume` or `omp --continue`. Fresh installs
 
 ### OMP commands and settings
 
-The following slash commands and provider-management guidance apply **only inside OMP**. Claude Code has no `/usage-dashboard` command; shared rendering descriptions below do not make OMP's per-provider measurements into Claude session accounting.
+The following slash commands and provider-management guidance apply **only inside OMP**. Claude Code's separate `/usage-dashboard` personal skill is not OMP's native command or menu; shared rendering descriptions below do not make OMP's per-provider measurements into Claude session accounting.
 
 Inside OMP, enter:
 
@@ -466,14 +485,23 @@ Restart OMP afterward. If Git reports a conflict or divergent history, resolve i
 
 ### Updating Claude Code integration
 
-There is no Claude Code auto-update or OMP marketplace update path for `claude-usage`. Exit dashboard-launched Claude Code, review local changes, then update the original checkout manually:
+Inside Claude Code, use the personal skill to check the latest stable release before choosing whether to install it:
+
+```text
+/usage-dashboard update check
+/usage-dashboard update install
+```
+
+Claude updates are independent of OMP's marketplace, and checks never install code. Installation is limited to the original owned source checkout: it must be clean, track the canonical GitHub source, and allow a fast-forward to the verified release tag. The installer refreshes that checkout's owned hook and skill after advancing it. An unowned installation, dirty checkout, divergent history, unexpected remote, or untrusted/unavailable release is not an invitation to overwrite files or discard local changes. Resolve the issue manually and retry; do not force-reset Git.
+
+**Restart Claude and open a new shell after installing** to load the updated skill and hook. If Git advances but refreshing the integration fails, the checkout may be only partially updated: inspect the error, repair the owned installation from the original checkout with `python3 claude_install.py --refresh`, and restart rather than assuming it rolled back. As a manual alternative, exit Claude, review local changes, then from the original checkout run:
 
 ```sh
 git pull --ff-only
-python3 claude_install.py
+python3 claude_install.py --refresh
 ```
 
-Start a new `claude-usage` session afterward. The owned executable continues to point to the checkout. A Git conflict or divergent history needs manual resolution; do not discard local changes.
+Manual Git updates also require you to review the source and resolve conflicts or divergent history without discarding your work.
 
 ## Uninstalling
 
@@ -508,27 +536,27 @@ Repeat with the original `--agent-dir PATH` for custom agent directories. Use th
 
 ### Claude Code installation
 
-From the same checkout that installed `claude-usage`, run:
+From the same original checkout, after exiting Claude:
 
 ```sh
 python3 claude_install.py --uninstall
 ```
 
-If installed with `--bin-dir PATH`, pass the same option when uninstalling. This removes only that checkout's owned `claude-usage` executable; it preserves the Claude CLI, original checkout, and `~/.claude/usage-dashboard/` data (or the corresponding `$CLAUDE_CONFIG_DIR/usage-dashboard/` directory). OMP installation and storage are untouched.
+Use the same `CLAUDE_CONFIG_DIR` as during installation. If an exact legacy wrapper was installed with a custom `--bin-dir PATH`, pass that option as well. Uninstall removes only the checkout's owned hook and skill, and any exact owned legacy wrapper; it preserves Claude CLI, unrelated or modified user files, the checkout, and `~/.claude/usage-dashboard/` data (or the corresponding `$CLAUDE_CONFIG_DIR/usage-dashboard/` directory). Start a new shell to drop an already-loaded hook. OMP installation and storage are untouched.
 
 ## Troubleshooting
 
 | Symptom | What to check |
 | --- | --- |
 | `omp` starts without a sidebar | Widen the terminal to at least 96 columns, then try `/usage-dashboard window on`. Confirm the correct shell hook is loaded and restart an OMP process opened before installation. |
-| `claude-usage` is not found | Ensure `~/.local/bin` (or the chosen `--bin-dir`) is on `PATH` and the original checkout remains in place. If the executable is missing, rerun `python3 claude_install.py` from that checkout. If the checkout was moved, restore its original path or first remove the old executable after verifying that it belongs to this installation. |
-| Claude Code starts without a sidebar | Use `claude-usage`, not direct `claude`; check terminal width, tmux 3.3+, and whether this is an interactive invocation. Help, subcommands, and noninteractive invocations deliberately bypass the sidebar. |
+| `claude` starts without a sidebar | Open a new shell after installation and inspect `type claude` (or `functions claude` in fish). Check terminal width, tmux 3.3+, and that this is an interactive invocation. Help, subcommands, noninteractive invocations, and `command claude` bypass the hook; `--shell none` omits it (open a new shell if replacing a prior owned hook). |
 | The shell still runs a custom `omp` command | An existing function or alias can take precedence over the installed hook. Inspect `type omp`; do not overwrite your customization blindly. |
 | OMP provider usage is unavailable | Confirm the provider login in OMP and try `omp usage --provider openai-codex` in your shell, substituting the appropriate provider ID. Chat access alone does not guarantee a usage API. |
-| Claude token counts are unavailable or incomplete | Check that a compatible completed API request occurred in an interactive `claude-usage` session and that Claude's existing OTLP telemetry destination does not conflict. Missing requests are unknown, not zero; the OMP `claude` provider view cannot fill them in. |
+| Claude token counts are unavailable or incomplete | Check that a compatible completed API request occurred in an interactive hooked `claude` session and that Claude's existing OTLP telemetry destination does not conflict. Missing requests are unknown, not zero; the OMP `claude` provider view cannot fill them in. |
 | Claude five-hour/seven-day limits are unavailable | Claude may omit `rate_limits` for the plan or early session; an existing status-line destination also prevents this launcher from receiving them. No account-specific quota-change history is available in this mode. |
 | OMP values look old | Inspect `view details`, then request `window refresh`. The provider may still return cached data. |
-| Update says the installation is unmanaged | Use the OMP source-checkout update instructions or migrate the OMP installation to the marketplace. Claude Code always updates manually. |
+| Update reports an unmanaged or unsafe installation | For OMP, use its source-checkout update instructions or migrate to the OMP marketplace. For Claude, run `/usage-dashboard update check` from the original installed checkout; installation refuses dirty/divergent/unowned or noncanonical Git sources. Repair these manually rather than overwriting another owner's files. |
+| Claude cannot find `/usage-dashboard` | Confirm the skill exists under `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/usage-dashboard/` and restart Claude. Use the same `CLAUDE_CONFIG_DIR` as at install time; normal Claude Code tool permissions still apply. |
 | Marketplace installation cannot find a release tag | Check the Releases page and wait for a successful release workflow, or use the OMP source-checkout method. |
 | Mouse selection behaves differently | tmux owns mouse input inside the session; try your terminal's selection override, often Shift. Dashboard sessions disable terminal-graphics passthrough so inline images cannot cover sibling panes. |
 

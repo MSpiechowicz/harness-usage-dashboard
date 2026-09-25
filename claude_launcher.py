@@ -205,7 +205,7 @@ def _run_wrapped(claude, argv, selected, original):
         try:
             merged = _merge_settings(original, additions)
         except ValueError as exc:
-            print(f'claude-usage: settings cannot be merged ({exc}); starting Claude unchanged.',
+            print(f'Claude dashboard: settings cannot be merged ({exc}); starting Claude unchanged.',
                   file=sys.stderr)
             return subprocess.run([claude, *argv], check=False).returncode
         with tempfile.TemporaryDirectory(prefix='claude-usage-') as directory:
@@ -225,7 +225,7 @@ def _run_wrapped(claude, argv, selected, original):
             if conflict:
                 additions_env = {key: value for key, value in additions_env.items()
                                  if key.startswith('CLAUDE_USAGE_BRIDGE_')}
-                print('claude-usage: existing telemetry configuration retained; token capture unavailable.',
+                print('Claude dashboard: existing telemetry configuration retained; token capture unavailable.',
                       file=sys.stderr)
             environment.update(additions_env)
 
@@ -233,10 +233,10 @@ def _run_wrapped(claude, argv, selected, original):
                 try:
                     control(args, ['init'])
                 except (OSError, subprocess.SubprocessError):
-                    print('claude-usage: sidebar unavailable (tmux operation failed).',
+                    print('Claude dashboard: sidebar unavailable (tmux operation failed).',
                           file=sys.stderr)
                 except ValueError as exc:
-                    print(f'claude-usage: sidebar unavailable: {exc}', file=sys.stderr)
+                    print(f'Claude dashboard: sidebar unavailable: {exc}', file=sys.stderr)
                 return _run_in_current_pane([claude, *injected], environment)
 
             # A new tmux server inherits the receiver environment without exposing
@@ -258,7 +258,7 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     claude = shutil.which('claude')
     if claude is None:
-        print('claude-usage: Claude CLI is not available on PATH.', file=sys.stderr)
+        print('Claude dashboard: Claude CLI is not available on PATH.', file=sys.stderr)
         return 1
     if not should_wrap(argv, sys.stdin.isatty() and sys.stdout.isatty()):
         os.execv(claude, [claude, *argv])
@@ -267,22 +267,22 @@ def main(argv=None):
         selected = _settings_argument(argv)
         original = _read_settings(selected[2]) if selected else {}
     except (OSError, UnicodeError):
-        print('claude-usage: settings unavailable; starting Claude unchanged.',
+        print('Claude dashboard: settings unavailable; starting Claude unchanged.',
               file=sys.stderr)
         return subprocess.run([claude, *argv], check=False).returncode
     except ValueError as exc:
-        print(f'claude-usage: settings unavailable ({exc}); starting Claude unchanged.',
+        print(f'Claude dashboard: settings unavailable ({exc}); starting Claude unchanged.',
               file=sys.stderr)
         return subprocess.run([claude, *argv], check=False).returncode
 
     try:
         return _run_wrapped(claude, argv, selected, original)
     except (OSError, subprocess.SubprocessError):
-        print('claude-usage: dashboard unavailable (launch or local operation failed).',
+        print('Claude dashboard: dashboard unavailable (launch or local operation failed).',
               file=sys.stderr)
         return 1
     except ValueError as exc:
-        print(f'claude-usage: dashboard unavailable: {exc}', file=sys.stderr)
+        print(f'Claude dashboard: dashboard unavailable: {exc}', file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         return 130
