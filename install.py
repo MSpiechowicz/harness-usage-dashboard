@@ -268,8 +268,8 @@ def main():
     applied = []
     extension_created = False
     try:
-        if args.native and (ROOT.parent.name != 'node_modules' or ROOT.name != 'oh-my-pi-usage-dashboard'):
-            raise RuntimeError('Native setup must run through plugins/node_modules/oh-my-pi-usage-dashboard/install.py, not its versioned cache directory.')
+        if args.native and (ROOT.parent.name != 'node_modules' or ROOT.name != 'harness-usage-dashboard'):
+            raise RuntimeError('Native setup must run through plugins/node_modules/harness-usage-dashboard/install.py, not its versioned cache directory.')
         shells = selected_shells(args.shell, args.uninstall)
         plans = [plan_shell(shell, args.uninstall, args.native) for shell in shells]
         if not args.uninstall:

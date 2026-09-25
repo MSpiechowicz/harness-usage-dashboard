@@ -29,9 +29,9 @@ class ReleaseTransactionTests(unittest.TestCase):
         )
         (self.checkout / '.omp-plugin').mkdir()
         (self.checkout / '.omp-plugin/marketplace.json').write_text(json.dumps({
-            'name': 'omp-usage-dashboard',
+            'name': 'harness-usage-dashboard',
             'plugins': [{
-                'name': 'oh-my-pi-usage-dashboard', 'version': '1.0.0',
+                'name': 'harness-usage-dashboard', 'version': '1.0.0',
                 'source': {'source': 'github', 'repo': 'MSpiechowicz/harness-usage-dashboard',
                            'ref': 'v1.0.0'},
                 'homepage': 'https://github.com/MSpiechowicz/harness-usage-dashboard',

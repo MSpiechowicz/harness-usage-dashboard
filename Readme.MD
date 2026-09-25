@@ -1,4 +1,4 @@
-# Oh My Pi Usage Dashboard
+# Harness Usage Dashboard
 
 Live token charts and persistent session history in a tmux sidebar for [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi) and, through a separate opt-in launcher, Claude Code.
 
@@ -76,24 +76,24 @@ Choose **one or both** independent host integrations. OMP installation uses its 
 
 ### Recommended for OMP: marketplace
 
-This method supports updates through OMP, but first-time marketplace installation must wait until the published [canonical marketplace catalog](https://github.com/MSpiechowicz/harness-usage-dashboard/blob/main/.omp-plugin/marketplace.json) points its plugin source to `MSpiechowicz/harness-usage-dashboard` **and** the tag it references has a published [release](https://github.com/MSpiechowicz/harness-usage-dashboard/releases) containing the updater rename fix. The older `v1.0.50` release alone does not meet this requirement. Until both are published, use the [canonical source-checkout method](#alternative-source-checkout) instead.
-
-If this marketplace was registered before the repository rename, wait for that same publication, then follow the [one-time registration migration](#migrate-a-pre-rename-marketplace-registration) instead of the first-install commands below.
+Marketplace installation requires a published [catalog](https://github.com/MSpiechowicz/harness-usage-dashboard/blob/main/.omp-plugin/marketplace.json) and its referenced [release tag](https://github.com/MSpiechowicz/harness-usage-dashboard/releases) containing the renamed plugin. Until both are available, use the [source-checkout method](#alternative-source-checkout). If a previous extension is installed, [remove it first](#remove-the-previous-extension).
 
 **1. Register the marketplace and install the plugin.** Run these commands in your shell:
 
 ```sh
 omp plugin marketplace add MSpiechowicz/harness-usage-dashboard
-omp plugin install oh-my-pi-usage-dashboard@omp-usage-dashboard --scope user
+omp plugin install harness-usage-dashboard@harness-usage-dashboard --scope user
 ```
 
 **2. Enable automatic sidebar launch with ordinary `omp`.**
 
 ```sh
-python3 ~/.omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py --native
+python3 ~/.omp/plugins/node_modules/harness-usage-dashboard/install.py --native
 ```
 
 Use the stable **`node_modules` path**, not a versioned cache directory. Native upgrades change its target, so the shell hook continues to launch the installed version. OMP remains responsible for extension discovery, enablement, and project-over-user precedence; native setup does not create a duplicate agent extension.
+
+OMP-specific shell-hook and local-data paths retain their existing names so removal and reinstallation preserve recorded usage and preferences; they are not the marketplace or plugin ID.
 
 **3. Start OMP.**
 
@@ -107,15 +107,15 @@ For other installation layouts, use the matching stable package path:
 
 | Layout | Installer path |
 | --- | --- |
-| Default user installation | `~/.omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py` |
-| Active XDG data layout | `$XDG_DATA_HOME/omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py` |
-| Project installation | `<project>/.omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py` |
+| Default user installation | `~/.omp/plugins/node_modules/harness-usage-dashboard/install.py` |
+| Active XDG data layout | `$XDG_DATA_HOME/omp/plugins/node_modules/harness-usage-dashboard/install.py` |
+| Project installation | `<project>/.omp/plugins/node_modules/harness-usage-dashboard/install.py` |
 
-For project scope, run `omp plugin install oh-my-pi-usage-dashboard@omp-usage-dashboard --scope project` from the project root, then configure its stable installer path with `--native`.
+For project scope, run `omp plugin install harness-usage-dashboard@harness-usage-dashboard --scope project` from the project root, then configure its stable installer path with `--native`.
 
 ### Alternative: source checkout
 
-Use this for development or while the canonical marketplace catalog and release described above are not yet published:
+Use this for development or until the catalog and release described above are published:
 
 ```sh
 git clone https://github.com/MSpiechowicz/harness-usage-dashboard.git
@@ -150,7 +150,20 @@ Ordinary interactive arguments launch Claude Code beside the sidebar; noninterac
 2. Follow the marketplace installation steps above.
 3. Open a new shell to discard the old loaded function, then run `omp`.
 
-Uninstalling the old integration preserves your preferences, credentials, and checkout. Do not delete your OMP agent directory.
+Uninstalling the source integration preserves your preferences, credentials, and checkout. Do not delete your OMP agent directory.
+
+### Remove the previous extension
+
+Exit OMP sessions using `oh-my-pi-usage-dashboard`. For a user-scope marketplace installation, remove its shell hook **before** uninstalling the old plugin:
+
+```sh
+python3 ~/.omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py --native --uninstall &&
+omp plugin uninstall oh-my-pi-usage-dashboard@omp-usage-dashboard --scope user
+```
+
+For a project-scope installation, run from the project root, use `<project>/.omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py` and `--scope project`. With an XDG data layout, use `"$XDG_DATA_HOME/omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py"`. Remove the old registration with `omp plugin marketplace remove omp-usage-dashboard` only when no other installations need it; coordinate their removal first if the registration is shared.
+
+If the old extension was installed from a source checkout instead, run `python3 install.py --uninstall` from that original checkout (and repeat with the original `--agent-dir PATH` for any custom agent directories). Do not delete the OMP agent directory: uninstall preserves preferences, recorded usage, and credentials. Open a new shell to discard the old loaded hook, then follow [Installation](#installation) for `harness-usage-dashboard`.
 
 <details>
 <summary>Shell selection and manual activation</summary>
@@ -406,9 +419,9 @@ The named palettes are built from design tokens: `text`, `muted`, `secondary`, `
 
 ## Updating
 
-### Marketplace installations already registered at the canonical repository
+### Marketplace installations
 
-These routine updates require a marketplace registration whose source is `MSpiechowicz/harness-usage-dashboard`. A marketplace update refreshes its catalog but **does not rewrite an older registration's source URI**. If you registered before the repository rename, use the [one-time migration](#migrate-a-pre-rename-marketplace-registration) below first; the old installed updater cannot follow the GitHub API redirect to the renamed repository.
+Routine updates require a marketplace registration whose source is `MSpiechowicz/harness-usage-dashboard` and the new plugin identity. If the previous plugin is still installed, follow [Remove the previous extension](#remove-the-previous-extension) before installing this one.
 Inside OMP:
 
 ```text
@@ -427,37 +440,18 @@ Installation uses OMP's **native marketplace manager** and preserves the current
 You can also use OMP's built-in commands directly:
 
 ```text
-/marketplace update omp-usage-dashboard
-/marketplace upgrade oh-my-pi-usage-dashboard@omp-usage-dashboard --scope user
+/marketplace update harness-usage-dashboard
+/marketplace upgrade harness-usage-dashboard@harness-usage-dashboard --scope user
 ```
 
 Or, from your shell:
 
 ```sh
-omp plugin marketplace update omp-usage-dashboard
-omp plugin upgrade oh-my-pi-usage-dashboard@omp-usage-dashboard --scope user
+omp plugin marketplace update harness-usage-dashboard
+omp plugin upgrade harness-usage-dashboard@harness-usage-dashboard --scope user
 ```
 
 Use `--scope project` for a project-scoped installation. **`omp update` updates OMP itself, not this dashboard.**
-
-### Migrate a pre-rename marketplace registration
-
-Do this **only after** the canonical `MSpiechowicz/harness-usage-dashboard` marketplace catalog and the release/tag referenced by that catalog have been published with the updater fix. Until then, the old installed updater cannot use the GitHub API endpoint and the replacement installation is not ready. Exit OMP sessions using the dashboard first. If other installations use this marketplace registration, coordinate their migration before removing the shared registration; do not remove a registration still needed by them.
-
-For a default user-scope installation, run this whole block from your shell. It removes the shell hook while its installer still exists, uninstalls the old plugin, replaces the marketplace registration, installs the same stable plugin ID from the canonical source, and restores the shell hook:
-
-```sh
-python3 ~/.omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py --native --uninstall &&
-omp plugin uninstall oh-my-pi-usage-dashboard@omp-usage-dashboard --scope user &&
-omp plugin marketplace remove omp-usage-dashboard &&
-omp plugin marketplace add MSpiechowicz/harness-usage-dashboard &&
-omp plugin install oh-my-pi-usage-dashboard@omp-usage-dashboard --scope user &&
-python3 ~/.omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py --native
-```
-
-The `&&` chain stops at the first failure; resolve that error before continuing, rather than running the remaining commands blindly. For a project installation, run from the project root, use `--scope project` on the plugin uninstall/install commands, and replace both installer paths with the actual project path followed by `/.omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py`. With an active XDG data layout, replace both installer paths with `"$XDG_DATA_HOME/omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py"` so paths containing spaces remain intact. Marketplace `remove` and `add` have no scope flag. Open a fresh shell to load the restored hook and restart OMP after migration.
-
-The marketplace ID `omp-usage-dashboard`, plugin ID `oh-my-pi-usage-dashboard@omp-usage-dashboard`, and `node_modules/oh-my-pi-usage-dashboard` package path **intentionally keep their old lexical names**. Only the repository URL changes; do not rename those IDs or paths when migrating.
 
 ### Updating a source checkout
 
@@ -490,14 +484,14 @@ Exit sessions using the relevant dashboard before removing that host's integrati
 Remove the shell hook **before** uninstalling the plugin, while its installer still exists:
 
 ```sh
-python3 ~/.omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py --native --uninstall &&
-omp plugin uninstall oh-my-pi-usage-dashboard@omp-usage-dashboard --scope user
+python3 ~/.omp/plugins/node_modules/harness-usage-dashboard/install.py --native --uninstall &&
+omp plugin uninstall harness-usage-dashboard@harness-usage-dashboard --scope user
 ```
 
 Use the corresponding XDG or project package path, and `--scope project` where applicable. If you no longer use this marketplace, you can also remove its catalog registration:
 
 ```sh
-omp plugin marketplace remove omp-usage-dashboard
+omp plugin marketplace remove harness-usage-dashboard
 ```
 
 ### OMP source-checkout installation

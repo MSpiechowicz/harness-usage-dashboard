@@ -90,6 +90,19 @@ class InstallerOwnershipTests(unittest.TestCase):
         self.assertEqual(self.invoke('--uninstall', '--shell', 'fish'), 0)
         self.assertFalse((self.config / 'fish/functions/omp.fish').exists())
 
+    def test_native_setup_requires_new_stable_package_path(self):
+        self.assertEqual(self.invoke('--native', '--shell', 'bash'), 1)
+        stable = self.home / '.omp/plugins/node_modules/harness-usage-dashboard'
+        stable.parent.mkdir(parents=True)
+        stable.symlink_to(self.root, target_is_directory=True)
+        with patch.object(install, 'ROOT', stable), \
+                patch.object(install, 'OWNER', '# Checkout: ' + json.dumps(str(stable), ensure_ascii=True)):
+            self.assertEqual(self.invoke('--native', '--shell', 'bash'), 0)
+            managed, _ = install.shell_paths('bash')
+            self.assertIn(str(stable / 'launcher.py'), managed.read_text(encoding='utf-8'))
+            self.assertEqual(self.invoke('--native', '--uninstall', '--shell', 'bash'), 0)
+            self.assertFalse(managed.exists())
+
     def test_alias_conflict_does_not_partially_install(self):
         rc = self.home / '.bashrc'
         original = "alias omp='custom-omp --flag'\n"

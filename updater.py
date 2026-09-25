@@ -21,8 +21,8 @@ ROOT = Path(__file__).resolve().parent
 REPOSITORY = 'MSpiechowicz/harness-usage-dashboard'
 RELEASE_API = f'https://api.github.com/repos/{REPOSITORY}/releases/latest'
 RELEASE_BASE = f'https://github.com/{REPOSITORY}/releases/tag/'
-MARKETPLACE = 'omp-usage-dashboard'
-PLUGIN_ID = 'oh-my-pi-usage-dashboard@' + MARKETPLACE
+MARKETPLACE = 'harness-usage-dashboard'
+PLUGIN_ID = 'harness-usage-dashboard@' + MARKETPLACE
 CACHE_SECONDS = 24 * 60 * 60
 VERSION = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', re.ASCII)
 
@@ -75,7 +75,7 @@ def latest_release():
     request = urllib.request.Request(RELEASE_API, headers={
         'Accept': 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'omp-usage-dashboard-updater',
+        'User-Agent': 'harness-usage-dashboard-updater',
     })
     try:
         with opener.open(request, timeout=5) as response:
@@ -238,9 +238,9 @@ def managed_install(profile, root=None, scope=None):
     if len(matches) != 1:
         raise NotManagedError(
             'This running dashboard is not an unambiguous active native marketplace installation. '
-            'Legacy git/symlink checkouts are never overwritten. Follow Readme.MD migration: '
-            'uninstall only the old integration, add the official marketplace, then '
-            '`omp plugin install oh-my-pi-usage-dashboard@omp-usage-dashboard` and restart OMP.'
+            'Legacy git/symlink checkouts are never overwritten. Follow Readme.MD installation: '
+            'remove any previous integration, add the official marketplace, then '
+            f'`omp plugin install {PLUGIN_ID}` and restart OMP.'
         )
     return matches[0]
 

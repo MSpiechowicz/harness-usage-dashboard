@@ -1,15 +1,15 @@
 {
-  "name": "omp-usage-dashboard",
+  "name": "harness-usage-dashboard",
   "owner": {
     "name": "MSpiechowicz"
   },
   "metadata": {
-    "description": "Account-usage sidebar for Oh My Pi"
+    "description": "Account-usage sidebar for OMP and Claude Code"
   },
   "plugins": [
     {
-      "name": "oh-my-pi-usage-dashboard",
-      "description": "Persistent provider account-usage sidebar with ordinary omp shell integration",
+      "name": "harness-usage-dashboard",
+      "description": "Persistent account-usage sidebar with OMP shell integration and a separate Claude Code launcher",
       "version": "1.0.51",
       "source": {
         "source": "github",

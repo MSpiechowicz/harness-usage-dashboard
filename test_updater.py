@@ -22,7 +22,7 @@ class UpdaterTests(unittest.TestCase):
         self.old_release = {
             'version': '1.0.1',
             'tag': 'v1.0.1',
-            'url': 'https://github.com/MSpiechowicz/oh-my-pi-usage-dashboard/releases/tag/v1.0.1',
+            'url': 'https://github.com/MSpiechowicz/previous-dashboard/releases/tag/v1.0.1',
         }
         self.clock = 100000
         for fixture in (
@@ -43,7 +43,7 @@ class UpdaterTests(unittest.TestCase):
 
     def package(self, root, version):
         root.mkdir(parents=True, exist_ok=True)
-        (root / 'package.json').write_text(json.dumps({'name': 'oh-my-pi-usage-dashboard', 'version': version}), encoding='utf-8')
+        (root / 'package.json').write_text(json.dumps({'name': 'harness-usage-dashboard', 'version': version}), encoding='utf-8')
 
     def summary(self, root=None, scope='user', version='1.0.0'):
         return {'id': updater.PLUGIN_ID, 'scope': scope, 'entries': [
@@ -67,7 +67,7 @@ class UpdaterTests(unittest.TestCase):
         canonical_url = 'https://github.com/MSpiechowicz/harness-usage-dashboard/releases/tag/v1.0.1'
         for stale_release in (self.old_release, None):
             with self.subTest(stale_release=stale_release):
-                self.seed_cache('MSpiechowicz/oh-my-pi-usage-dashboard', stale_release)
+                self.seed_cache('MSpiechowicz/previous-dashboard', stale_release)
                 with patch.object(updater, 'latest_release', return_value=self.release) as fetch:
                     first = updater.check('work', cached=True, root=self.root)
                     second = updater.check('work', cached=True, root=self.root)
@@ -89,7 +89,7 @@ class UpdaterTests(unittest.TestCase):
         self.assertEqual(response['releaseUrl'], 'https://github.com/MSpiechowicz/harness-usage-dashboard/releases/tag/v1.0.1')
 
     def test_failed_prior_repository_refresh_cannot_use_old_cache(self):
-        self.seed_cache('MSpiechowicz/oh-my-pi-usage-dashboard', self.old_release)
+        self.seed_cache('MSpiechowicz/previous-dashboard', self.old_release)
         with patch.object(updater, 'latest_release', side_effect=updater.UpdateError('offline')):
             with self.assertRaisesRegex(updater.UpdateError, 'offline'):
                 updater.check('work', cached=True, root=self.root)
@@ -221,6 +221,33 @@ class UpdaterTests(unittest.TestCase):
             raise AssertionError(f'Unscoped or unexpected native mutation: {args}')
 
         return patch.object(updater, 'native', side_effect=native)
+
+    def test_native_upgrade_targets_new_marketplace_and_plugin(self):
+        self.registry = [self.summary(scope='project')]
+        self.upgraded = self.home / 'installed-1.0.1'
+        self.package(self.upgraded, '1.0.1')
+        calls = []
+
+        def native(profile, *args, **kwargs):
+            if args == ('list', '--json'):
+                return json.dumps({'npm': [], 'marketplace': self.registry})
+            calls.append(args)
+            if args == ('marketplace', 'update', 'harness-usage-dashboard'):
+                return ''
+            if args == ('upgrade', 'harness-usage-dashboard@harness-usage-dashboard',
+                        '--scope', 'project'):
+                self.registry[0] = self.summary(self.upgraded, scope='project', version='1.0.1')
+                return ''
+            raise AssertionError(f'Unexpected native command: {args}')
+
+        with patch.object(updater, 'native', side_effect=native), \
+                patch.object(updater, 'latest_release', return_value=self.release):
+            response = updater.install_update('work', self.root)
+        self.assertTrue(response['updated'])
+        self.assertEqual(calls, [
+            ('marketplace', 'update', 'harness-usage-dashboard'),
+            ('upgrade', 'harness-usage-dashboard@harness-usage-dashboard', '--scope', 'project'),
+        ])
 
     def test_successful_native_exit_without_new_version_is_not_success(self):
         with self.native_fixture(unchanged=True), patch.object(updater, 'latest_release', return_value=self.release):
