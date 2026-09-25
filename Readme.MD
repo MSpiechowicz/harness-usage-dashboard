@@ -212,11 +212,89 @@ Run `claude` or `claude --continue` in a shell with the installed hook to start 
 /usage-dashboard update install
 ```
 
-Visibility settings change presentation, not recorded tokens; `previous show` restores the section when data is available. The skill may invoke local tools to change preferences, control the sidebar, or check/install an update. Claude Code's tool-permission prompts and your own authorization still apply: installing the skill does **not** auto-approve commands. Claude's dashboard has only the Anthropic provider; OMP provider management and OMP account comparisons are unavailable here.
+Visibility settings change presentation, not recorded tokens; `previous show` restores the section when data is available. The skill may invoke local tools to change preferences, control the sidebar, or check/install an update. Claude Code's tool-permission prompts and your own authorization still apply: installing the skill does **not** auto-approve commands. Claude's dashboard has only the Anthropic provider: you can add, remove, hide, or show that one view, but OMP's multi-provider management and OMP account comparisons are unavailable here.
 
 Claude Code request totals come from its locally emitted OTLP `api_request` log events, tied to Claude session lifecycle hooks. The launcher creates owner-only temporary settings **for that run** rather than rewriting Claude's global settings. Only complete reported requests can count; no requests are inferred from transcripts or a provider's account allowance. Capture may be incomplete or unavailable when Claude is not emitting compatible events, when its telemetry destination conflicts, or before a completed request arrives. **Missing capture means unknown usage, not zero tokens.** The sidebar displays a token-capture warning even when separate allowance windows are available. Existing Claude telemetry and status-line destinations are not overwritten; a conflicting configuration can prevent this integration from receiving the affected data.
 
 When Claude supplies `rate_limits` in a compatible status-line payload, the sidebar can display five-hour and seven-day allowance windows. These fields may be absent on unsupported plans or early in a session, and an existing status-line command may prevent capture. The dashboard does **not** know a stable Claude account identity, so it does not record or display account-specific session quota-change history. Its OMP `claude` provider view and OMP quota observations are separate and cannot be used as Claude Code session totals.
+
+#### Direct shell controls for Claude's dashboard
+
+From a regular shell in this repository's checkout root, run `python3 dashboard.py control --host claude --` followed by one command shown below. These are **alternatives**, not a script to run from top to bottom: copy only the line for the change you want. They configure the local Claude dashboard without a Claude subscription or a Claude Code tool-permission prompt. They do not bypass Claude Code authentication: using Claude models and receiving request or allowance data still depend on Claude Code and the available telemetry. Keep `CLAUDE_CONFIG_DIR` the same as for your Claude installation/session so the commands read and save the same preferences.
+
+Inspect the saved configuration or choose a display mode:
+
+```sh
+python3 dashboard.py control --host claude -- view list
+python3 dashboard.py control --host claude -- view compact
+python3 dashboard.py control --host claude -- view details
+```
+
+Hide or restore individual sections. These switches do not delete recorded usage. History Other and History Total can show available token history, but Claude has no account-specific quota-change history to display.
+
+```sh
+python3 dashboard.py control --host claude -- commands hide
+python3 dashboard.py control --host claude -- commands show
+python3 dashboard.py control --host claude -- previous hide
+python3 dashboard.py control --host claude -- previous show
+python3 dashboard.py control --host claude -- history-other hide
+python3 dashboard.py control --host claude -- history-other show
+python3 dashboard.py control --host claude -- history-total hide
+python3 dashboard.py control --host claude -- history-total show
+```
+
+Choose the sidebar side or one of the eight named palettes:
+
+```sh
+python3 dashboard.py control --host claude -- position left
+python3 dashboard.py control --host claude -- position right
+python3 dashboard.py control --host claude -- theme green
+python3 dashboard.py control --host claude -- theme blue
+python3 dashboard.py control --host claude -- theme brown
+python3 dashboard.py control --host claude -- theme yellow
+python3 dashboard.py control --host claude -- theme cyan
+python3 dashboard.py control --host claude -- theme magenta
+python3 dashboard.py control --host claude -- theme orange
+python3 dashboard.py control --host claude -- theme red
+```
+
+Override the heading accent or chart color with a quoted hex color. Choosing another named theme keeps custom overrides; `theme reset` returns to green **and clears all overrides**.
+
+```sh
+python3 dashboard.py control --host claude -- theme custom accent '#58a66a'
+python3 dashboard.py control --host claude -- theme custom chart '#58a66a'
+python3 dashboard.py control --host claude -- theme reset
+```
+
+Enable/disable the sidebar or set its poll interval (60 seconds here; minimum 15 seconds). `window focus` selects the targeted sidebar pane, and `window refresh` requests a fresh poll. Use either only when deliberately targeting the actual owning Claude pane: when the sidebar is enabled, either command can create one if the targeted pane has none.
+
+```sh
+python3 dashboard.py control --host claude -- window on
+python3 dashboard.py control --host claude -- window off
+python3 dashboard.py control --host claude -- window focus
+python3 dashboard.py control --host claude -- window refresh
+python3 dashboard.py control --host claude -- window interval 60
+```
+
+Claude supports only `anthropic`. `providers hide` requires that view to be selected; `providers show` adds it back if needed. `providers remove` also removes its window filters, while hiding retains its settings. Use these as alternatives, not in sequence:
+
+```sh
+python3 dashboard.py control --host claude -- providers add anthropic
+python3 dashboard.py control --host claude -- providers remove anthropic
+python3 dashboard.py control --host claude -- providers hide anthropic
+python3 dashboard.py control --host claude -- providers show anthropic
+```
+
+With `anthropic` selected, hide or restore each reported allowance row independently. Filters match the window IDs; they do not remove token totals or manufacture unavailable rate-limit data.
+
+```sh
+python3 dashboard.py control --host claude -- window hide anthropic 'claude:five_hour'
+python3 dashboard.py control --host claude -- window show anthropic 'claude:five_hour'
+python3 dashboard.py control --host claude -- window hide anthropic 'claude:seven_day'
+python3 dashboard.py control --host claude -- window show anthropic 'claude:seven_day'
+```
+
+For preference-only changes, run these commands outside tmux with `TMUX_PANE` unset; `window on` there saves the preference without immediately opening a sidebar. Inside **any** tmux pane, the shell inherits `TMUX_PANE` and the CLI uses that pane as the owner unless you pass `--owner` **before** `--`. The CLI checks the pane ID format, not whether that pane belongs to Claude: an enabled configuration can cause these commands, including `window focus` or `window refresh`, to select or create a sidebar in an unrelated tmux pane. To change an already-running sidebar, run the command from its actual owning Claude pane's shell context, or pass that pane's actual tmux ID with `--owner` **before** `--`; do not target an unrelated pane. Saved changes do not update other already-running Claude panes; restart those sessions to pick up the preferences. Without an owner pane, `window focus` and `window refresh` cannot affect a running sidebar.
 
 ### OMP usage
 
