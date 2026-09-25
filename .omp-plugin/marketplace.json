@@ -13,10 +13,10 @@
       "version": "1.0.50",
       "source": {
         "source": "github",
-        "repo": "MSpiechowicz/oh-my-pi-usage-dashboard",
+        "repo": "MSpiechowicz/harness-usage-dashboard",
         "ref": "v1.0.50"
       },
-      "homepage": "https://github.com/MSpiechowicz/oh-my-pi-usage-dashboard"
+      "homepage": "https://github.com/MSpiechowicz/harness-usage-dashboard"
     }
   ]
 }

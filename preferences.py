@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+from host_adapters import get_host
 
 
 THEME_NAMES = ('green', 'blue', 'brown', 'yellow', 'cyan', 'magenta', 'orange', 'red')
@@ -44,26 +45,15 @@ def normalize_color(value):
 
 
 def resolve_profile(profile: str | None = None) -> str:
-    if profile is None:
-        profile = os.environ.get('OMP_PROFILE', os.environ.get('PI_PROFILE', 'default'))
-    if not isinstance(profile, str):
-        raise ValueError('OMP profile must be a string.')
-    profile = profile.strip() or 'default'
-    if profile in ('.', '..') or any(char in profile for char in ('/', '\\', '\x00')):
-        raise ValueError('OMP profile must be a single directory name.')
-    return profile
+    return get_host('omp').normalize_profile(profile)
 
 
-def agent_dir(profile: str | None = None) -> Path:
-    profile = resolve_profile(profile)
-    if profile != 'default':
-        return Path.home() / '.omp' / 'profiles' / profile / 'agent'
-    configured = os.environ.get('PI_CODING_AGENT_DIR')
-    return Path(configured).expanduser() if configured else Path.home() / '.omp' / 'agent'
+def agent_dir(profile: str | None = None, *, host: str = 'omp') -> Path:
+    return get_host(host).data_root(profile)
 
 
-def preferences_path(profile: str | None = None) -> Path:
-    return agent_dir(profile) / 'usage-dashboard.json'
+def preferences_path(profile: str | None = None, *, host: str = 'omp') -> Path:
+    return agent_dir(profile, host=host) / 'usage-dashboard.json'
 
 
 def _valid_string(value):
@@ -90,13 +80,19 @@ def migrate_history_visibility(data):
 
 
 
-def _validated(data):
+def _defaults(host):
+    result = deepcopy(DEFAULTS)
+    result['providers'] = list(get_host(host).default_providers)
+    return result
+
+
+def _validated(data, host='omp'):
     if not isinstance(data, dict):
         raise ValueError('Dashboard preferences must be a JSON object.')
     data = migrate_history_visibility(data)
     if data.keys() - DEFAULTS.keys() - _TRANSIENT:
         raise ValueError('Unknown dashboard preference field.')
-    result = deepcopy(DEFAULTS)
+    result = _defaults(host)
     result.update({key: deepcopy(value) for key, value in data.items() if key not in _TRANSIENT})
     for field in ('providers', 'hidden'):
         _validate_strings(result[field], field)
@@ -141,35 +137,35 @@ def _locked(path):
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-def _load(path):
+def _load(path, host='omp'):
     try:
         content = path.read_text(encoding='utf-8')
     except FileNotFoundError:
-        return deepcopy(DEFAULTS)
+        return _defaults(host)
     except UnicodeError as error:
         raise ValueError(f'Invalid dashboard preferences in {path}.') from error
     try:
         data = json.loads(content)
     except ValueError as error:
         raise ValueError(f'Invalid dashboard preferences JSON in {path}.') from error
-    return _validated(data)
+    return _validated(data, host)
 
 
-def load_preferences(profile: str | None = None) -> dict:
-    path = preferences_path(profile)
+def load_preferences(profile: str | None = None, *, host: str = 'omp') -> dict:
+    path = preferences_path(profile, host=host)
     with _locked(path):
-        return _load(path)
+        return _load(path, host)
 
 
-def update_preferences(profile: str | None, changes: dict) -> dict:
+def update_preferences(profile: str | None, changes: dict, *, host: str = 'omp') -> dict:
     """Patch current preferences under a stable lock; never replace stale snapshots."""
     if not isinstance(changes, dict):
         raise ValueError('Dashboard preference changes must be an object.')
-    path = preferences_path(profile)
+    path = preferences_path(profile, host=host)
     with _locked(path):
-        current = _load(path)
+        current = _load(path, host)
         current.update(changes)
-        current = _validated(current)
+        current = _validated(current, host)
         descriptor, temporary = tempfile.mkstemp(prefix='.usage-dashboard-', suffix='.json', dir=path.parent)
         try:
             with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:

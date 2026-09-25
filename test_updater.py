@@ -19,6 +19,11 @@ class UpdaterTests(unittest.TestCase):
         self.root = self.home / 'installed-1.0.0'
         self.package(self.root, '1.0.0')
         self.release = {'version': '1.0.1', 'tag': 'v1.0.1', 'url': updater.RELEASE_BASE + 'v1.0.1'}
+        self.old_release = {
+            'version': '1.0.1',
+            'tag': 'v1.0.1',
+            'url': 'https://github.com/MSpiechowicz/oh-my-pi-usage-dashboard/releases/tag/v1.0.1',
+        }
         self.clock = 100000
         for fixture in (
             patch.object(updater, 'agent_dir', side_effect=lambda profile: self.home / (profile or 'default')),
@@ -26,6 +31,15 @@ class UpdaterTests(unittest.TestCase):
         ):
             fixture.start()
             self.addCleanup(fixture.stop)
+
+    def seed_cache(self, repository, release):
+        path = updater.cache_path('work')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            'repository': repository,
+            'checkedAt': self.clock,
+            'release': release,
+        }), encoding='utf-8')
 
     def package(self, root, version):
         root.mkdir(parents=True, exist_ok=True)
@@ -48,6 +62,41 @@ class UpdaterTests(unittest.TestCase):
             self.assertEqual(fetch.call_count, 2)
             updater.check('other', cached=True, root=self.root)
             self.assertEqual(fetch.call_count, 3)
+
+    def test_prior_repository_cache_refreshes_release_and_absence(self):
+        canonical_url = 'https://github.com/MSpiechowicz/harness-usage-dashboard/releases/tag/v1.0.1'
+        for stale_release in (self.old_release, None):
+            with self.subTest(stale_release=stale_release):
+                self.seed_cache('MSpiechowicz/oh-my-pi-usage-dashboard', stale_release)
+                with patch.object(updater, 'latest_release', return_value=self.release) as fetch:
+                    first = updater.check('work', cached=True, root=self.root)
+                    second = updater.check('work', cached=True, root=self.root)
+                self.assertEqual(fetch.call_count, 1)
+                self.assertTrue(first['updateAvailable'])
+                self.assertEqual(first['releaseUrl'], canonical_url)
+                self.assertEqual(second, first)
+                self.assertEqual(json.loads(updater.cache_path('work').read_text(encoding='utf-8')), {
+                    'repository': 'MSpiechowicz/harness-usage-dashboard',
+                    'checkedAt': self.clock,
+                    'release': self.release,
+                })
+
+    def test_old_release_link_under_canonical_repository_is_not_reused(self):
+        self.seed_cache('MSpiechowicz/harness-usage-dashboard', self.old_release)
+        with patch.object(updater, 'latest_release', return_value=self.release) as fetch:
+            response = updater.check('work', cached=True, root=self.root)
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(response['releaseUrl'], 'https://github.com/MSpiechowicz/harness-usage-dashboard/releases/tag/v1.0.1')
+
+    def test_failed_prior_repository_refresh_cannot_use_old_cache(self):
+        self.seed_cache('MSpiechowicz/oh-my-pi-usage-dashboard', self.old_release)
+        with patch.object(updater, 'latest_release', side_effect=updater.UpdateError('offline')):
+            with self.assertRaisesRegex(updater.UpdateError, 'offline'):
+                updater.check('work', cached=True, root=self.root)
+        with patch.object(updater, 'latest_release', return_value=self.release) as fetch:
+            response = updater.check('work', cached=True, root=self.root)
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(response['releaseUrl'], 'https://github.com/MSpiechowicz/harness-usage-dashboard/releases/tag/v1.0.1')
 
     def test_failed_refresh_never_hides_update_for_24_hours(self):
         with patch.object(updater, 'latest_release', side_effect=[updater.UpdateError('offline'), self.release]):
@@ -87,6 +136,15 @@ class UpdaterTests(unittest.TestCase):
             build.return_value.open.side_effect = urllib.error.HTTPError(updater.RELEASE_API, 403, '', {}, None)
             with self.assertRaises(updater.UpdateError):
                 updater.latest_release()
+
+    def test_latest_release_requests_canonical_repository(self):
+        payload = {'tag_name': 'v1.0.1', 'draft': False, 'prerelease': False}
+        with patch.object(updater.urllib.request, 'build_opener') as build:
+            build.return_value.open.return_value = io.BytesIO(json.dumps(payload).encode('utf-8'))
+            release = updater.latest_release()
+            request = build.return_value.open.call_args.args[0]
+        self.assertEqual(request.full_url, 'https://api.github.com/repos/MSpiechowicz/harness-usage-dashboard/releases/latest')
+        self.assertEqual(release['url'], 'https://github.com/MSpiechowicz/harness-usage-dashboard/releases/tag/v1.0.1')
 
     def test_source_checkout_check_does_not_offer_native_install(self):
         with patch.object(updater, 'installed_plugins', return_value=[]), \

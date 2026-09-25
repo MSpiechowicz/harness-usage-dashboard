@@ -32,8 +32,9 @@ class ReleaseTransactionTests(unittest.TestCase):
             'name': 'omp-usage-dashboard',
             'plugins': [{
                 'name': 'oh-my-pi-usage-dashboard', 'version': '1.0.0',
-                'source': {'source': 'github', 'repo': 'MSpiechowicz/oh-my-pi-usage-dashboard',
+                'source': {'source': 'github', 'repo': 'MSpiechowicz/harness-usage-dashboard',
                            'ref': 'v1.0.0'},
+                'homepage': 'https://github.com/MSpiechowicz/harness-usage-dashboard',
             }],
         }, indent=2) + '\n', encoding='utf-8')
         self.commit(self.checkout, 'Initial source')

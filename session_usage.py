@@ -3,15 +3,18 @@
 import argparse
 from contextlib import contextmanager
 from functools import lru_cache
+import errno
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
+import stat
 import sqlite3
 import sys
 import time
 
+from host_adapters import HOST_IDS
 from preferences import agent_dir
 
 
@@ -88,12 +91,40 @@ def _ensure_thinking_level(connection):
         )
 
 
+def _check_ledger_directory(directory):
+    """Only reopen the ledger by name under directories other users cannot replace."""
+    ancestors = list(reversed((directory, *directory.parents)))
+    for ancestor in ancestors:
+        details = os.lstat(ancestor)
+        if not stat.S_ISDIR(details.st_mode) or details.st_uid not in (os.geteuid(), 0):
+            raise PermissionError('Unsafe usage ledger storage.')
+        if details.st_mode & 0o022:
+            # A sticky, root-owned ancestor (typically /tmp) protects the
+            # user-owned private directory below it, but is not itself safe
+            # for SQLite's database and sidecar files.
+            if (ancestor == directory or details.st_uid != 0
+                    or not details.st_mode & stat.S_ISVTX):
+                raise PermissionError('Unsafe usage ledger storage.')
+
+
 @contextmanager
-def database(profile=None, cwd=None):
-    path = agent_dir(profile) / 'usage-dashboard.sqlite3'
+def database(profile=None, cwd=None, *, host='omp'):
+    path = agent_dir(profile, host=host) / 'usage-dashboard.sqlite3'
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
-    os.close(descriptor)
+    _check_ledger_directory(path.parent.absolute())
+    try:
+        descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    except OSError as exc:
+        if isinstance(exc, PermissionError) or exc.errno == errno.ELOOP:
+            raise PermissionError('Unsafe usage ledger storage.') from None
+        raise
+    try:
+        details = os.fstat(descriptor)
+        if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.geteuid()
+                or details.st_mode & 0o077):
+            raise PermissionError('Unsafe usage ledger storage.')
+    finally:
+        os.close(descriptor)
     connection = sqlite3.connect(path, timeout=5)
     connection.row_factory = sqlite3.Row
     try:
@@ -126,8 +157,12 @@ def database(profile=None, cwd=None):
         connection.close()
 
 
-def owner_key(owner=None):
-    socket = os.environ.get('TMUX', '').rsplit(',', 2)[0]
+def owner_key(owner=None, *, socket=None):
+    if socket is None:
+        socket = os.environ.get('TMUX', '').rsplit(',', 2)[0]
+    elif not isinstance(socket, str) or len(socket) > 4096 or any(
+            character in socket for character in ('\x00', '\r', '\n')):
+        raise ValueError('Invalid session owner socket.')
     return socket + ':' + (owner or os.environ.get('TMUX_PANE', 'standalone'))
 
 
@@ -154,19 +189,19 @@ def _reconcile_task(db, project, session, group):
                    (*residual, project, session, row['id']))
 
 
-def ingest(payload, profile=None, now=None, cwd=None):
+def ingest(payload, profile=None, now=None, cwd=None, *, host='omp'):
     now = time.time() if now is None else now
     project = project_id(cwd)
     session, activation = payload['session'], payload['activation']
     if not all(isinstance(value, str) and value for value in (session, activation)):
         raise ValueError('Session identity is missing.')
-    owner = owner_key(payload.get('owner'))
-    with database(profile, cwd) as db:
+    owner = owner_key(payload.get('owner'), socket=payload.get('socket'))
+    with database(profile, cwd, host=host) as db:
         db.execute('INSERT OR IGNORE INTO sessions VALUES (?, ?, ?, ?)', (project, session, now, now))
         active = db.execute('SELECT * FROM active WHERE project=? AND owner=?', (project, owner)).fetchone()
         if payload.get('action') == 'start':
             previous = active['session'] if active and active['session'] != session else (active['previous'] if active else None)
-            if not active or active['activation'] != activation:
+            if not active or active['session'] != session or active['activation'] != activation:
                 db.execute('INSERT OR REPLACE INTO active VALUES (?, ?, ?, ?, ?, ?)',
                            (project, owner, session, activation, now, previous))
         changed_groups = set()
@@ -222,23 +257,24 @@ def ingest(payload, profile=None, now=None, cwd=None):
         db.execute('UPDATE sessions SET updated=? WHERE project=? AND id=?', (now, project, session))
         if payload.get('action') == 'stop':
             # Retain the last session pointer for the next startup, but reject late polls.
-            db.execute('UPDATE active SET activation=? WHERE project=? AND owner=? AND activation=?',
-                       ('', project, owner, activation))
+            db.execute('''UPDATE active SET activation=?
+                          WHERE project=? AND owner=? AND session=? AND activation=?''',
+                       ('', project, owner, session, activation))
 
 
-def active_session(profile=None, owner=None, cwd=None):
+def active_session(profile=None, owner=None, cwd=None, *, host='omp'):
     project = project_id(cwd)
-    with database(profile, cwd) as db:
+    with database(profile, cwd, host=host) as db:
         row = db.execute('SELECT * FROM active WHERE project=? AND owner=?', (project, owner_key(owner))).fetchone()
         return dict(row) if row else None
 
 
-def record_quota(profile, owner, activation, samples, cwd=None):
+def record_quota(profile, owner, activation, samples, cwd=None, *, host='omp'):
     """Never bridge an inactive interval, changed window, or decreasing counter."""
     if not activation:
         return
     project = project_id(cwd)
-    with database(profile, cwd) as db:
+    with database(profile, cwd, host=host) as db:
         active = db.execute('SELECT * FROM active WHERE project=? AND owner=?',
                             (project, owner_key(owner))).fetchone()
         if not active or active['activation'] != activation:
@@ -266,7 +302,7 @@ def record_quota(profile, owner, activation, samples, cwd=None):
                            (project, active['session'], activation, key, sample['provider'], sample['label'],
                             segment, reset, at, at, value, value, 1))
 
-def summary(profile=None, owner=None, now=None, minutes=20, cwd=None):
+def summary(profile=None, owner=None, now=None, minutes=20, cwd=None, *, host='omp'):
     now = time.time() if now is None else now
     project = project_id(cwd)
     # Keep legitimate zero native requests; only fully covered task aggregates are hidden.
@@ -274,7 +310,7 @@ def summary(profile=None, owner=None, now=None, minutes=20, cwd=None):
                   OR NOT EXISTS (SELECT 1 FROM task_tokens AS g
                                  WHERE g.project=tokens.project AND g.session=tokens.session
                                    AND g.id=tokens.id AND g.task_aggregate=1))'''
-    with database(profile, cwd) as db:
+    with database(profile, cwd, host=host) as db:
         # sqlite3's connection context only starts transactions for writes.
         # Pin every section to the same snapshot while new usage is committed.
         db.execute('BEGIN')
@@ -359,9 +395,10 @@ def summary(profile=None, owner=None, now=None, minutes=20, cwd=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--profile')
+    parser.add_argument('--host', choices=HOST_IDS, default='omp')
     args = parser.parse_args()
     try:
-        ingest(json.load(sys.stdin), args.profile)
+        ingest(json.load(sys.stdin), args.profile, host=args.host)
     except (KeyError, TypeError, ValueError, OSError, sqlite3.Error):
         print('Could not save dashboard session usage.', file=sys.stderr)
         return 1

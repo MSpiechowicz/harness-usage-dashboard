@@ -18,7 +18,7 @@ import urllib.request
 from preferences import agent_dir, resolve_profile
 
 ROOT = Path(__file__).resolve().parent
-REPOSITORY = 'MSpiechowicz/oh-my-pi-usage-dashboard'
+REPOSITORY = 'MSpiechowicz/harness-usage-dashboard'
 RELEASE_API = f'https://api.github.com/repos/{REPOSITORY}/releases/latest'
 RELEASE_BASE = f'https://github.com/{REPOSITORY}/releases/tag/'
 MARKETPLACE = 'omp-usage-dashboard'

@@ -1,16 +1,35 @@
 """User-visible allowance semantics; no live provider calls."""
 from argparse import Namespace
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
+from dataclasses import replace
 from copy import deepcopy
-from contextlib import ExitStack
 import curses
+import fcntl
+import io
 import json
+import os
+from pathlib import Path
+import pty
+import shlex
 import signal
+import struct
 import subprocess
+import sys
+import tempfile
+import termios
+import time
 import unittest
+import urllib.request
 from unittest.mock import MagicMock, patch
-from dashboard import (FetchJob, allowance_color, change_config, clean, command_box_rows,
-                       control, launch, load_config, owned_panes, provider_lines, resolve_tokens,
-                       section_heading, session_lines, token_chart, watch)
+import host_adapters
+from host_adapters import HostAdapter
+from session_usage import ingest, record_quota, summary
+
+from dashboard import (ROOT, FetchJob, allowance_color, change_config, clean, command_box_rows,
+                       control, defaults, launch, load_config, owned_panes, provider_lines,
+                       resolve_tokens, section_heading, session_lines, token_chart, tmux_binary, watch)
+from claude_bridge import start_receiver
+from claude_usage_source import fetch_usage as fetch_claude_usage
 from preferences import DEFAULTS, THEME_NAMES
 
 
@@ -253,7 +272,7 @@ class CommandsVisibilityTests(unittest.TestCase):
             stack.enter_context(patch('dashboard.time.monotonic', side_effect=[0, 1, 2, 3]))
             stack.enter_context(patch('dashboard.session_summary', return_value={}))
             stack.enter_context(patch('dashboard.session_lines',
-                                      side_effect=lambda *_: [(f'entry {i}', 'normal') for i in range(12)]))
+                                      side_effect=lambda *_, **__: [(f'entry {i}', 'normal') for i in range(12)]))
             with self.assertRaises(SystemExit):
                 watch(screen, args)
         self.assertTrue(any('COMMANDS' in text for text in frames[0].values()))
@@ -325,7 +344,7 @@ class DashboardPollingTests(unittest.TestCase):
              patch('dashboard.session_summary', return_value=self.history), \
              patch('dashboard.active_session', return_value=None), \
              patch('dashboard.record_quota'), \
-             patch('dashboard.FetchJob', side_effect=lambda *_args: next(jobs)), \
+             patch('dashboard.FetchJob', side_effect=lambda *_args, **_kwargs: next(jobs)), \
              patch('dashboard.time.monotonic', side_effect=ticks):
             with self.assertRaises(SystemExit):
                 watch(self.screen, self.args)
@@ -409,6 +428,26 @@ class PassthroughContainmentTests(unittest.TestCase):
                        if 'allow-passthrough' in call.args]
         self.assertEqual(len(passthrough), 1)
         self.assertEqual(passthrough[0][-2:], ('allow-passthrough', 'off'))
+
+
+class OmpLaunchContractTests(unittest.TestCase):
+    def test_profile_and_native_extension_preserve_omp_argument_order(self):
+        args = Namespace(host='omp', profile='work', native=False)
+        with patch.dict(os.environ, {'TMUX': ''}), \
+             patch('dashboard.defaults', return_value={'enabled': True}), \
+             patch('dashboard.extension_path', return_value=Path('/extension.js')), \
+             patch('host_adapters.shutil.which', return_value='/omp'), \
+             patch('dashboard.shutil.get_terminal_size',
+                   return_value=Namespace(columns=120, lines=40)), \
+             patch('dashboard.mux', side_effect=RuntimeError('capture')) as mux:
+            for native, expected in (
+                    (False, ['env', 'OMP_USAGE_LAUNCHER=1', '/omp', '-e', '/extension.js']),
+                    (True, ['env', 'OMP_USAGE_LAUNCHER=0', '/omp'])):
+                args.native = native
+                with self.subTest(native=native), self.assertRaisesRegex(RuntimeError, 'capture'):
+                    launch(args, ['--model', 'selected'])
+                command = shlex.split(mux.call_args.args[-1])
+                self.assertEqual(command, [*expected, '--model', 'selected', '--profile', 'work'])
 
 
 class NestedCommandTests(unittest.TestCase):
@@ -552,6 +591,505 @@ class NestedCommandTests(unittest.TestCase):
         change_config(config, ['theme', 'reset'])
         self.assertEqual(config['theme'], 'green')
         self.assertEqual(config['tokens'], {})
+
+
+class SyntheticHostIntegrationTests(unittest.TestCase):
+    def test_registered_host_uses_real_preferences_source_ledger_and_renderer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'synthetic_usage.py'
+            source.write_text(
+                'import json, sys, time\n'
+                'print(json.dumps({"reports": [{"provider": sys.argv[1], '
+                '"fetchedAt": int(time.time() * 1000), '
+                '"limits": [{"id": "weekly", "label": "Weekly", '
+                '"scope": {"accountId": "test-account"}, '
+                '"amount": {"usedFraction": 0.4}}]}]}))\n')
+            adapter = HostAdapter(
+                host_id='synthetic', name='SYNTHETIC', default_providers=('toy',),
+                allowed_providers=frozenset({'toy'}), aliases={'sample': 'toy'},
+                empty_title='Allowance pending', empty_note='No sample yet',
+                empty_compact_note='No sample yet', capture_status=False,
+                keep_prior_on_empty=False, quota_history=True,
+                launch_policy='exit-status', profile_resolver=lambda profile: profile or 'default',
+                root_resolver=lambda profile: root / (profile or 'default'),
+                fetch_builder=lambda provider, profile, owner: [sys.executable, str(source), provider],
+                launch_builder=lambda argv, profile, native, extension, binary, status_path: [
+                    'sh', '-c',
+                    'status=$1; shift; "$@"; code=$?; printf "%s\\n" "$code" > "$status"; exit "$code"',
+                    'synthetic-exit', str(status_path), sys.executable, '-c', 'raise SystemExit(0)', *argv])
+            args = Namespace(host='synthetic', owner='owner-a', profile=None, providers='sample',
+                             side=None, interval=None)
+            with patch.object(host_adapters, '_HOSTS',
+                              {**host_adapters._HOSTS, 'synthetic': adapter}), \
+                 patch.dict(os.environ, {'TMUX': '', 'PI_CODING_AGENT_DIR': str(root / 'omp')}):
+                from preferences import load_preferences
+                config = defaults(args)
+                self.assertEqual(config['providers'], ['toy'])
+                self.assertEqual(config['profile'], 'default')
+                self.assertEqual(load_preferences('default', host='synthetic')['providers'], ['toy'])
+                self.assertEqual(defaults(Namespace(host='omp', profile=None, providers=None,
+                                                    side=None, interval=None))['providers'], [])
+                now = time.time()
+
+                def entry(identity, total):
+                    return {'id': identity, 'at': now, 'provider': 'toy', 'model': 'toy-model',
+                            'input': total - 2, 'output': 2, 'cacheRead': 0,
+                            'cacheWrite': 0, 'total': total}
+
+                first = {'session': 'one', 'activation': 'first', 'owner': 'owner-a',
+                         'socket': '', 'action': 'start', 'entries': [entry('event-a', 42)]}
+                second = {'session': 'two', 'activation': 'second', 'owner': 'owner-b',
+                          'socket': '', 'action': 'start', 'entries': [entry('event-b', 9)]}
+                ingest(first, 'default', now=now, host='synthetic')
+                ingest(first, 'default', now=now + 1, host='synthetic')
+                ingest(second, 'default', now=now + 2, host='synthetic')
+                history = summary('default', 'owner-a', now=now + 3, host='synthetic')
+                other = summary('default', 'owner-b', now=now + 3, host='synthetic')
+                self.assertEqual(history['current']['providers'][0]['total'], 42)
+                self.assertEqual(other['current']['providers'][0]['total'], 9)
+                self.assertEqual(history['history'][0]['total'], 9)
+                self.assertEqual(history['total_history'][0]['total'], 51)
+                rendered = '\n'.join(text for text, _ in session_lines(
+                    history, now + 3, 42, host='synthetic'))
+                self.assertIn('42', rendered)
+                self.assertIn('9', rendered)
+
+                job = FetchJob('toy', 'default', host='synthetic', owner='owner-a')
+                try:
+                    job.process.wait(timeout=5)
+                    data, error = job.finish()
+                finally:
+                    job.close()
+                self.assertIsNone(error)
+                allowance = '\n'.join(text for text, _ in provider_lines(
+                    data, 'toy', config, now, 42, host='synthetic'))
+                self.assertIn('Weekly', allowance)
+                self.assertIn('60% left', allowance)
+
+                from dashboard import quota_samples
+                samples = quota_samples(data)
+                self.assertEqual(len(samples), 1)
+                samples[0]['at'] = now + 3
+                record_quota('default', 'owner-a', 'first', samples, host='synthetic')
+                advanced = dict(samples[0], at=now + 4, used=.55)
+                record_quota('default', 'owner-a', 'first', [advanced], host='synthetic')
+                history = summary('default', 'owner-a', now=now + 5, host='synthetic')
+                self.assertAlmostEqual(history['current']['quota'][0]['points'], 15)
+
+                # The one-shot view uses the same registered source and stored ledger.
+                from dashboard import main
+                output = io.StringIO()
+                with patch('dashboard.HOST_IDS', (*host_adapters.HOST_IDS, 'synthetic')), \
+                     patch.object(sys, 'argv', ['dashboard.py', 'watch', '--host', 'synthetic',
+                                                '--owner', 'owner-a', '--once']), \
+                     redirect_stdout(output):
+                    self.assertEqual(main(), 0)
+                self.assertIn('60% left', output.getvalue())
+                self.assertIn('42', output.getvalue())
+
+
+    def test_once_failure_does_not_expose_source_stderr(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'failing_source.py'
+            source.write_text(
+                "import sys\nsys.stderr.write('private-canary\\n')\nraise SystemExit(7)\n")
+            adapter = replace(host_adapters.get_host('omp'),
+                              fetch_builder=lambda provider, profile, owner: [
+                                  sys.executable, str(source)])
+            errors = io.StringIO()
+            with patch.object(host_adapters, '_HOSTS',
+                              {**host_adapters._HOSTS, 'omp': adapter}), \
+                 patch.dict(os.environ, {'TMUX': '', 'PI_CODING_AGENT_DIR': str(root / 'omp')}), \
+                 patch.object(sys, 'argv', ['dashboard.py', 'watch', '--once', '--providers', 'toy']), \
+                 redirect_stdout(io.StringIO()), redirect_stderr(errors):
+                from dashboard import main
+                self.assertEqual(main(), 1)
+            self.assertIn('Refresh failed; check login/network', errors.getvalue())
+            self.assertNotIn('private-canary', errors.getvalue())
+
+
+class ClaudeDashboardTests(unittest.TestCase):
+    def setUp(self):
+        self.args = Namespace(host='claude', owner=None, profile=None, providers=None,
+                              side=None, interval=None)
+        self.history = {
+            'current': {'id': 'claude-session', 'updated': 10,
+                        'providers': [{'provider': 'anthropic', 'total': 125}],
+                        'models': [{'provider': 'anthropic', 'model': 'sonnet', 'total': 125,
+                                    'input': 100, 'output': 25, 'cache_read': 0,
+                                    'cache_write': 0}], 'quota': []},
+            'previous': {'id': 'prior-session', 'updated': 9,
+                         'providers': [{'provider': 'anthropic', 'total': 80}],
+                         'models': [], 'quota': []},
+            'chart': [0, 60, 125],
+            'history': [{'provider': 'anthropic', 'model': 'sonnet', 'total': 80,
+                         'input': 80, 'output': 0, 'cache_read': 0, 'cache_write': 0}],
+            'total_history': [{'provider': 'anthropic', 'model': 'sonnet', 'total': 205,
+                               'input': 180, 'output': 25, 'cache_read': 0,
+                               'cache_write': 0}],
+        }
+
+    def test_claude_uses_separate_preferences_and_only_anthropic(self):
+        with patch('dashboard.load_preferences',
+                   return_value=dict(DEFAULTS, providers=['anthropic'])) as load:
+            config = defaults(self.args)
+        load.assert_called_once_with(None, host='claude')
+        self.assertEqual(config['profile'], None)
+        self.assertEqual(config['providers'], ['anthropic'])
+        config['compact'] = False
+        change_config(config, ['view', 'compact'], host='claude')
+        self.assertTrue(config['compact'])
+        with self.assertRaisesRegex(ValueError, 'Anthropic'):
+            change_config(config, ['providers', 'add', 'codex'], host='claude')
+
+    def test_claude_limits_render_remaining_in_compact_and_details(self):
+        data = {'reports': [{'provider': 'anthropic', 'fetchedAt': 10_000,
+                             'limits': [
+                                 {'id': 'claude:five_hour', 'label': '5 hour',
+                                  'amount': {'usedFraction': .2},
+                                  'window': {'resetsAt': 3_610_000, 'resetLabel': 'reset'}},
+                                 {'id': 'claude:seven_day', 'label': '7 day',
+                                  'amount': {'usedFraction': .75}},
+                             ]}]}
+        for compact in (True, False):
+            with self.subTest(compact=compact):
+                rows = [text for text, _ in provider_lines(
+                    data, 'anthropic', {'interval': 60, 'compact': compact, 'windows': {}},
+                    10, 40)]
+                text = '\n'.join(rows)
+                self.assertIn('5h', text)
+                self.assertIn('7d', text)
+                self.assertIn('80% left', text)
+                self.assertIn('25% left', text)
+                self.assertNotIn('20% used', text)
+                self.assertEqual('ID: claude:five_hour' in rows, not compact)
+
+    def test_same_anthropic_provider_keeps_host_specific_unknown_allowance(self):
+        data = {'reports': [], 'dashboardNote': 'No captured rate-limit windows yet'}
+        for compact in (True, False):
+            config = {'compact': compact}
+            claude = provider_lines(data, 'anthropic', config, 0, 32, host='claude')
+            omp = provider_lines(data, 'anthropic', config, 0, 32)
+            text = '\n'.join(row for row, _ in claude)
+            self.assertIn('Allowance unknown', text)
+            self.assertIn('No captured rate-limit windows yet', text)
+            self.assertNotIn('0%', text)
+            self.assertEqual(omp[0], ('Usage unavailable', 'warn'))
+            self.assertEqual(omp[1][0], 'Check login / usage support' if compact
+                             else 'No captured rate-limit windows yet')
+
+    def test_claude_allowances_do_not_hide_missing_or_rejected_token_capture(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': directory, 'TMUX': '', 'TMUX_PANE': ''}):
+            project = Path(directory) / 'project'
+            project.mkdir()
+            receiver = start_receiver(owner='pane-ui', cwd=str(project))
+
+            def post(path, payload):
+                request = urllib.request.Request(
+                    receiver.address + path, data=json.dumps(payload).encode(), method='POST',
+                    headers={'Authorization': 'Bearer ' + receiver.auth,
+                             'Content-Type': 'application/json'})
+                with urllib.request.urlopen(request, timeout=2) as response:
+                    self.assertEqual(response.status, 200)
+
+            try:
+                now = time.time()
+                post('/hook', {'hook_event_name': 'SessionStart', 'session_id': 'session-ui'})
+                post('/statusline', {'session_id': 'session-ui', 'rate_limits': {
+                    'five_hour': {'used_percentage': 25, 'resets_at': now + 3600}}})
+
+                def verify(reason_fragment):
+                    data = fetch_claude_usage(owner='pane-ui', cwd=str(project), now=now + 1)
+                    status = data['capture']['status']
+                    self.assertEqual(status, 'incomplete')
+                    self.assertIn(reason_fragment, data['capture']['reason'])
+                    for compact in (True, False):
+                        config = {'interval': 60, 'compact': compact, 'windows': {}}
+                        claude = provider_lines(data, 'anthropic', config, now + 1, 40,
+                                                host='claude')
+                        rendered = '\n'.join(row for row, _ in claude)
+                        self.assertIn('75% left', rendered)
+                        self.assertIn('Token capture ' + status, rendered)
+                        self.assertIn(data['capture']['reason'], rendered)
+                        self.assertNotIn('0 tokens', rendered)
+                        omp = provider_lines(data, 'anthropic', config, now + 1, 40, host='omp')
+                        self.assertNotIn('Token capture', '\n'.join(row for row, _ in omp))
+
+                verify('No complete API request')
+                attributes = [{'key': name, 'value': {'stringValue': value}}
+                              for name, value in (('session.id', 'session-ui'),
+                                                  ('event.name', 'api_request'),
+                                                  ('event.timestamp', '2026-09-25T12:00:00Z'),
+                                                  ('model', 'claude-test'))]
+                attributes += [{'key': name, 'value': {'intValue': value}}
+                               for name, value in (('input_tokens', 12), ('output_tokens', 7),
+                                                   ('cache_creation_tokens', 2))]
+                post('/v1/logs', {'resourceLogs': [{'scopeLogs': [{'logRecords': [{
+                    'body': {'stringValue': 'claude_code.api_request'},
+                    'attributes': attributes}]}]}]})
+                verify('rejected or incomplete')
+                unavailable = dict(fetch_claude_usage(owner='pane-ui', cwd=str(project), now=now + 1),
+                                   capture={'status': 'unavailable',
+                                            'reason': 'No active Claude capture.'})
+                for compact in (True, False):
+                    rendered = '\n'.join(text for text, _ in provider_lines(
+                        unavailable, 'anthropic',
+                        {'interval': 60, 'compact': compact, 'windows': {}},
+                        now + 1, 40, host='claude'))
+                    self.assertIn('75% left', rendered)
+                    self.assertIn('Token capture unavailable', rendered)
+                    self.assertIn('No active Claude capture.', rendered)
+            finally:
+                receiver.close()
+
+    def test_claude_session_chart_and_visibility_use_existing_ledger(self):
+        for compact in (True, False):
+            rows = session_lines(self.history, 10, 48, compact=compact,
+                                 previous_visible=False, history_other_visible=True,
+                                 history_total_visible=False, host='claude')
+            text = '\n'.join(row for row, _ in rows)
+            self.assertIn('TOKEN RATE', text)
+            self.assertIn('CURRENT SESSION', text)
+            self.assertIn('HISTORY OTHER SESSIONS', text)
+            self.assertIn('125', text)
+            self.assertNotIn('PREVIOUS SESSION', text)
+            self.assertNotIn('HISTORY TOTAL', text)
+            self.assertTrue(any('▁' in row or '█' in row for row, _ in rows))
+        empty = dict(self.history, current=None, previous=None)
+        self.assertIn('Waiting for CLAUDE session', '\n'.join(
+            row for row, _ in session_lines(empty, 10, 48, host='claude')))
+
+    def test_claude_poll_replaces_stale_allowance_without_quota_history(self):
+        screen = MagicMock()
+        screen.getmaxyx.return_value = (70, 80)
+        screen.getch.side_effect = [-1, ord('r'), -1, SystemExit]
+        frames = []
+        screen.refresh.side_effect = lambda: frames.append(
+            '\n'.join(call.args[2] for call in screen.addnstr.call_args_list))
+        screen.erase.side_effect = screen.addnstr.reset_mock
+        first = MagicMock(started=0)
+        first.finish.return_value = (
+            {'reports': [{'provider': 'anthropic', 'fetchedAt': 1_000,
+                          'limits': [{'id': 'five_hour', 'label': '5 hour',
+                                      'amount': {'usedFraction': .25}}]}]}, None)
+        second = MagicMock(started=2)
+        second.finish.return_value = (
+            {'reports': [], 'dashboardNote': 'No captured rate-limit windows yet'}, None)
+        config = dict(DEFAULTS, profile=None, providers=['anthropic'], refresh=0)
+        with ExitStack() as stack:
+            for name in ('curs_set', 'mousemask', 'mouseinterval'):
+                stack.enter_context(patch('dashboard.curses.' + name))
+            stack.enter_context(patch('dashboard.defaults', return_value=config))
+            stack.enter_context(patch('dashboard.initialize_colors', return_value={}))
+            stack.enter_context(patch('dashboard.session_summary', return_value=self.history))
+            stack.enter_context(patch('dashboard.time.monotonic', side_effect=[0, 1, 2, 3]))
+            stack.enter_context(patch('dashboard.FetchJob', side_effect=[first, second]))
+            quota = stack.enter_context(patch('dashboard.record_quota'))
+            active = stack.enter_context(patch('dashboard.active_session'))
+            with self.assertRaises(SystemExit):
+                watch(screen, self.args)
+        quota.assert_not_called()
+        active.assert_not_called()
+        self.assertTrue(any('75% left' in frame for frame in frames))
+        self.assertIn('Allowance unknown', frames[-1])
+        self.assertIn('No captured rate-limit windows yet', frames[-1])
+        self.assertNotIn('75% left', frames[-1])
+
+    def test_claude_keyboard_and_mouse_hide_save_only_claude_settings(self):
+        config = dict(DEFAULTS, profile=None, providers=[], refresh=0)
+        for key in (ord('q'), curses.KEY_MOUSE):
+            with self.subTest(key=key), ExitStack() as stack:
+                screen = MagicMock()
+                screen.getmaxyx.return_value = (20, 80)
+                screen.getch.return_value = key
+                self.args.owner = '%7'
+                for name in ('curs_set', 'mousemask', 'mouseinterval'):
+                    stack.enter_context(patch('dashboard.curses.' + name))
+                stack.enter_context(patch('dashboard.curses.getmouse',
+                                          return_value=(0, 14, 16, 0, curses.BUTTON1_CLICKED)))
+                stack.enter_context(patch('dashboard.defaults', return_value=config.copy()))
+                stack.enter_context(patch('dashboard.load_config', return_value=config.copy()))
+                stack.enter_context(patch('dashboard.initialize_colors', return_value={}))
+                stack.enter_context(patch('dashboard.session_summary', return_value=self.history))
+                mux = stack.enter_context(patch('dashboard.mux', return_value='0'))
+                save = stack.enter_context(patch('dashboard.update_preferences'))
+                watch(screen, self.args)
+                save.assert_called_once_with(None, {'enabled': False}, host='claude')
+                self.assertTrue(any('@claude_usage_config' in call.args
+                                    for call in mux.call_args_list))
+                self.assertFalse(any('@omp_usage_config' in call.args
+                                     for call in mux.call_args_list))
+        self.args.owner = None
+
+    @patch('dashboard.subprocess.Popen')
+    def test_claude_fetch_job_never_invokes_omp_usage_source(self, popen):
+        popen.return_value.poll.return_value = 0
+        job = FetchJob('anthropic', None, host='claude', owner='%7')
+        try:
+            command = popen.call_args.args[0]
+            self.assertEqual(command[1:3], [str(ROOT / 'claude_usage_source.py'), '--owner'])
+            self.assertEqual(command[-1], '%7')
+            self.assertNotIn(str(ROOT / 'usage_source.py'), command)
+            self.assertNotIn('omp', command)
+        finally:
+            job.close()
+
+    @patch('dashboard.mux')
+    def test_tmux_owner_and_config_options_are_host_isolated(self, mux):
+        mux.return_value = '%2\t%1\n%3\t%9'
+        self.assertEqual(owned_panes('%1', host='claude'), ['%2'])
+        self.assertIn('@claude_usage_owner', mux.call_args.args[-1])
+        mux.return_value = ''
+        load_config('%1', dict(DEFAULTS), host='claude')
+        self.assertEqual(mux.call_args.args[-1], '@claude_usage_config')
+
+    def test_launch_tmux_failures_never_print_forwarded_prompt(self):
+        from dashboard import main
+
+        canary = 'private-launch-prompt-canary'
+        synthetic = replace(host_adapters.get_host('claude'), host_id='synthetic')
+        hosts = {**host_adapters._HOSTS, 'synthetic': synthetic}
+        for host in ('claude', 'synthetic'):
+            for failure in ('no stderr', 'stderr', 'os error', 'timeout'):
+                with self.subTest(host=host, failure=failure):
+                    def fail_new_session(*args):
+                        self.assertEqual(args[0], 'new-session')
+                        command = ['/tmux', '-L', host + '-usage', *args]
+                        if failure == 'no stderr':
+                            raise subprocess.CalledProcessError(1, command, stderr='')
+                        if failure == 'stderr':
+                            raise subprocess.CalledProcessError(1, command, stderr=canary)
+                        if failure == 'os error':
+                            raise OSError(f'tmux failed: {args[-1]}')
+                        raise subprocess.TimeoutExpired(command, 10)
+
+                    output, errors = io.StringIO(), io.StringIO()
+                    with patch.object(host_adapters, '_HOSTS', hosts), \
+                         patch('dashboard.HOST_IDS', (*host_adapters.HOST_IDS, 'synthetic')), \
+                         patch.dict(os.environ, {'TMUX': ''}), \
+                         patch.object(sys, 'argv', ['dashboard.py', 'launch', '--host', host,
+                                                    '--', canary]), \
+                         patch('dashboard.defaults', return_value={'enabled': True}), \
+                         patch('dashboard.tmux_binary', return_value='/tmux'), \
+                         patch('host_adapters.shutil.which', return_value='/claude'), \
+                         patch('dashboard.shutil.get_terminal_size',
+                               return_value=Namespace(columns=120, lines=40)), \
+                         patch('dashboard.mux', side_effect=fail_new_session), \
+                         redirect_stdout(output), redirect_stderr(errors):
+                        self.assertEqual(main(), 1)
+                    self.assertNotIn(canary, output.getvalue() + errors.getvalue())
+
+    @patch('dashboard.subprocess.run', return_value=Namespace(returncode=0))
+    @patch('dashboard.shutil.get_terminal_size', return_value=Namespace(columns=120, lines=40))
+    @patch('dashboard.tmux_binary', return_value='/tmux')
+    @patch('dashboard.mux')
+    def test_launch_keeps_receiver_alive_and_never_adds_omp_extension(
+            self, mux, _tmux, _size, attach):
+        pane_states = iter(('0', '1'))
+        status_path = None
+
+        def fake_mux(*args):
+            nonlocal status_path
+            if args[0] == 'new-session':
+                status_path = Path(shlex.split(args[-1])[4])
+                return '%4'
+            if args[0] == 'display-message':
+                state = next(pane_states)
+                if state == '1':
+                    status_path.write_text('0\n')
+                return state
+            return ''
+
+        mux.side_effect = fake_mux
+        self.args.claude_binary = '/claude'
+        self.args.on_owner_ready = MagicMock()
+        with patch.dict('dashboard.os.environ', {'TMUX': '', 'CLAUDE_RECEIVER_NONCE': 'private'}), \
+             patch('dashboard.control') as control, \
+             patch('dashboard.time.sleep') as wait:
+            self.assertEqual(launch(self.args, ['--settings', '/tmp/claude-settings.json']), 0)
+        wait.assert_called_once_with(1)
+        self.args.on_owner_ready.assert_called_once_with('%4')
+        control.assert_called_once_with(self.args, ['init'])
+        command = next(call.args[-1] for call in mux.call_args_list
+                       if call.args[0] == 'new-session')
+        self.assertIn('/claude', command)
+        self.assertIn('/tmp/claude-settings.json', command)
+        self.assertNotIn('OMP_USAGE_LAUNCHER', command)
+        self.assertNotIn('extension.js', command)
+        self.assertNotIn('private', command)
+        self.assertTrue(any('@claude_usage_config' in call.args for call in mux.call_args_list))
+        self.assertIn('-L', attach.call_args.args[0])
+        self.assertIn('claude-usage-', attach.call_args.args[0][2])
+        self.assertTrue(any(call.args[0] == 'display-message' and '#{pane_dead}' in call.args
+                            for call in mux.call_args_list))
+        self.assertTrue(any(call.args[0] == 'kill-session'
+                            for call in mux.call_args_list))
+
+    @patch('dashboard.subprocess.run', side_effect=OSError('attach failed'))
+    @patch('dashboard.shutil.get_terminal_size', return_value=Namespace(columns=120, lines=40))
+    @patch('dashboard.tmux_binary', return_value='/tmux')
+    @patch('dashboard.mux')
+    def test_failed_claude_attach_cleans_up_pane_before_receiver_closes(
+            self, mux, _tmux, _size, _attach):
+        mux.side_effect = lambda *args: '%8' if args[0] == 'new-session' else '0'
+        self.args.claude_binary = '/claude'
+        with patch.dict('dashboard.os.environ', {'TMUX': ''}), \
+             patch('dashboard.control'), \
+             self.assertRaisesRegex(OSError, 'attach failed'):
+            launch(self.args, [])
+        self.assertTrue(any(call.args[0] == 'kill-session'
+                            for call in mux.call_args_list))
+
+    def test_real_tmux_preserves_claude_exit_and_removes_sidebar_after_detach(self):
+        try:
+            tmux = tmux_binary()
+        except ValueError:
+            self.skipTest('tmux 3.3+ not installed')
+        original_run = subprocess.run
+
+        def attach_in_pty(command, **kwargs):
+            if kwargs.get('check') or 'stdout' in kwargs:
+                return original_run(command, **kwargs)
+            master, slave = pty.openpty()
+            try:
+                fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 120, 0, 0))
+                process = subprocess.Popen(
+                    command, stdin=slave, stdout=slave, stderr=slave,
+                    start_new_session=True,
+                    preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0))
+                time.sleep(.3)
+                os.write(master, b'\x02d')
+                detached = process.wait(timeout=8)
+                self.assertEqual(detached, 0)
+                return Namespace(returncode=detached)
+            finally:
+                os.close(slave)
+                os.close(master)
+        def start_sidebar(_args, _words):
+            from dashboard import mux
+            mux('split-window', '-h', '-d', '-l', '34', '-t', self.args.owner, 'sleep 30')
+
+        for exit_code in (0, 23):
+            with self.subTest(exit_code=exit_code), tempfile.TemporaryDirectory() as directory:
+                fake_claude = Path(directory) / 'fake-claude'
+                fake_claude.write_text(f'#!/bin/sh\nsleep 1\nexit {exit_code}\n')
+                fake_claude.chmod(0o700)
+                self.args.claude_binary = str(fake_claude)
+                with patch.dict(os.environ, {'TMUX': '', 'TERM': 'xterm-256color'}), \
+                     patch('dashboard.subprocess.run', side_effect=attach_in_pty), \
+                     patch('dashboard.control', side_effect=start_sidebar), \
+                     patch('dashboard.shutil.get_terminal_size',
+                           return_value=Namespace(columns=120, lines=40)):
+                    self.assertEqual(launch(self.args, []), exit_code)
+                    import dashboard
+                    socket = dashboard.SOCKET_NAME
+
+                server = original_run([tmux, '-L', socket, 'has-session'],
+                                      capture_output=True, timeout=5)
+                self.assertNotEqual(server.returncode, 0)
 
 if __name__ == '__main__':
     unittest.main()

@@ -177,6 +177,40 @@ class PreferencesTests(unittest.TestCase):
                     update_preferences(profile, {'enabled': False})
         self.assertFalse((self.home / '.omp').exists())
 
+    def test_claude_preferences_are_dashboard_owned_and_ignore_omp_profile_settings(self):
+        claude_root = self.home / 'claude-config'
+        claude_root.mkdir()
+        settings = claude_root / 'settings.json'
+        settings.write_text('{"hooks": {"SessionStart": []}}')
+        omp_root = self.home / 'custom-agent'
+        with patch.dict(os.environ, {
+            'CLAUDE_CONFIG_DIR': str(claude_root), 'OMP_PROFILE': 'work',
+            'PI_PROFILE': 'personal', 'PI_CODING_AGENT_DIR': str(omp_root),
+        }):
+            expected = claude_root / 'usage-dashboard' / 'usage-dashboard.json'
+            self.assertEqual(agent_dir('../ignored', host='claude'), expected.parent)
+            self.assertEqual(preferences_path('work', host='claude'), expected)
+            self.assertEqual(load_preferences(None, host='claude')['providers'], ['anthropic'])
+            self.assertFalse(expected.exists())
+            update_preferences('work', {'side': 'left'}, host='claude')
+            self.assertEqual(load_preferences('personal', host='claude')['side'], 'left')
+            self.assertEqual(load_preferences(None, host='claude')['providers'], ['anthropic'])
+            self.assertEqual(load_preferences('work')['side'], 'right')
+            self.assertEqual(settings.read_text(), '{"hooks": {"SessionStart": []}}')
+            self.assertEqual(stat.S_IMODE(expected.stat().st_mode), 0o600)
+
+        with patch.dict(os.environ, {'OMP_PROFILE': 'work', 'PI_CODING_AGENT_DIR': str(omp_root)}):
+            self.assertEqual(agent_dir(None, host='claude'), self.home / '.claude/usage-dashboard')
+            self.assertEqual(load_preferences(None, host='claude')['providers'], ['anthropic'])
+            self.assertFalse((self.home / '.claude/usage-dashboard/usage-dashboard.json').exists())
+
+    def test_claude_provider_override_and_invalid_host(self):
+        update_preferences(None, {'providers': []}, host='claude')
+        self.assertEqual(load_preferences(None, host='claude')['providers'], [])
+        self.assertEqual(load_preferences(None)['providers'], [])
+        with self.assertRaises(ValueError):
+            load_preferences(None, host='unknown')
+
     def test_default_and_loaded_mutable_values_are_detached(self):
         first = load_preferences(None)
         first['providers'].append('deepseek')

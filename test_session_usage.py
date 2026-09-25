@@ -1,8 +1,11 @@
 """Durable accounting boundaries, without credentials or provider requests."""
 from contextlib import contextmanager
+import json
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -17,6 +20,7 @@ class SessionAccountingTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.home = Path(temporary.name)
         environment = patch.dict(os.environ, {'PI_CODING_AGENT_DIR': str(self.home / 'agent'),
+                                              'CLAUDE_CONFIG_DIR': str(self.home / 'claude-config'),
                                               'OMP_PROFILE': 'default', 'PI_PROFILE': 'default',
                                               'TMUX': '/tmp/accounting-test,1,0', 'TMUX_PANE': '%1'})
         environment.start()
@@ -44,9 +48,9 @@ class SessionAccountingTests(unittest.TestCase):
         arrived = False
 
         @contextmanager
-        def concurrent_database(profile=None, cwd=None):
+        def concurrent_database(profile=None, cwd=None, *, host='omp'):
             nonlocal arrived
-            with database(profile, cwd) as db:
+            with database(profile, cwd, host=host) as db:
                 def receive_usage(statement):
                     nonlocal arrived
                     if not arrived and 'SELECT provider, model,' in statement and 'thinking_level' not in statement:
@@ -124,6 +128,49 @@ class SessionAccountingTests(unittest.TestCase):
         self.assertEqual(report['history'][0]['total'], 160)
         # Closing and reopening connections on every call exercises actual persistence.
         self.assertEqual((self.home / 'agent/usage-dashboard.sqlite3').stat().st_mode & 0o777, 0o600)
+
+    def test_rejects_exposed_existing_ledger_without_modifying_it(self):
+        path = self.home / 'agent' / 'usage-dashboard.sqlite3'
+        path.parent.mkdir()
+        for mode in (0o644, 0o660):
+            with self.subTest(mode=oct(mode)):
+                path.write_bytes(b'private existing ledger')
+                path.chmod(mode)
+                original = path.read_bytes()
+                with self.assertRaises(PermissionError):
+                    self.save()
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(path.stat().st_mode & 0o777, mode)
+
+    def test_rejects_ledger_symlink_without_modifying_target(self):
+        path = self.home / 'agent' / 'usage-dashboard.sqlite3'
+        path.parent.mkdir()
+        target = self.home / 'target.sqlite3'
+        target.write_bytes(b'private existing ledger')
+        path.symlink_to(target)
+
+        with self.assertRaises(PermissionError):
+            self.save()
+        self.assertEqual(target.read_bytes(), b'private existing ledger')
+        self.assertTrue(path.is_symlink())
+
+    def test_rejects_writable_parent_without_creating_ledger(self):
+        directory = self.home / 'agent'
+        directory.mkdir()
+        directory.chmod(0o777)
+        with self.assertRaises(PermissionError):
+            self.save()
+        self.assertFalse((directory / 'usage-dashboard.sqlite3').exists())
+
+    def test_rejects_symlinked_parent(self):
+        directory = self.home / 'agent'
+        target = self.home / 'storage'
+        target.mkdir()
+        directory.symlink_to(target, target_is_directory=True)
+        with self.assertRaises(PermissionError):
+            self.save()
+        self.assertFalse((target / 'usage-dashboard.sqlite3').exists())
+
     def test_existing_ledger_migrates_thinking_level_without_losing_tokens(self):
         path = self.home / 'agent' / 'usage-dashboard.sqlite3'
         path.parent.mkdir(parents=True)
@@ -140,10 +187,12 @@ class SessionAccountingTests(unittest.TestCase):
         )
         connection.commit()
         connection.close()
+        path.chmod(0o600)
 
         with database() as db:
             row = db.execute('SELECT thinking_level, total FROM tokens WHERE id=?', ('old',)).fetchone()
             self.assertEqual(dict(row), {'thinking_level': 'unknown', 'total': 10})
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
 
     def test_history_total_excludes_current_session(self):
@@ -180,6 +229,70 @@ class SessionAccountingTests(unittest.TestCase):
         self.assertEqual(sum(item['total'] for item in first_report['total_history']), 320)
         self.assertEqual(first_report['previous']['id'], 'old')
 
+
+    def test_claude_ledger_isolated_by_host_and_project_with_same_identities(self):
+        first = self.home / 'first-project'
+        second = self.home / 'second-project'
+        claude_root = self.home / 'claude-config'
+        with patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': str(claude_root), 'OMP_PROFILE': 'work'}):
+            shared = {'session': 'same', 'activation': 'same', 'owner': 'same-owner',
+                      'action': 'start', 'entries': [self.entry('same-request')]}
+            ingest(shared, profile='default', cwd=first, now=60)
+            self.assertIsNone(active_session(cwd=first, owner='same-owner', host='claude'))
+
+            ingest({**shared, 'entries': [self.entry('same-request', total=320)]},
+                   profile='../ignored', cwd=first, now=70, host='claude')
+            ingest({**shared, 'entries': [self.entry('same-request', total=480)]},
+                   cwd=second, now=80, host='claude')
+            self.assertEqual(summary(profile='default', cwd=first, owner='same-owner')['current']
+                             ['providers'][0]['total'], 160)
+            self.assertEqual(summary(profile='work', cwd=first, owner='same-owner', host='claude')
+                             ['current']['providers'][0]['total'], 320)
+            self.assertEqual(summary(cwd=second, owner='same-owner', host='claude')
+                             ['current']['providers'][0]['total'], 480)
+            self.assertEqual(summary(cwd=second, owner='same-owner', host='claude')['history'], [])
+            self.assertEqual(active_session(cwd=first, owner='same-owner', host='claude')
+                             ['session'], 'same')
+            self.assertTrue((claude_root / 'usage-dashboard/usage-dashboard.sqlite3').exists())
+
+            sample = self.sample(75, .3)
+            record_quota('work', 'same-owner', 'same', [sample], cwd=first, host='claude')
+            self.assertEqual(len(summary(cwd=first, owner='same-owner', host='claude')
+                                 ['current']['quota']), 1)
+            self.assertEqual(summary(profile='default', cwd=first, owner='same-owner')
+                             ['current']['quota'], [])
+
+    def test_late_stop_and_replayed_entry_preserve_new_active_session(self):
+        project = self.home / 'late-events-project'
+        ingest({'session': 'old', 'activation': 'shared', 'action': 'start',
+                'entries': [self.entry('old-request')]}, now=60, cwd=project, host='claude')
+        ingest({'session': 'new', 'activation': 'shared', 'action': 'start',
+                'entries': [self.entry('new-request', total=300)]},
+               now=90, cwd=project, host='claude')
+        ingest({'session': 'old', 'activation': 'shared', 'action': 'stop',
+                'entries': [self.entry('old-request', total=900)]},
+               now=100, cwd=project, host='claude')
+        self.assertEqual(active_session(cwd=project, host='claude')['session'], 'new')
+        self.assertEqual(active_session(cwd=project, host='claude')['activation'], 'shared')
+        self.assertEqual(summary(now=110, cwd=project, host='claude')['current']
+                         ['providers'][0]['total'], 300)
+        self.assertEqual(summary(now=110, cwd=project, host='claude')['history'][0]['total'], 160)
+
+    def test_cli_host_flag_writes_only_claude_ledger(self):
+        project = self.home / 'cli-project'
+        project.mkdir()
+        payload = {'session': 'cli-session', 'activation': 'cli-activation',
+                   'action': 'start', 'entries': [self.entry('cli-request')]}
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().with_name('session_usage.py')),
+             '--host', 'claude', '--profile', '../ignored'],
+            input=json.dumps(payload), text=True, capture_output=True, cwd=project,
+            env=dict(os.environ, OMP_PROFILE='work'),
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(summary(cwd=project, host='claude')['current']['id'], 'cli-session')
+        self.assertIsNone(summary(profile='default', cwd=project)['current'])
 
     def test_large_token_totals_use_compact_units(self):
         self.assertEqual(format_tokens(999), '999')
@@ -264,6 +377,35 @@ class SessionAccountingTests(unittest.TestCase):
             self.assertIsNone(summary()['current'])
             self.assertEqual(summary()['history'], [])
 
+
+    def test_explicit_hook_socket_matches_dashboard_pane_when_listener_is_outside_tmux(self):
+        project = self.home / 'listener-project'
+        payload = {'session': 'hook-session', 'activation': 'hook-activation',
+                   'owner': '%1', 'socket': '/tmp/accounting-test', 'action': 'start',
+                   'entries': [self.entry('hook-request')]}
+        with patch.dict(os.environ, {'TMUX': ''}):
+            ingest(payload, cwd=project, host='claude', now=60)
+            self.assertIsNone(summary(owner='%1', cwd=project, host='claude')['current'])
+
+        self.assertEqual(active_session(owner='%1', cwd=project, host='claude')['session'],
+                         'hook-session')
+        self.assertEqual(summary(owner='%1', cwd=project, host='claude')['current']
+                         ['providers'][0]['total'], 160)
+        with patch.dict(os.environ, {'TMUX': ''}):
+            ingest({**payload, 'action': 'stop', 'entries': []},
+                   cwd=project, host='claude', now=90)
+        self.assertIsNone(summary(owner='%1', cwd=project, host='claude')['current'])
+        self.assertEqual(summary(owner='%1', cwd=project, host='claude')['previous']
+                         ['id'], 'hook-session')
+
+    def test_explicit_owner_socket_rejects_malformed_or_oversized_values(self):
+        project = self.home / 'invalid-socket-project'
+        for socket in (4, '\x00', '/tmp/socket\n', 'x' * 4097):
+            with self.subTest(socket=socket):
+                with self.assertRaises(ValueError):
+                    ingest({'session': 'invalid', 'activation': 'invalid', 'socket': socket,
+                            'action': 'start'}, cwd=project, host='claude')
+        self.assertIsNone(active_session(cwd=project, host='claude'))
 
     def test_model_switch_preserves_routes_without_multiplying_shared_quota(self):
         self.save(entries=[

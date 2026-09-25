@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Persistent, configurable OMP account-usage sidebar, hosted in a tmux split."""
+"""Persistent, configurable account-usage sidebar, hosted in a tmux split."""
 import argparse
 import curses
 import json
@@ -18,23 +18,31 @@ import textwrap
 import time
 import uuid
 
-from usage_source import ALIASES, UsageSourceError, fetch_usage
+from host_adapters import HOST_IDS, get_host
+from usage_source import ALIASES
 from preferences import (DEFAULTS, THEME_NAMES, TOKEN_NAMES, agent_dir,
                          load_preferences, migrate_history_visibility, normalize_color,
-                         resolve_profile, update_preferences)
+                         update_preferences)
 from session_usage import active_session, record_quota, summary as session_summary
 
 ROOT = Path(__file__).resolve().parent
 TMUX = None
-OMP = shutil.which('omp') or str(Path.home() / '.local/bin/omp')
 SOCKET_NAME = 'omp-usage'
-NAMES = {value: key.upper() for key, value in ALIASES.items()}
+NAMES = {**{value: key.upper() for key, value in ALIASES.items()}, 'anthropic': 'CLAUDE'}
 CHART_GLYPHS = frozenset('▁▂▃▄▅▆▇█│└─┌┐┘')
 COMMAND_BOX_HEIGHT = 5
 # A suspended terminal can leave the dashboard loop asleep while provider jobs
 # continue to hold old results. Restart them when the loop resumes.
 RESUME_GAP_SECONDS = 5
 FAILED_REFRESH_RETRY_SECONDS = 15
+
+def host_of(args):
+    return get_host(getattr(args, 'host', 'omp')).host_id
+
+
+def pane_option(host, name):
+    return f'@{host}_usage_{name}'
+
 THEME_TOKENS = {
     'green': {'text': 'white', 'muted': 'default', 'secondary': '#008f4c',
               'accent': 'green', 'chart': 'green', 'good': 'green', 'warn': 'orange',
@@ -201,11 +209,8 @@ def _theme_config(config, action, params):
         config['theme'] = 'green'
         config['tokens'] = {}
 
-def provider_id(value):
-    value = ALIASES.get(value.lower(), value.lower())
-    if not re.fullmatch(r'[a-z0-9][a-z0-9._-]*', value):
-        raise ValueError('Use a provider ID such as codex, claude, copilot, grok, or deepseek')
-    return value
+def provider_id(value, host='omp'):
+    return get_host(host).provider_id(value)
 
 
 def tmux_binary():
@@ -233,10 +238,12 @@ def mux(*args):
 
 
 def defaults(args):
-    profile = resolve_profile(args.profile)
-    config = load_preferences(profile)
+    adapter = get_host(host_of(args))
+    profile = adapter.normalize_profile(args.profile)
+    config = load_preferences(profile, host=adapter.host_id)
     if args.providers is not None:
-        config['providers'] = list(dict.fromkeys(provider_id(p.strip()) for p in args.providers.split(',') if p.strip()))
+        config['providers'] = list(dict.fromkeys(
+            adapter.provider_id(p.strip()) for p in args.providers.split(',') if p.strip()))
     if args.side is not None:
         config['side'] = args.side
     if args.interval is not None:
@@ -244,13 +251,13 @@ def defaults(args):
     return {**config, 'profile': profile, 'refresh': 0}
 
 
-def load_config(owner, fallback):
-    raw = mux('show-options', '-p', '-v', '-q', '-t', owner, '@omp_usage_config')
+def load_config(owner, fallback, host='omp'):
+    raw = mux('show-options', '-p', '-v', '-q', '-t', owner, pane_option(host, 'config'))
     return {**fallback, **migrate_history_visibility(json.loads(raw))} if raw else fallback
 
 
-def owned_panes(owner):
-    rows = mux('list-panes', '-a', '-F', '#{pane_id}\t#{@omp_usage_owner}').splitlines()
+def owned_panes(owner, host='omp'):
+    rows = mux('list-panes', '-a', '-F', '#{pane_id}\t#{' + pane_option(host, 'owner') + '}').splitlines()
     return [row.split('\t')[0] for row in rows if row.endswith('\t' + owner)]
 
 
@@ -259,7 +266,7 @@ def disable_passthrough(target):
     mux('set-option', '-t', target, 'allow-passthrough', 'off')
 
 
-def change_config(config, words):
+def change_config(config, words, host='omp'):
     if words == ['init']:
         return config
     if len(words) < 2 or words[0] not in COMMANDS or words[1] not in COMMANDS[words[0]]:
@@ -271,7 +278,7 @@ def change_config(config, words):
     if len(params) != count:
         raise ValueError(HELP)
     if section == 'providers':
-        provider = provider_id(params[0])
+        provider = provider_id(params[0], host)
         if action in ('add', 'show'):
             if provider not in config['providers']:
                 config['providers'].append(provider)
@@ -287,7 +294,7 @@ def change_config(config, words):
             config['hidden'] = [p for p in config['hidden'] if p != provider]
             config['windows'].pop(provider, None)
     elif window_filter:
-        provider = provider_id(params[0])
+        provider = provider_id(params[0], host)
         if provider not in config['providers']:
             raise ValueError('Provider is not in the dashboard: ' + provider)
         pattern = params[1].strip().lower()
@@ -341,37 +348,38 @@ def describe(config):
 
 
 def control(args, words):
+    host = host_of(args)
     owner = args.owner or os.environ.get('TMUX_PANE')
     if owner and not re.fullmatch(r'%\d+', owner):
-        raise ValueError('Invalid OMP pane identity.')
+        raise ValueError('Invalid dashboard pane identity.')
     if words == ['detach']:
         if owner:
             disable_passthrough(owner)
-            for pane in owned_panes(owner):
+            for pane in owned_panes(owner, host=host):
                 mux('kill-pane', '-t', pane)
-            mux('set-option', '-p', '-u', '-t', owner, '@omp_usage_config')
+            mux('set-option', '-p', '-u', '-t', owner, pane_option(host, 'config'))
         return
     if not owner:
         old = defaults(args)
-        config = change_config(json.loads(json.dumps(old)), words)
+        config = change_config(json.loads(json.dumps(old)), words, host=host)
         changes = {key: config[key] for key in DEFAULTS if config[key] != old[key]}
         if words in (['window', 'on'], ['window', 'off']):
             changes['enabled'] = config['enabled']
         if changes:
-            update_preferences(config['profile'], changes)
+            update_preferences(config['profile'], changes, host=host)
         print(describe(config))
         if config['enabled'] and words != ['view', 'list']:
-            print('Saved. Run omp through the installed shell integration to attach the sidebar.')
+            print(f'Saved. Run {host} through the installed shell integration to attach the sidebar.')
         return
-    old = load_config(owner, defaults(args))
-    config = change_config(json.loads(json.dumps(old)), words)
+    old = load_config(owner, defaults(args), host=host)
+    config = change_config(json.loads(json.dumps(old)), words, host=host)
     if words == ['view', 'list']:
         print(describe(config))
         return
     disable_passthrough(owner)
     if words == ['window', 'focus'] and not config['enabled']:
         raise ValueError('Dashboard is off; use /usage-dashboard window on first.')
-    panes = owned_panes(owner)
+    panes = owned_panes(owner, host=host)
     recreate = config['enabled'] and (not panes or old['side'] != config['side'])
     if recreate:
         width = int(mux('display-message', '-p', '-t', owner, '#{pane_width}'))
@@ -382,8 +390,8 @@ def control(args, words):
     if words in (['window', 'on'], ['window', 'off']):
         changes['enabled'] = config['enabled']
     if changes:
-        update_preferences(config['profile'], changes)
-    mux('set-option', '-p', '-t', owner, '@omp_usage_config', json.dumps(config))
+        update_preferences(config['profile'], changes, host=host)
+    mux('set-option', '-p', '-t', owner, pane_option(host, 'config'), json.dumps(config))
     if not config['enabled'] or recreate:
         for pane in panes:
             mux('kill-pane', '-t', pane)
@@ -394,13 +402,13 @@ def control(args, words):
             mux('set-option', '-w', '-t', owner, option, 'fg=colour238,bg=default')
         mux('set-option', '-w', '-t', owner, 'pane-border-lines', 'single')
         mux('set-option', '-w', '-t', owner, 'pane-border-indicators', 'off')
-        command = [sys.executable, str(ROOT / 'dashboard.py'), 'watch', '--owner', owner]
+        command = [sys.executable, str(ROOT / 'dashboard.py'), 'watch', '--host', host, '--owner', owner]
         options = ['split-window', '-h', '-d', '-l', '34', '-t', owner, '-P', '-F', '#{pane_id}']
         if config['side'] == 'left':
             options.append('-b')
         pane = mux(*options, shlex.join(command))
-        mux('set-option', '-p', '-t', pane, '@omp_usage_owner', owner)
-        mux('select-pane', '-t', pane, '-T', 'OMP usage')
+        mux('set-option', '-p', '-t', pane, pane_option(host, 'owner'), owner)
+        mux('select-pane', '-t', pane, '-T', f'{host.upper()} usage')
         panes = [pane]
     if words == ['window', 'focus'] and panes:
         mux('select-pane', '-t', panes[0])
@@ -506,14 +514,17 @@ def allowance_row(label, value_text, reset, width, color):
     return text, 'normal'
 
 
-def provider_lines(data, provider, config, now, width):
+def provider_lines(data, provider, config, now, width, host='omp'):
+    adapter = get_host(host)
     lines = []
     reports = [r for r in data.get('reports', []) if r.get('provider') == provider]
     if not reports:
-        note = data.get('dashboardNote') or 'Check OMP login/support'
-        if config['compact']:
-            note = 'Check login / usage support'
-        return [('Usage unavailable', 'warn'), (clean(note), 'dim')]
+        note = data.get('dashboardNote')
+        if not note:
+            note = adapter.empty_compact_note if config['compact'] else adapter.empty_note
+        elif config['compact'] and adapter.empty_compact_note != adapter.empty_note:
+            note = adapter.empty_compact_note
+        return [(adapter.empty_title, 'warn'), (clean(note), 'dim')]
     for index, report in enumerate(reports):
         label = f'Account {index + 1}' if len(reports) > 1 else ''
         fetched = report.get('fetchedAt')
@@ -567,6 +578,14 @@ def provider_lines(data, provider, config, now, width):
         credits = report.get('resetCredits', {}).get('availableCount')
         if number(credits):
             lines.append((f'Reset credits: {credits:g}', 'secondary'))
+    if adapter.capture_status:
+        capture = data.get('capture') or {}
+        status = capture.get('status')
+        if status in ('incomplete', 'unavailable'):
+            lines.append((f'Token capture {status}', 'warn'))
+            reason = capture.get('reason') or data.get('dashboardNote')
+            if reason:
+                lines.append((clean(reason), 'dim'))
     return lines
 
 
@@ -727,7 +746,7 @@ def detailed_model_rows(entries, width, include_provider=False):
     return rows
 
 def session_lines(history, now, width, compact=True, previous_visible=True,
-                  history_other_visible=True, history_total_visible=True):
+                  history_other_visible=True, history_total_visible=True, host='omp'):
     rows = []
     current = history['current']
     if current:
@@ -735,7 +754,7 @@ def session_lines(history, now, width, compact=True, previous_visible=True,
         rows.extend(token_chart(history['chart'], width))
         rows.append(('', 'dim'))
     elif not history['previous']:
-        rows.append(('Waiting for OMP session', 'dim'))
+        rows.append((f'Waiting for {host.upper()} session', 'dim'))
         rows.append(('', 'dim'))
     for name, title in (('current', 'CURRENT SESSION'), ('previous', 'PREVIOUS SESSION')):
         session = history[name]
@@ -803,12 +822,10 @@ def session_lines(history, now, width, compact=True, previous_visible=True,
 
 
 class FetchJob:
-    def __init__(self, provider, profile):
+    def __init__(self, provider, profile, host='omp', owner=None):
         self.output = tempfile.TemporaryFile(mode='w+t')
         self.error = tempfile.TemporaryFile(mode='w+t')
-        command = [sys.executable, str(ROOT / 'usage_source.py'), '--provider', provider]
-        if profile is not None:
-            command += ['--profile', profile]
+        command = get_host(host).fetch_command(provider, profile, owner)
         try:
             self.process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=self.output,
                                             stderr=self.error, start_new_session=True)
@@ -847,7 +864,7 @@ class FetchJob:
             self.signal_group(signal.SIGTERM)
             try:
                 # Refresh workers have no shutdown work worth keeping the
-                # curses pane alive for; escalate quickly if OMP is stuck.
+                # curses pane alive for; escalate quickly if a source is stuck.
                 self.process.wait(timeout=0.25)
             except subprocess.TimeoutExpired:
                 self.signal_group(signal.SIGKILL)
@@ -868,6 +885,8 @@ def watch(screen, args):
     screen.timeout(200)
     curses.mousemask(curses.ALL_MOUSE_EVENTS)
     curses.mouseinterval(0)
+    host = host_of(args)
+    adapter = get_host(host)
     config = defaults(args)
     # Design tokens keep the accent theme separate from allowance semantics:
     # healthy, warning, and critical values remain green, orange, and red.
@@ -891,7 +910,7 @@ def watch(screen, args):
                 try:
                     if mux('display-message', '-p', '-t', args.owner, '#{pane_dead}') != '0':
                         return
-                    updated = load_config(args.owner, config)
+                    updated = load_config(args.owner, config, host=host)
                 except subprocess.CalledProcessError:
                     return
                 if updated['refresh'] != config['refresh']:
@@ -908,7 +927,8 @@ def watch(screen, args):
                     screen.clear()
                 config = updated
                 next_config = tick + 1
-            visible = [p for p in config['providers'] if p not in config['hidden']]
+            visible = [p for p in config['providers'] if p not in config['hidden']
+                       and (adapter.allowed_providers is None or p in adapter.allowed_providers)]
             for provider in list(jobs):
                 job = jobs[provider]
                 result = job.finish() if provider in visible else (None, None)
@@ -916,15 +936,18 @@ def watch(screen, args):
                     data, error = result
                     state = states[provider]
                     if data is not None:
-                        if not data['reports'] and state['data'] and state['data']['reports']:
+                        if (adapter.keep_prior_on_empty and not data['reports']
+                                and state['data'] and state['data']['reports']):
                             error = 'Provider returned no usage'
                         else:
                             state['data'] = data
-                            try:
-                                record_quota(job.history_profile, args.owner, job.activation, quota_samples(data))
-                                history_error = None
-                            except (OSError, ValueError, sqlite3.Error):
-                                history_error = 'Could not save quota history'
+                            if adapter.quota_history:
+                                try:
+                                    record_quota(job.history_profile, args.owner, job.activation,
+                                                 quota_samples(data), host=host)
+                                    history_error = None
+                                except (OSError, ValueError, sqlite3.Error):
+                                    history_error = 'Could not save quota history'
                     state['error'] = error
                     state['checked'] = tick
                     state['next'] = (tick + min(config['interval'], FAILED_REFRESH_RETRY_SECONDS)
@@ -934,22 +957,26 @@ def watch(screen, args):
             for provider in visible:
                 state = states.setdefault(provider, {'data': None, 'error': None, 'next': 0, 'checked': None})
                 if len(jobs) < 2 and provider not in jobs and tick >= state['next']:
-                    try:
-                        active = active_session(config['profile'], args.owner)
-                    except (OSError, sqlite3.Error):
-                        active = None
-                        history_error = 'Session history unavailable'
-                    jobs[provider] = FetchJob(provider, config['profile'])
-                    jobs[provider].history_profile = config['profile']
-                    jobs[provider].activation = active['activation'] if active else None
+                    activation = None
+                    if adapter.quota_history:
+                        try:
+                            active = active_session(config['profile'], args.owner, host=host)
+                        except (OSError, sqlite3.Error):
+                            active = None
+                            history_error = 'Session history unavailable'
+                        activation = active['activation'] if active else None
+                    job = FetchJob(provider, config['profile'], host=host, owner=args.owner)
+                    job.history_profile = config['profile']
+                    job.activation = activation
+                    jobs[provider] = job
             if tick >= next_frame:
                 height, width = screen.getmaxyx()
                 screen.erase()
                 try:
-                    rows = session_lines(session_summary(config['profile'], args.owner, now),
-                                         now, width - 2, config['compact'],
+                    history = session_summary(config['profile'], args.owner, now, host=host)
+                    rows = session_lines(history, now, width - 2, config['compact'],
                                          config['previous_visible'], config['history_other_visible'],
-                                         config['history_total_visible'])
+                                         config['history_total_visible'], host=host)
                 except (OSError, sqlite3.Error):
                     rows = [('Session history unavailable', 'warn')]
                 if history_error:
@@ -967,7 +994,8 @@ def watch(screen, args):
                         rows.append(('STALE DATA' if state['data'] else 'USAGE UNAVAILABLE', 'error'))
                         rows.append((state['error'], 'warn'))
                     if state['data']:
-                        rows.extend(provider_lines(state['data'], provider, config, now, width - 2))
+                        rows.extend(provider_lines(state['data'], provider, config, now,
+                                                   width - 2, host=host))
                     elif not state['error']:
                         rows.append(('Fetching account usage...', 'dim'))
                     if rows and rows[-1][0]:
@@ -1026,10 +1054,10 @@ def watch(screen, args):
                 elif buttons & getattr(curses, 'BUTTON5_PRESSED', 0):
                     offset += 3
             if key == ord('q'):
-                update_preferences(config['profile'], {'enabled': False})
+                update_preferences(config['profile'], {'enabled': False}, host=host)
                 if args.owner:
                     config['enabled'] = False
-                    mux('set-option', '-p', '-t', args.owner, '@omp_usage_config', json.dumps(config))
+                    mux('set-option', '-p', '-t', args.owner, pane_option(host, 'config'), json.dumps(config))
                 return
             if key == ord('r'):
                 for state in states.values():
@@ -1055,43 +1083,93 @@ def extension_path(profile):
 
 
 def launch(args, omp_args):
+    host = host_of(args)
+    adapter = get_host(host)
     if os.environ.get('TMUX'):
-        raise ValueError('Run omp directly in this tmux pane; its extension attaches the dashboard.')
+        if adapter.launch_policy == 'exit-status':
+            raise ValueError(f'Run {host} directly in this tmux pane; use control to attach the dashboard.')
+        raise ValueError(f'Run {host} directly in this tmux pane; its extension attaches the dashboard.')
     size = shutil.get_terminal_size()
     session = 'usage-' + uuid.uuid4().hex[:8]
     global SOCKET_NAME
-    SOCKET_NAME = 'omp-' + session
-    native = getattr(args, 'native', False)
+    SOCKET_NAME = host + '-' + session
+    native = getattr(args, 'native', False) if adapter.launch_policy == 'omp-extension' else False
     config = None if native else defaults(args)
-    extensions = [] if native else ['-e', str(extension_path(args.profile))]
-    command = ['env', f'OMP_USAGE_LAUNCHER={0 if native else 1}', OMP, *extensions, *omp_args]
-    if args.profile is not None:
-        command += ['--profile', args.profile]
-    # A fresh server inherits credentials without embedding them in pane command strings.
-    owner = mux('new-session', '-d', '-s', session, '-x', str(size.columns), '-y', str(size.lines),
-                '-c', os.getcwd(), '-P', '-F', '#{pane_id}', shlex.join(command))
+    status_dir = None
+    status_path = None
+    if adapter.launch_policy == 'exit-status':
+        tmux_binary()
+        status_dir = tempfile.TemporaryDirectory(prefix=f'{host}-usage-')
+        status_path = Path(status_dir.name) / 'exit-status'
+    try:
+        command = adapter.launch_command(
+            omp_args, profile=args.profile, native=native,
+            extension=extension_path(args.profile) if adapter.launch_policy == 'omp-extension' and not native else None,
+            binary=getattr(args, f'{host}_binary', None),
+            status_path=status_path)
+        # A fresh server inherits credentials without embedding them in pane command strings.
+        owner = mux('new-session', '-d', '-s', session, '-x', str(size.columns), '-y', str(size.lines),
+                    '-c', os.getcwd(), '-P', '-F', '#{pane_id}', shlex.join(command))
+    except BaseException:
+        if status_dir is not None:
+            status_dir.cleanup()
+        raise
     try:
         mux('set-option', '-t', session, 'status', 'off')
         disable_passthrough(session)
         args.owner = owner
-        # Native discovery owns scope selection and initialization, including project overrides.
+        if adapter.launch_policy == 'exit-status' and callable(getattr(args, 'on_owner_ready', None)):
+            args.on_owner_ready(owner)
+        # Native OMP discovery owns scope selection and initialization.
         if not native:
             # Keep tmux available when off or narrow so window on can work later.
             if config['enabled'] and size.columns < 96:
                 config['enabled'] = False
-            mux('set-option', '-p', '-t', owner, '@omp_usage_config', json.dumps(config))
+            mux('set-option', '-p', '-t', owner, pane_option(host, 'config'), json.dumps(config))
             control(args, ['init'])
         mux('select-pane', '-t', owner)
     except BaseException:
-        mux('kill-session', '-t', session)
+        try:
+            mux('kill-session', '-t', session)
+        finally:
+            if status_dir is not None:
+                status_dir.cleanup()
         raise
     binary = tmux_binary()
-    os.execv(binary, [binary, '-L', SOCKET_NAME, 'attach-session', '-t', session])
+    attach = [binary, '-L', SOCKET_NAME, 'attach-session', '-t', session]
+    if adapter.launch_policy == 'exit-status':
+        # The launcher owns the status receiver until the child exits, even
+        # after detachment; attaching only reports the tmux client's exit code.
+        try:
+            attached = subprocess.run(attach, check=False).returncode
+            while True:
+                try:
+                    if mux('display-message', '-p', '-t', owner, '#{pane_dead}') != '0':
+                        break
+                except subprocess.CalledProcessError:
+                    break
+                time.sleep(1)
+            try:
+                status = int(status_path.read_text().strip())
+            except (OSError, ValueError):
+                # Never call an unrecorded child exit successful just because tmux detached.
+                return attached or 1
+            return status if 0 <= status <= 255 else attached or 1
+        finally:
+            # The side pane must not keep a detached tmux server alive.
+            try:
+                mux('kill-session', '-t', session)
+            except subprocess.CalledProcessError:
+                pass
+            finally:
+                status_dir.cleanup()
+    os.execv(binary, attach)
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Internal dashboard runtime; start OMP through the installed shell integration.')
+    parser = argparse.ArgumentParser(description='Internal OMP/Claude dashboard runtime.')
     parser.add_argument('action', nargs='?', default='launch', choices=['launch', 'watch', 'control'])
+    parser.add_argument('--host', choices=HOST_IDS, default='omp', help=argparse.SUPPRESS)
     parser.add_argument('--providers', help='Comma-separated provider IDs or aliases')
     parser.add_argument('--side', choices=['left', 'right'])
     parser.add_argument('--interval', type=int, help='Polling interval, minimum 15 seconds')
@@ -1107,23 +1185,37 @@ def main():
     try:
         config = defaults(args)
         if args.action == 'launch':
-            if any(arg == '--profile' or arg.startswith('--profile=') for arg in extra):
+            if get_host(args.host).launch_policy == 'omp-extension' and any(
+                    arg == '--profile' or arg.startswith('--profile=') for arg in extra):
                 parser.error('Put --profile before -- so usage polling uses the same profile')
-            launch(args, extra)
+            result = launch(args, extra)
+            if result is not None:
+                return result
         elif args.action == 'control':
             control(args, extra)
         elif extra:
             parser.error('Unexpected arguments after --')
         elif args.once:
             print('\n'.join(text for text, _ in session_lines(
-                session_summary(config['profile'], args.owner), time.time(), 32, config['compact'],
-                config['previous_visible'], config['history_other_visible'],
-                config['history_total_visible'])))
+                session_summary(config['profile'], args.owner, host=args.host), time.time(), 32,
+                config['compact'], config['previous_visible'], config['history_other_visible'],
+                config['history_total_visible'], host=args.host)))
             if not config['providers']:
                 print(describe(config))
+            adapter = get_host(args.host)
             for provider in config['providers']:
+                if adapter.allowed_providers is not None and provider not in adapter.allowed_providers:
+                    continue
+                command = adapter.fetch_command(provider, config['profile'], args.owner)
+                response = subprocess.run(command, capture_output=True, text=True, timeout=65)
+                if response.returncode:
+                    raise ValueError('Refresh failed; check login/network')
+                data = json.loads(response.stdout)
+                if not isinstance(data, dict) or not isinstance(data.get('reports'), list):
+                    raise ValueError('Unexpected usage response')
                 print(NAMES.get(provider, provider.upper()))
-                print('\n'.join(text for text, _ in provider_lines(fetch_usage(provider, args.profile), provider, config, time.time(), 32)))
+                print('\n'.join(text for text, _ in provider_lines(
+                    data, provider, config, time.time(), 32, host=args.host)))
                 print()
         else:
             # Exported COLUMNS/LINES can be the parent terminal's size, not this split's size.
@@ -1132,9 +1224,14 @@ def main():
             signal.signal(signal.SIGHUP, stop_watch)
             signal.signal(signal.SIGTERM, stop_watch)
             curses.wrapper(watch, args)
-    except (ValueError, OSError, sqlite3.Error, subprocess.SubprocessError, curses.error, UsageSourceError) as exc:
-        detail = exc.stderr.strip() if isinstance(exc, subprocess.CalledProcessError) and isinstance(exc.stderr, str) else str(exc)
-        print('omp-dashboard: ' + clean(detail), file=sys.stderr)
+    except (ValueError, OSError, sqlite3.Error, subprocess.SubprocessError, curses.error) as exc:
+        if args.action == 'launch' and get_host(args.host).launch_policy == 'exit-status' and isinstance(
+                exc, (OSError, subprocess.SubprocessError)):
+            # tmux failures can include the pane command (and forwarded prompts) in cmd or stderr.
+            detail = 'Dashboard launch failed; check tmux and terminal setup.'
+        else:
+            detail = exc.stderr.strip() if isinstance(exc, subprocess.CalledProcessError) and isinstance(exc.stderr, str) else str(exc)
+        print(f'{args.host}-dashboard: ' + clean(detail), file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         return 130
