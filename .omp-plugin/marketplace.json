@@ -10,11 +10,11 @@
     {
       "name": "oh-my-pi-usage-dashboard",
       "description": "Persistent provider account-usage sidebar with ordinary omp shell integration",
-      "version": "1.0.50",
+      "version": "1.0.51",
       "source": {
         "source": "github",
         "repo": "MSpiechowicz/harness-usage-dashboard",
-        "ref": "v1.0.50"
+        "ref": "v1.0.51"
       },
       "homepage": "https://github.com/MSpiechowicz/harness-usage-dashboard"
     }
