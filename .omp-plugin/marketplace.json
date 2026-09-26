@@ -10,11 +10,11 @@
     {
       "name": "harness-usage-dashboard",
       "description": "Persistent usage sidebar with OMP and Claude Code shell hooks and a Claude personal skill",
-      "version": "1.0.55",
+      "version": "1.0.56",
       "source": {
         "source": "github",
         "repo": "MSpiechowicz/harness-usage-dashboard",
-        "ref": "v1.0.55"
+        "ref": "v1.0.56"
       },
       "homepage": "https://github.com/MSpiechowicz/harness-usage-dashboard"
     }
