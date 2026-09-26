@@ -11,6 +11,8 @@ from host_adapters import get_host
 
 
 THEME_NAMES = ('green', 'blue', 'brown', 'yellow', 'cyan', 'magenta', 'orange', 'red', 'claude')
+CHART_TYPES = ('bars', 'dots', 'trace')
+_RETIRED_CHART_TYPES = frozenset(('line', 'area', 'heatmap', 'lollipop'))
 TOKEN_NAMES = ('text', 'muted', 'secondary', 'accent', 'chart', 'good', 'warn', 'error')
 COLOR_NAMES = frozenset(('default', 'black', 'red', 'green', 'yellow', 'blue',
                          'magenta', 'cyan', 'white', 'gray', 'brown', 'orange'))
@@ -30,6 +32,7 @@ DEFAULTS = {
     'interval': 60,
     'enabled': True,
     'theme': 'green',
+    'chart_type': 'bars',
     'tokens': {},
 }
 _TRANSIENT = {'profile', 'refresh'}
@@ -80,6 +83,21 @@ def migrate_history_visibility(data):
 
 
 
+def migrate_chart_type(data):
+    """Read retired chart modes as bars without accepting them on new writes."""
+    if not isinstance(data, dict):
+        raise ValueError('Dashboard preferences must be a JSON object.')
+    if 'chart_type' not in data:
+        return data
+    chart_type = data['chart_type']
+    if type(chart_type) is not str or (chart_type not in CHART_TYPES
+                                       and chart_type not in _RETIRED_CHART_TYPES):
+        raise ValueError('Dashboard chart_type must be one of: ' + ', '.join(CHART_TYPES) + '.')
+    if chart_type in _RETIRED_CHART_TYPES:
+        return {**data, 'chart_type': 'bars'}
+    return data
+
+
 def _defaults(host):
     result = deepcopy(DEFAULTS)
     result['providers'] = list(get_host(host).default_providers)
@@ -107,6 +125,8 @@ def _validated(data, host='omp'):
         raise ValueError('Dashboard side must be left or right.')
     if result['theme'] not in THEME_NAMES:
         raise ValueError('Dashboard theme must be one of: ' + ', '.join(THEME_NAMES) + '.')
+    if type(result['chart_type']) is not str or result['chart_type'] not in CHART_TYPES:
+        raise ValueError('Dashboard chart_type must be one of: ' + ', '.join(CHART_TYPES) + '.')
     tokens = result['tokens']
     if not isinstance(tokens, dict):
         raise ValueError('Dashboard tokens must map token names to colors.')
@@ -148,7 +168,7 @@ def _load(path, host='omp'):
         data = json.loads(content)
     except ValueError as error:
         raise ValueError(f'Invalid dashboard preferences JSON in {path}.') from error
-    return _validated(data, host)
+    return _validated(migrate_chart_type(data), host)
 
 
 def load_preferences(profile: str | None = None, *, host: str = 'omp') -> dict:
@@ -164,8 +184,10 @@ def update_preferences(profile: str | None, changes: dict, *, host: str = 'omp')
     path = preferences_path(profile, host=host)
     with _locked(path):
         current = _load(path, host)
-        current.update(changes)
-        current = _validated(current, host)
+        patched = _validated({**current, **changes}, host)
+        if patched == current:
+            return current
+        current = patched
         descriptor, temporary = tempfile.mkstemp(prefix='.usage-dashboard-', suffix='.json', dir=path.parent)
         try:
             with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:

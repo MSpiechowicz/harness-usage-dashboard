@@ -135,7 +135,7 @@ def skill_content(root):
     dashboard = shlex.quote(str(root / 'dashboard.py'))
     updater = shlex.quote(str(root / 'updater.py'))
     return f'''---
-description: Control the Claude usage sidebar, including section visibility, and check or explicitly install dashboard updates.
+description: Control the Claude usage sidebar, including chart type and section visibility, and check or explicitly install dashboard updates.
 disable-model-invocation: true
 ---
 
@@ -146,10 +146,14 @@ Claude's Anthropic provider; reject requests for other providers rather than cha
 
 With no arguments, explain the available forms and show the current dashboard configuration
 with `python3 {dashboard} control --host claude -- view list`. Forms include
-`view list|compact|details`, `position left|right`, `providers hide|show anthropic`,
-`theme ...`, `window on|off|focus|refresh`, `window interval SECONDS`,
-`window hide|show anthropic FILTER`, and
+`view list|compact|details`, `position left|right`, `chart bars|dots|trace`,
+`providers hide|show anthropic`, `theme ...`, `window on|off|focus|refresh`,
+`window interval SECONDS`, `window hide|show anthropic FILTER`, and
 `commands|previous|history-other|history-total hide|show`.
+
+For `/usage-dashboard chart TYPE`, accept only `bars`, `dots`, or `trace` as TYPE;
+pass `chart` and that TYPE as separate argument tokens to the Claude-host control
+command below.
 
 Interpret the user's words as command *data*, not as a shell program. For supported dashboard
 settings or display operations, invoke `python3 {dashboard} control --host claude --` followed

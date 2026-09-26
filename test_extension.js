@@ -637,6 +637,97 @@ test("Claude theme menu and direct command persist selection with custom reset",
   }
 });
 
+test("chart menu and direct commands persist bars, dots, and trace and reject unsupported styles", async () => {
+  const home = await mkdtemp(join(tmpdir(), "dashboard-chart-"));
+  const keys = ["TMUX", "TMUX_PANE", "OMP_PROFILE", "PI_PROFILE"];
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  for (const key of keys) delete process.env[key];
+  const environment = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: join(home, "agent"),
+    OMP_PROFILE: "default", PI_PROFILE: "default" };
+  const modes = ["bars", "dots", "trace"];
+  const selections = [];
+  const notices = [];
+  let command;
+
+  try {
+    usageDashboard({
+      setLabel() {}, on() {},
+      registerCommand(_name, definition) { command = definition; },
+      async exec(binary, args, options) {
+        const result = await execute(binary, args, { ...options, env: environment });
+        return { code: 0, ...result };
+      },
+    });
+    const ctx = {
+      hasUI: true, cwd: process.cwd(),
+      ui: {
+        theme,
+        async select(_title, options, dialogOptions) {
+          if (_title === "Usage Dashboard / Chart") {
+            assert.deepEqual(options.map(option => option.toLowerCase().split(/\s/)[0]), modes);
+          }
+          const choice = selections.shift();
+          if (choice === "BACK") {
+            assert.equal(typeof dialogOptions.onLeft, "function");
+            dialogOptions.onLeft();
+            return;
+          }
+          if (choice === undefined) return;
+          const label = options.find(option => option.toLowerCase().split(/\s/)[0] === choice.toLowerCase());
+          assert.ok(label, `Missing chart choice ${choice}`);
+          return label;
+        },
+        notify(message, level) {
+          assert.notEqual(level, "error", message);
+          notices.push(message);
+        },
+      },
+    };
+    const settings = async () => JSON.parse(await readFile(join(home, "agent/usage-dashboard.json"), "utf8"));
+    const assertStatus = mode => assert.match(notices.at(-1), new RegExp(`\\bchart ${mode}\\b`));
+
+    await command.handler("view list", ctx);
+    assertStatus("bars");
+    for (const [index, mode] of modes.entries()) {
+      const directMode = modes[(index + 1) % modes.length];
+      await command.handler(`chart ${directMode}`, ctx);
+      assert.equal((await settings()).chart_type, directMode);
+      assertStatus(directMode);
+
+      selections.push("Chart", mode);
+      await command.handler("", ctx);
+      assert.equal((await settings()).chart_type, mode);
+      assertStatus(mode);
+    }
+
+    const beforeInvalid = await settings();
+    for (const mode of ["line", "area", "heatmap", "lollipop", "unknown"]) {
+      await command.handler(`chart ${mode}`, ctx);
+      assert.deepEqual(await settings(), beforeInvalid, `chart ${mode} must not change settings`);
+    }
+    await command.handler("chart trace extra", ctx);
+    assert.deepEqual(await settings(), beforeInvalid, "extra chart argument must not change settings");
+
+    selections.push("Chart", undefined);
+    await command.handler("", ctx);
+    assert.deepEqual(await settings(), beforeInvalid);
+
+    selections.push("Chart", "BACK", undefined);
+    await command.handler("", ctx);
+    assert.deepEqual(await settings(), beforeInvalid);
+
+    selections.push(undefined);
+    await command.handler("", ctx);
+    assert.deepEqual(await settings(), beforeInvalid);
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("detaches the dashboard before waiting for shutdown recording", async () => {
   const home = await mkdtemp(join(tmpdir(), "dashboard-shutdown-"));
   const keys = ["HOME", "PI_CODING_AGENT_DIR", "OMP_PROFILE", "PI_PROFILE", "TMUX", "TMUX_PANE"];

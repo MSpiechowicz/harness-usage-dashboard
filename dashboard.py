@@ -20,16 +20,18 @@ import uuid
 
 from host_adapters import HOST_IDS, get_host
 from usage_source import ALIASES
-from preferences import (DEFAULTS, THEME_NAMES, TOKEN_NAMES, agent_dir,
-                         load_preferences, migrate_history_visibility, normalize_color,
-                         update_preferences)
+from preferences import (CHART_TYPES, DEFAULTS, THEME_NAMES, TOKEN_NAMES, agent_dir,
+                         load_preferences, migrate_chart_type, migrate_history_visibility,
+                         normalize_color, update_preferences)
 from session_usage import active_session, record_quota, summary as session_summary
 
 ROOT = Path(__file__).resolve().parent
 TMUX = None
 SOCKET_NAME = 'omp-usage'
 NAMES = {**{value: key.upper() for key, value in ALIASES.items()}, 'anthropic': 'CLAUDE'}
-CHART_GLYPHS = frozenset('▁▂▃▄▅▆▇█│└─┌┐┘')
+BAR_GLYPHS = '▁▂▃▄▅▆▇█│└─┌┐┘'
+CHART_GLYPHS = frozenset(BAR_GLYPHS + '●')
+TRACE_GLYPHS = '│└─┘' + ''.join(chr(code) for code in range(0x2800, 0x2900))
 COMMAND_BOX_HEIGHT = 5
 # A suspended terminal can leave the dashboard loop asleep while provider jobs
 # continue to hold old results. Restart them when the loop resumes.
@@ -86,6 +88,7 @@ _BASIC_RGB = {
 COMMANDS = {
     'view': ('list', 'compact', 'details'),
     'commands': ('hide', 'show'),
+    'chart': CHART_TYPES,
     'previous': ('hide', 'show'),
     'history-other': ('hide', 'show'),
     'history-total': ('hide', 'show'),
@@ -95,9 +98,10 @@ COMMANDS = {
     'window': ('on', 'off', 'focus', 'refresh', 'interval', 'hide', 'show'),
 }
 THEME_OPTIONS = '|'.join(THEME_NAMES)
-HELP = (f'/usage-dashboard: view list|compact|details; position left|right; '
-        f'providers add|remove|hide|show PROVIDER; theme {THEME_OPTIONS} '
-        '(claude: Anthropic brand-inspired); '
+CHART_OPTIONS = '|'.join(CHART_TYPES)
+HELP = (f'/usage-dashboard: view list|compact|details; chart {CHART_OPTIONS}; '
+        f'position left|right; providers add|remove|hide|show PROVIDER; '
+        f'theme {THEME_OPTIONS} (claude: Anthropic brand-inspired); '
         'theme custom TOKEN COLOR; theme reset; window on|off|focus|refresh; '
         'window interval SECONDS; window hide|show PROVIDER FILTER; commands hide|show; '
         'previous hide|show; history-other hide|show; history-total hide|show')
@@ -258,7 +262,8 @@ def defaults(args):
 
 def load_config(owner, fallback, host='omp'):
     raw = mux('show-options', '-p', '-v', '-q', '-t', owner, pane_option(host, 'config'))
-    return {**fallback, **migrate_history_visibility(json.loads(raw))} if raw else fallback
+    return ({**fallback, **migrate_chart_type(migrate_history_visibility(json.loads(raw)))}
+            if raw else fallback)
 
 
 def owned_panes(owner, host='omp'):
@@ -314,6 +319,8 @@ def change_config(config, words, host='omp'):
         config[f'{section.replace("-", "_")}_visible'] = action == 'show'
     elif section == 'theme':
         _theme_config(config, action, params)
+    elif section == 'chart':
+        config['chart_type'] = action
     elif action in ('left', 'right'):
         config['side'] = action
     elif action in ('compact', 'details'):
@@ -339,7 +346,8 @@ def describe(config):
                   if custom else '')
     lines = [f"Dashboard {'on' if config['enabled'] else 'off'} / {config['side']} / "
              f"{'compact' if config['compact'] else 'details'} / {config['interval']}s / "
-             f"theme {theme}{token_note} / commands {'shown' if config['commands_visible'] else 'hidden'} / "
+             f"theme {theme}{token_note} / chart {config['chart_type']} / "
+             f"commands {'shown' if config['commands_visible'] else 'hidden'} / "
              f"previous {'shown' if config['previous_visible'] else 'hidden'} / "
              f"history other sessions {'shown' if config['history_other_visible'] else 'hidden'} / "
              f"history total {'shown' if config['history_total_visible'] else 'hidden'}"]
@@ -421,8 +429,9 @@ def control(args, words):
 
 
 def clean(value):
-    # Keep only single-cell chart glyphs in addition to printable ASCII.
-    return ''.join(char if ' ' <= char <= '~' or char in CHART_GLYPHS else '?'
+    # Braille is a single-cell chart glyph; other non-ASCII stays restricted.
+    return ''.join(char if ' ' <= char <= '~' or char in CHART_GLYPHS
+                   or 0x2800 <= ord(char) <= 0x28ff else '?'
                    for char in str(value) if ord(char) >= 32 and ord(char) != 127)
 
 
@@ -679,12 +688,97 @@ def command_box_rows(count, interval, position, width):
     ]
 
 
-def token_chart(values, width):
+def trace_plot(values, peak, columns, unicode):
+    """Rasterize adjacent minute samples into a bounded 2x4-dot character grid."""
+    grid = [[0] * columns for _ in range(6)]
+    if peak:
+        max_x = columns * 2 - 1
+        points = [(round(index * max_x / max(1, len(values) - 1)),
+                   23 - round(value * 23 / peak))
+                  for index, value in enumerate(values)]
+        bits = ((1, 2, 4, 64), (8, 16, 32, 128))
+
+        def mark(x, y):
+            grid[y // 4][x // 2] |= bits[x % 2][y % 4]
+
+        if points:
+            mark(*points[0])
+        for (x0, y0), (x1, y1) in zip(points, points[1:]):
+            steps = max(abs(x1 - x0), abs(y1 - y0))
+            for step in range(1, steps + 1):
+                mark(round(x0 + (x1 - x0) * step / steps),
+                     round(y0 + (y1 - y0) * step / steps))
+
+    if unicode:
+        return [''.join(chr(0x2800 + mask) for mask in row) for row in grid]
+
+    def ascii_cell(mask):
+        if not mask:
+            return ' '
+        left = [y for y, bit in enumerate((1, 2, 4, 64)) if mask & bit]
+        right = [y for y, bit in enumerate((8, 16, 32, 128)) if mask & bit]
+        if left and right:
+            delta = sum(right) / len(right) - sum(left) / len(left)
+            return '/' if delta < -0.25 else '\\' if delta > 0.25 else '-'
+        dots = left or right
+        return '|' if len(dots) > 1 else '.'
+
+    return [''.join(ascii_cell(mask) for mask in row) for row in grid]
+
+
+def trace_chart(values, width):
+    peak = max(values, default=0)
+    scale = format_tokens(peak) if peak else '0'
+    if isinstance(peak, int) and 0 < peak < 2_000 and peak % 2:
+        middle = f'{peak // 2}.5'
+    else:
+        middle = format_tokens(peak / 2) if peak else '0'
+    axis = max(4, len(scale), len(middle))
+    columns = max(1, width - axis - 2)
+    try:
+        TRACE_GLYPHS.encode(sys.stdout.encoding or 'ascii')
+        unicode = True
+        vertical, left, horizontal, right = '│', '└', '─', '┘'
+    except UnicodeEncodeError:
+        unicode = False
+        vertical, left, horizontal, right = '|', '+', '-', '+'
+
+    plot = trace_plot(values, peak, columns, unicode)
+    rows = [(('', 'dim') if peak else
+             (f'No activity in the last {len(values)}m', 'dim'))]
+    for row, graphic in enumerate(plot):
+        label = scale if row == 0 else middle if row == 3 else '0' if row == 5 else ''
+        text = label.rjust(axis) + vertical + graphic + vertical
+        end = len(text) - 1 if peak else axis + 1
+        rows.append((text, ('secondary', axis + 1, end, 'chart')))
+
+    bracket = (' ' * (axis + 1) + left + horizontal * max(0, columns - 2)
+               + right + ' ')
+    rows.append((bracket, 'secondary'))
+    labels = f'-{len(values)}m'.ljust(max(0, columns - 3)) + 'now'
+    rows.append((' ' * (axis + 1) + labels + ' ', 'secondary'))
+    latest = format_tokens(values[-1]) if values else '0'
+    summary = f'Peak {scale} / now {latest} tok/min'
+    if len(summary) + 1 > width:
+        summary = f'Peak {scale} / now {latest}'
+    if len(summary) + 1 > width:
+        summary = f'P {scale} / N {latest}'
+    rows.append((' ' + summary.ljust(max(0, width - 1)), 'secondary'))
+    return rows
+
+
+def token_chart(values, width, chart_type='bars'):
+    if chart_type == 'trace':
+        return trace_chart(values, width)
+
     peak = max(values, default=0)
     try:
-        ''.join(CHART_GLYPHS).encode(sys.stdout.encoding or 'ascii')
+        (BAR_GLYPHS if chart_type == 'bars' else '●│└─').encode(
+            sys.stdout.encoding or 'ascii')
+        unicode = True
         blocks, vertical, corner, horizontal = ' ▁▂▃▄▅▆▇█', '│', '└', '─'
     except UnicodeEncodeError:
+        unicode = False
         blocks, vertical, corner, horizontal = ' .:-=+*O@', '|', '+', '-'
     scale = format_tokens(peak) if peak else '0'
     axis = max(4, len(scale))
@@ -692,8 +786,15 @@ def token_chart(values, width):
     # Stretch across the available width; max-pool only when narrower than the history.
     bins = [max(values[i * len(values) // columns:max(i * len(values) // columns + 1,
                 (i + 1) * len(values) // columns)], default=0) for i in range(columns)]
-    heights = ([math.ceil(value * 32 / peak) if value else 0 for value in bins]
-               if peak else [0] * columns)
+    if peak and chart_type == 'dots':
+        grid = [[' '] * columns for _ in range(4)]
+        for x, value in enumerate(bins):
+            if value:
+                grid[4 - math.ceil(value * 4 / peak)][x] = '●' if unicode else 'o'
+        plot = [''.join(row) for row in grid]
+    else:
+        heights = ([math.ceil(value * 32 / peak) if value else 0 for value in bins]
+                   if peak else [0] * columns)
     rows = []
     if peak:
         rows.append(('', 'dim'))
@@ -702,7 +803,10 @@ def token_chart(values, width):
                      ('', 'dim')))
     for row in range(4):
         label = scale if row == 0 else ''
-        bars = ''.join(blocks[min(8, max(0, height - (3 - row) * 8))] for height in heights)
+        if peak and chart_type == 'dots':
+            bars = plot[row]
+        else:
+            bars = ''.join(blocks[min(8, max(0, height - (3 - row) * 8))] for height in heights)
         text = label.rjust(axis) + ' ' + vertical + bars
         if peak:
             rows.append((text, ('secondary', axis + 2, len(text), 'chart')))
@@ -751,12 +855,17 @@ def detailed_model_rows(entries, width, include_provider=False):
     return rows
 
 def session_lines(history, now, width, compact=True, previous_visible=True,
-                  history_other_visible=True, history_total_visible=True, host='omp'):
+                  history_other_visible=True, history_total_visible=True, host='omp',
+                  chart_type='bars'):
     rows = []
     current = history['current']
     if current:
-        rows.append(section_heading('TOKEN RATE', width, 'tok/min'))
-        rows.extend(token_chart(history['chart'], width))
+        if chart_type == 'trace' and width == 20:
+            rows.append(('TOKEN TRACE tok/min', ('secondary', 0, 11, 'title')))
+        else:
+            rows.append(section_heading('TOKEN TRACE' if chart_type == 'trace' else 'TOKEN RATE',
+                                        width, 'tok/min'))
+        rows.extend(token_chart(history['chart'], width, chart_type))
         rows.append(('', 'dim'))
     elif not history['previous']:
         rows.append((f'Waiting for {host.upper()} session', 'dim'))
@@ -981,7 +1090,8 @@ def watch(screen, args):
                     history = session_summary(config['profile'], args.owner, now, host=host)
                     rows = session_lines(history, now, width - 2, config['compact'],
                                          config['previous_visible'], config['history_other_visible'],
-                                         config['history_total_visible'], host=host)
+                                         config['history_total_visible'], host=host,
+                                         chart_type=config['chart_type'])
                 except (OSError, sqlite3.Error):
                     rows = [('Session history unavailable', 'warn')]
                 if history_error:
@@ -1204,7 +1314,8 @@ def main():
             print('\n'.join(text for text, _ in session_lines(
                 session_summary(config['profile'], args.owner, host=args.host), time.time(), 32,
                 config['compact'], config['previous_visible'], config['history_other_visible'],
-                config['history_total_visible'], host=args.host)))
+                config['history_total_visible'], host=args.host,
+                chart_type=config['chart_type'])))
             if not config['providers']:
                 print(describe(config))
             adapter = get_host(args.host)

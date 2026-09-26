@@ -27,6 +27,7 @@ function saveSession(payload, profile, cwd, environment) {
 }
 const popular = ["codex", "claude", "copilot", "grok", "xai-oauth", "deepseek", "gemini", "google-antigravity", "cursor", "kimi-code", "minimax-code", "openrouter"];
 const sections = {
+  chart: ["bars", "dots", "trace"],
   view: ["list", "compact", "details"],
   commands: ["hide", "show"],
   previous: ["hide", "show"],
@@ -38,6 +39,11 @@ const sections = {
   window: ["on", "off", "focus", "refresh", "interval", "hide", "show"],
   update: ["check", "install"],
 };
+const chartOptions = [
+  { value: "bars", label: "bars   (default; vertical bars)" },
+  { value: "dots", label: "dots   (individual points)" },
+  { value: "trace", label: "trace  (connected high-resolution trend)" },
+];
 const themeOptions = [
   { value: "green", label: "green   (classic green accent)" },
   { value: "blue", label: "blue    (cool blue accent)" },
@@ -51,7 +57,7 @@ const themeOptions = [
   { value: "custom", label: "custom  (override individual colors)" },
   { value: "reset", label: "reset   (restore green and remove custom colors)" },
 ];
-const help = "Sections: view (compact, details; list remains available as a command for showing settings); commands (hide, show); previous (hide, show); history-other (hide, show); history-total (hide, show); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, cyan, magenta, orange, red, claude [Anthropic brand-inspired], custom TOKEN COLOR, reset); window (on, off, focus, refresh, interval, hide/show PROVIDER FILTER); update (check, install).";
+const help = "Sections: view (compact, details; list remains available as a command for showing settings); chart (bars [default], dots, trace); commands (hide, show); previous (hide, show); history-other (hide, show); history-total (hide, show); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, cyan, magenta, orange, red, claude [Anthropic brand-inspired], custom TOKEN COLOR, reset); window (on, off, focus, refresh, interval, hide/show PROVIDER FILTER); update (check, install).";
 const menuSections = {...sections, view: ["compact", "details"]};
 const visibilitySections = ["commands", "previous", "history-other", "history-total"];
 const visibilityLabels = {
@@ -408,7 +414,7 @@ export default function usageDashboard(pi) {
     pi.on(event, async (_event, ctx) => { await record(ctx, "start"); });
   }
   pi.registerCommand("usage-dashboard", {
-    description: "Manage usage dashboard: view, commands, previous, history-other, history-total, position, providers, theme, window, and updates",
+    description: "Manage usage dashboard: view, chart (bars default, dots, trace), commands, previous, history-other, history-total, position, providers, theme, window, and updates",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const words = args.trim().split(/\s+/).filter(Boolean);
@@ -430,7 +436,8 @@ export default function usageDashboard(pi) {
             notify(ctx, help);
             return;
           }
-          const options = words[0] === "theme" ? themeOptions : menuSections[words[0]];
+          const options = words[0] === "theme" ? themeOptions
+            : words[0] === "chart" ? chartOptions : menuSections[words[0]];
           const action = await menuSelect(ctx, `Usage Dashboard / ${capitalizeLabel(words[0])}`, options, { nested: true });
           if (!action) return;
           if (action === MENU_BACK) {
@@ -441,6 +448,10 @@ export default function usageDashboard(pi) {
         }
         const [section, action] = words;
         if (!Object.hasOwn(sections, section) || !sections[section].includes(action)) {
+          notify(ctx, help);
+          return;
+        }
+        if (section === "chart" && words.length !== 2) {
           notify(ctx, help);
           return;
         }

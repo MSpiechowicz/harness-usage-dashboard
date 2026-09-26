@@ -30,7 +30,8 @@ from dashboard import (ROOT, FetchJob, allowance_color, change_config, clean, co
                        resolve_tokens, section_heading, session_lines, token_chart, tmux_binary, watch)
 from claude_bridge import start_receiver
 from claude_usage_source import fetch_usage as fetch_claude_usage
-from preferences import DEFAULTS, THEME_NAMES
+from preferences import (CHART_TYPES, DEFAULTS, THEME_NAMES, load_preferences,
+                         preferences_path)
 
 
 class RemainingAllowanceTests(unittest.TestCase):
@@ -112,6 +113,204 @@ class RemainingAllowanceTests(unittest.TestCase):
         texts = [text for text, _style in rows]
         self.assertEqual(texts[0], '')
         self.assertIn('│', texts[1])
+
+    def test_chart_views_keep_bars_and_dots_and_fit_narrow_panes(self):
+        values = [0, 1, 4, 0, 30, 70, 120, 20, 0, 1,
+                  1000, 40, 10, 0, 500, 60, 90, 0, 2, 200]
+        with patch.object(sys, 'stdout', io.TextIOWrapper(io.BytesIO(), encoding='utf-8')):
+            for width in (20, 30, 32):
+                with self.subTest(width=width):
+                    bars = token_chart(values, width, 'bars')
+                    dots = token_chart(values, width, 'dots')
+                    trace = token_chart(values, width, 'trace')
+                    self.assertEqual(bars, token_chart(values, width))
+                    self.assertEqual(len(bars), 7)
+                    self.assertEqual(len(dots), 7)
+                    self.assertEqual(len(trace), 10)
+                    self.assertEqual(bars[1][0][:4], '  1k')
+                    self.assertEqual(dots[1][0][:4], '  1k')
+                    self.assertTrue(any('█' in text for text, _ in bars))
+                    self.assertTrue(all(set(text.split('│', 1)[1]) <= {' ', '●'}
+                                        for text, _ in dots[1:5]))
+                    self.assertTrue(any('⠁' <= char <= '⣿'
+                                        for text, _ in trace[1:7] for char in text))
+                    for rows in (bars, dots, trace):
+                        self.assertIn('-20m', rows[-2][0] if rows is trace else rows[-1][0])
+                        self.assertTrue(all(len(text) == width for text, _ in rows[1:]))
+                        for text, style in rows:
+                            if isinstance(style, tuple):
+                                self.assertLessEqual(style[1], style[2])
+                                self.assertLessEqual(style[2], len(text))
+                            self.assertEqual(clean(text), text)
+                    self.assertEqual(trace[1][0][:4], '  1k')
+                    self.assertEqual(trace[4][0][:4], ' 500')
+                    self.assertEqual(trace[6][0][:4], '   0')
+                    self.assertTrue(trace[8][0].strip().endswith('now'))
+                    self.assertIn('Peak 1k / now 200', trace[9][0])
+
+    @staticmethod
+    def trace_pixels(rows):
+        dots = ((1, 2, 4, 64), (8, 16, 32, 128))
+        return {(2 * x + side, 4 * y + offset)
+                for y, (line, _) in enumerate(rows[1:7])
+                for x, cell in enumerate(line[5:-1])
+                for side, bits in enumerate(dots)
+                for offset, bit in enumerate(bits)
+                if (ord(cell) - 0x2800) & bit}
+
+    def test_trace_connects_samples_through_zero_and_reaches_both_edges(self):
+        values = [0, 1, 4, 0, 30, 70, 120, 20, 0, 1,
+                  1000, 40, 10, 0, 500, 60, 90, 0, 2, 200]
+        rows = token_chart(values, 32, 'trace')
+        pixels = self.trace_pixels(rows)
+        self.assertEqual([row[0][4] for row in rows[1:7]], ['│'] * 6)
+        self.assertEqual([row[0][-1] for row in rows[1:7]], ['│'] * 6)
+        for x, expected_y in ((0, 23), (8, 23), (21, 23), (27, 0),
+                              (35, 23), (38, 11), (46, 23), (51, 18)):
+            with self.subTest(x=x, y=expected_y):
+                self.assertTrue(any((x, y) in pixels
+                                    for y in range(max(0, expected_y - 1),
+                                                   min(23, expected_y + 1) + 1)))
+        self.assertEqual({x for x, _ in pixels}, set(range(52)))
+        # A continuous trace has no isolated painted region, including zero crossings.
+        visited = {(0, 23)}
+        frontier = [(0, 23)]
+        while frontier:
+            x, y = frontier.pop()
+            neighbors = {(x + dx, y + dy) for dx in (-1, 0, 1)
+                         for dy in (-1, 0, 1)}
+            fresh = (neighbors & pixels) - visited
+            visited.update(fresh)
+            frontier.extend(fresh)
+        self.assertEqual(visited, pixels)
+
+    def test_trace_peak_is_linear_and_segment_has_no_missing_columns(self):
+        values = [0, 500, 1000, 500] + [0] * 16
+        rows = token_chart(values, 32, 'trace')
+        pixels = self.trace_pixels(rows)
+        self.assertEqual(rows[4][0][:4], ' 500')
+        self.assertIn((0, 23), pixels)
+        self.assertIn((5, 0), pixels)
+        self.assertTrue(any((3, y) in pixels for y in (11, 12)))
+        self.assertTrue(any((11, y) in pixels for y in (22, 23)))
+        self.assertEqual({x for x, _ in pixels}, set(range(52)))
+        self.assertEqual(rows[9][0].strip(), 'Peak 1k / now 0 tok/min')
+
+    def test_trace_midpoint_axis_labels_match_small_odd_peaks(self):
+        with patch.object(sys, 'stdout', io.TextIOWrapper(io.BytesIO(), encoding='utf-8')):
+            for width in (20, 32):
+                for peak, expected_top, expected_middle in (
+                    (1, '1', '0.5'), (3, '3', '1.5'), (1999, '2k', '999.5'),
+                    (2, '2', '1'), (1000, '1k', '500'), (2001, '2k', '1k')
+                ):
+                    with self.subTest(width=width, peak=peak):
+                        rows = token_chart([0, peak], width, 'trace')
+                        top, middle, baseline = (rows[index][0].split('│', 1)[0].strip()
+                                                 for index in (1, 4, 6))
+                        self.assertEqual(top, expected_top)
+                        self.assertEqual(middle, expected_middle)
+                        self.assertEqual(baseline, '0')
+                        self.assertNotEqual(middle, baseline)
+                        self.assertTrue(all(len(text) == width for text, _ in rows[1:]))
+
+    def test_trace_idle_is_empty_but_retains_honest_labels(self):
+        with patch.object(sys, 'stdout', io.TextIOWrapper(io.BytesIO(), encoding='utf-8')):
+            rows = token_chart([0] * 20, 32, 'trace')
+        self.assertIn('No activity in the last 20m', rows[0][0])
+        self.assertTrue(all(set(text[5:-1]) == {'⠀'} for text, _ in rows[1:7]))
+        self.assertEqual(rows[9][0].strip(), 'Peak 0 / now 0 tok/min')
+        self.assertEqual(rows[6][0][:4], '   0')
+        self.assertEqual(clean('⣀⡇⠤⠀'), '⣀⡇⠤⠀')
+        self.assertEqual(clean('░╱▓'), '???')
+
+    def test_chart_ascii_fallback_retains_trace_and_legacy_modes(self):
+        with patch.object(sys, 'stdout', io.TextIOWrapper(io.BytesIO(), encoding='ascii')):
+            for mode in CHART_TYPES:
+                for width in (20, 30, 32):
+                    with self.subTest(mode=mode, width=width):
+                        rows = token_chart([0, 500, 1000, 500] + [0] * 16,
+                                           width, mode)
+                        self.assertTrue(all(text.isascii() for text, _ in rows))
+                        self.assertTrue(all(len(text) == width for text, _ in rows[1:]))
+                        self.assertIn('now', rows[-2][0] if mode == 'trace' else rows[-1][0])
+                        if mode == 'trace':
+                            plot = [text[5:-1] for text, _ in rows[1:7]]
+                            self.assertTrue(any('/' in row or '\\' in row for row in plot))
+                            self.assertTrue(any('|' in row for row in plot))
+                            self.assertTrue(all(any(plot[y][x] != ' ' for y in range(6))
+                                                for x in range(3)))
+                            cells = {(x, y) for y, line in enumerate(plot)
+                                     for x, char in enumerate(line) if char != ' '}
+                            visited = {next(iter(cells))}
+                            frontier = list(visited)
+                            while frontier:
+                                x, y = frontier.pop()
+                                neighbors = {(x + dx, y + dy) for dx in (-1, 0, 1)
+                                             for dy in (-1, 0, 1)}
+                                fresh = (neighbors & cells) - visited
+                                visited.update(fresh)
+                                frontier.extend(fresh)
+                            self.assertEqual(visited, cells)
+                            idle = token_chart([0] * 20, width, mode)
+                            self.assertTrue(all(text[5:-1].strip() == ''
+                                                for text, _ in idle[1:7]))
+                        else:
+                            self.assertTrue(any(marker in ''.join(text for text, _ in rows)
+                                                for marker in 'o@'))
+
+    def test_session_chart_option_keeps_existing_positional_arguments(self):
+        session = {'id': 'active', 'updated': 0, 'providers': [], 'models': [], 'quota': []}
+        history = {'chart': [0] * 10 + [1000] + [0] * 8 + [200],
+                   'current': session, 'previous': None, 'history': [], 'total_history': []}
+        rows = session_lines(history, 0, 32, True, False, False, False,
+                             chart_type='trace')
+        text = '\n'.join(line for line, _ in rows)
+        self.assertIn('TOKEN TRACE', text)
+        self.assertIn('⡇', text)
+        self.assertIn('Peak 1k / now 200 tok/min', text)
+        narrow = session_lines(history, 0, 20, chart_type='trace')
+        self.assertEqual(narrow[0][0], 'TOKEN TRACE tok/min')
+
+    @patch('dashboard.curses.mouseinterval')
+    @patch('dashboard.curses.mousemask')
+    @patch('dashboard.curses.curs_set')
+    def test_live_watch_draws_selected_chart(self, _curs_set, _mousemask, _mouseinterval):
+        session = {'id': 'active', 'updated': 0, 'providers': [], 'models': [], 'quota': []}
+        history = {'chart': [0] * 10 + [1000] + [0] * 8 + [200],
+                   'current': session, 'previous': None, 'history': [], 'total_history': []}
+        screen = MagicMock()
+        screen.getmaxyx.return_value = (24, 34)
+        screen.getch.side_effect = SystemExit
+        args = Namespace(owner=None, profile='default', providers=None, side=None, interval=None)
+        with patch('dashboard.defaults', return_value=dict(DEFAULTS, profile='default',
+                                                           providers=[], chart_type='trace')), \
+             patch('dashboard.initialize_colors', return_value={}), \
+             patch('dashboard.session_summary', return_value=history):
+            with self.assertRaises(SystemExit):
+                watch(screen, args)
+        drawn = '\n'.join(call.args[2] for call in screen.addnstr.call_args_list)
+        self.assertIn('TOKEN TRACE', drawn)
+        self.assertIn('⡇', drawn)
+        self.assertIn('Peak 1k / now 200 tok/min', drawn)
+
+    def test_once_prints_selected_chart(self):
+        from dashboard import main
+        session = {'id': 'active', 'updated': 0, 'providers': [], 'models': [], 'quota': []}
+        history = {'chart': [0] * 10 + [1000] + [0] * 8 + [200],
+                   'current': session, 'previous': None, 'history': [], 'total_history': []}
+        sink = io.BytesIO()
+        output = io.TextIOWrapper(sink, encoding='utf-8')
+        with patch('dashboard.defaults', return_value=dict(DEFAULTS, profile='default',
+                                                           providers=[], chart_type='trace')), \
+             patch('dashboard.session_summary', return_value=history), \
+             patch.object(sys, 'argv', ['dashboard.py', 'watch', '--once']), \
+             redirect_stdout(output):
+            self.assertEqual(main(), 0)
+        output.flush()
+        rendered = sink.getvalue().decode('utf-8')
+        self.assertIn('TOKEN TRACE', rendered)
+        self.assertIn('⡇', rendered)
+        self.assertIn('Peak 1k / now 200 tok/min', rendered)
 
     def test_section_divider_uses_secondary_base_color(self):
         _text, style = section_heading('TOKEN RATE', 32, 'tok/min')
@@ -198,6 +397,29 @@ class CommandsVisibilityTests(unittest.TestCase):
         self.assertFalse(config['history_total_visible'])
         change_config(config, ['history-total', 'show'])
         self.assertTrue(config['history_total_visible'])
+
+    def test_live_chart_migration_precedes_fallback_merge_without_rewriting_pane(self):
+        fallback = dict(DEFAULTS, profile='work', refresh=0, chart_type='trace')
+        for mode in ('line', 'area', 'heatmap', 'lollipop'):
+            with self.subTest(mode=mode):
+                raw = json.dumps({'chart_type': mode, 'history_visible': False})
+                with patch('dashboard.mux', return_value=raw) as mux:
+                    config = load_config('%1', fallback)
+                self.assertEqual(config['chart_type'], 'bars')
+                self.assertFalse(config['history_other_visible'])
+                self.assertFalse(config['history_total_visible'])
+                self.assertEqual(fallback['chart_type'], 'trace')
+                self.assertEqual(mux.call_count, 1)
+
+        for raw in ('{}', '{"history_visible": true}'):
+            with self.subTest(raw=raw), patch('dashboard.mux', return_value=raw):
+                self.assertEqual(load_config('%1', fallback)['chart_type'], 'trace')
+        for value in ('pie', None, 0, ['line']):
+            with self.subTest(value=value), \
+                 patch('dashboard.mux', return_value=json.dumps({'chart_type': value})), \
+                 self.assertRaises(ValueError):
+                load_config('%1', fallback)
+
 
     def test_visibility_commands_change_only_the_target_section(self):
         config = deepcopy(DEFAULTS)
@@ -480,6 +702,68 @@ class NestedCommandTests(unittest.TestCase):
         self.assertFalse(config['compact'])
         change_config(config, ['view', 'compact'])
         self.assertTrue(config['compact'])
+
+    def test_chart_command_changes_only_chart_type(self):
+        config = deepcopy(DEFAULTS)
+        for chart_type in CHART_TYPES:
+            with self.subTest(chart_type=chart_type):
+                before = deepcopy(config)
+                change_config(config, ['chart', chart_type])
+                self.assertEqual(config, {**before, 'chart_type': chart_type})
+
+    def test_chart_control_reports_and_persists_selected_mode(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.dict(os.environ, {'HOME': directory, 'TMUX_PANE': ''}, clear=True):
+            args = Namespace(host='omp', owner=None, profile='work', providers=None,
+                             side=None, interval=None)
+            path = preferences_path('work')
+            before = load_preferences('work')
+            self.assertFalse(path.exists())
+            output = io.StringIO()
+            with redirect_stdout(output):
+                control(args, ['chart', 'bars'])
+            self.assertIn('chart bars', output.getvalue())
+            self.assertEqual(load_preferences('work'), {**before, 'chart_type': 'bars'})
+            self.assertFalse(path.exists())
+
+            for chart_type in CHART_TYPES:
+                if chart_type == 'bars':
+                    continue
+                with self.subTest(chart_type=chart_type):
+                    before = load_preferences('work')
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        control(args, ['chart', chart_type])
+                    self.assertIn('chart ' + chart_type, output.getvalue())
+                    self.assertEqual(load_preferences('work'),
+                                     {**before, 'chart_type': chart_type})
+                    self.assertEqual(json.loads(path.read_text())['chart_type'], chart_type)
+
+            before = load_preferences('work')
+            output = io.StringIO()
+            with redirect_stdout(output):
+                control(args, ['chart', 'bars'])
+            self.assertIn('chart bars', output.getvalue())
+            self.assertEqual(load_preferences('work'), {**before, 'chart_type': 'bars'})
+            self.assertEqual(json.loads(path.read_text())['chart_type'], 'bars')
+
+    def test_chart_control_rejects_invalid_type_and_arity_without_saving(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.dict(os.environ, {'HOME': directory, 'TMUX_PANE': ''}, clear=True):
+            args = Namespace(host='omp', owner=None, profile='work', providers=None,
+                             side=None, interval=None)
+            with redirect_stdout(io.StringIO()):
+                control(args, ['chart', 'dots'])
+            path = preferences_path('work')
+            original = path.read_bytes()
+            for words in (['chart'], ['chart', 'pie'], ['chart', 'LINE'],
+                          *(['chart', mode] for mode in ('line', 'area', 'heatmap', 'lollipop')),
+                          ['chart', 'trace', 'extra'], ['view', 'line']):
+                with self.subTest(words=words), self.assertRaises(ValueError):
+                    control(args, words)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(load_preferences('work')['chart_type'], 'dots')
+
     def test_details_separate_model_blocks_for_readability(self):
         model_fields = {'input': 10, 'output': 2, 'cache_read': 3, 'cache_write': 0}
         history = {

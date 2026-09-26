@@ -7,8 +7,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from preferences import (DEFAULTS, agent_dir, load_preferences, migrate_history_visibility,
-                         preferences_path, resolve_profile, update_preferences)
+from preferences import (CHART_TYPES, DEFAULTS, agent_dir, load_preferences,
+                         migrate_history_visibility, preferences_path, resolve_profile,
+                         update_preferences)
 
 
 class PreferencesTests(unittest.TestCase):
@@ -23,6 +24,7 @@ class PreferencesTests(unittest.TestCase):
     def test_fresh_profile_requires_explicit_provider_selection(self):
         self.assertEqual(load_preferences(None)['providers'], [])
         self.assertEqual(load_preferences(None)['theme'], 'green')
+        self.assertEqual(load_preferences(None)['chart_type'], 'bars')
         self.assertEqual(load_preferences(None)['tokens'], {})
         update_preferences(None, {'side': 'left'})
         self.assertEqual(load_preferences(None)['providers'], [])
@@ -45,6 +47,7 @@ class PreferencesTests(unittest.TestCase):
             'interval': 15,
             'enabled': False,
             'theme': 'blue',
+            'chart_type': 'trace',
             'tokens': {'accent': '#58a66a', 'warn': 'orange'},
         }
         update_preferences(None, dict(changes, profile='other', refresh=123))
@@ -120,7 +123,8 @@ class PreferencesTests(unittest.TestCase):
         path = preferences_path(None)
         path.parent.mkdir(parents=True)
         for content in (b'{broken', b'[]', b'{"interval": true}', b'{"history_visible": 1}',
-                        b'{"windows": {"deepseek": "daily"}}', b'\xff'):
+                        b'{"windows": {"deepseek": "daily"}}', b'{"chart_type": "pie"}',
+                        b'{"chart_type": null}', b'\xff'):
             with self.subTest(content=content):
                 path.write_bytes(content)
                 with self.assertRaises(ValueError):
@@ -137,6 +141,9 @@ class PreferencesTests(unittest.TestCase):
             {'providers': 'deepseek'}, {'providers': ['']}, {'hidden': [False]},
             {'windows': {'deepseek': [' ']}}, {'side': 'bottom'},
             {'theme': 'violet'}, {'tokens': {'unknown': 'green'}},
+            {'chart_type': 'pie'}, {'chart_type': 'LINE'}, {'chart_type': None},
+            {'chart_type': 0}, {'chart_type': ['line']},
+            *({'chart_type': mode} for mode in ('line', 'area', 'heatmap', 'lollipop')),
             {'tokens': {'accent': '#12345'}}, {'tokens': {'warn': 'not-a-color'}},
             {'compact': 1}, {'enabled': 'false'}, {'interval': True},
             {'commands_visible': 'false'}, {'previous_visible': 0},
@@ -149,6 +156,58 @@ class PreferencesTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     update_preferences(None, changes)
                 self.assertEqual(path.read_bytes(), original)
+
+    def test_chart_modes_round_trip_and_legacy_files_default_to_bars(self):
+        self.assertEqual(CHART_TYPES, ('bars', 'dots', 'trace'))
+        path = preferences_path('work')
+        path.parent.mkdir(parents=True)
+        path.write_text('{"side": "left"}')
+        self.assertEqual(load_preferences('work')['chart_type'], 'bars')
+        self.assertEqual(path.read_text(), '{"side": "left"}')
+
+        update_preferences('work', {'chart_type': 'bars'})
+        self.assertEqual(path.read_text(), '{"side": "left"}')
+        for chart_type in ('dots', 'trace', 'bars'):
+            with self.subTest(chart_type=chart_type):
+                update_preferences('work', {'chart_type': chart_type})
+                self.assertEqual(load_preferences('work')['chart_type'], chart_type)
+                self.assertEqual(json.loads(path.read_text())['chart_type'], chart_type)
+                self.assertEqual(load_preferences('work')['side'], 'left')
+
+    def test_retired_chart_modes_migrate_on_read_and_persist_on_next_update(self):
+        path = preferences_path('work')
+        path.parent.mkdir(parents=True)
+        for mode in ('line', 'area', 'heatmap', 'lollipop'):
+            with self.subTest(mode=mode):
+                original = json.dumps({'chart_type': mode, 'side': 'left',
+                                       'history_visible': False}).encode()
+                path.write_bytes(original)
+                loaded = load_preferences('work')
+                self.assertEqual(loaded['chart_type'], 'bars')
+                self.assertEqual(loaded['side'], 'left')
+                self.assertFalse(loaded['history_other_visible'])
+                self.assertFalse(loaded['history_total_visible'])
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(update_preferences('work', {}), loaded)
+                self.assertEqual(path.read_bytes(), original)
+
+                with self.assertRaises(ValueError):
+                    update_preferences('work', {'chart_type': mode})
+                self.assertEqual(path.read_bytes(), original)
+                updated = update_preferences('work', {'side': 'right'})
+                self.assertEqual(updated['chart_type'], 'bars')
+                self.assertEqual(updated['side'], 'right')
+                self.assertEqual(json.loads(path.read_text())['chart_type'], 'bars')
+
+
+    def test_chart_mode_is_separate_per_profile_and_host(self):
+        update_preferences('work', {'chart_type': 'trace'})
+        update_preferences('personal', {'chart_type': 'dots'})
+        update_preferences(None, {'chart_type': 'trace'}, host='claude')
+        self.assertEqual(load_preferences('work')['chart_type'], 'trace')
+        self.assertEqual(load_preferences('personal')['chart_type'], 'dots')
+        self.assertEqual(load_preferences('default')['chart_type'], 'bars')
+        self.assertEqual(load_preferences(None, host='claude')['chart_type'], 'trace')
 
     def test_profiles_are_isolated_and_explicit_default_overrides_environment(self):
         custom = self.home / 'custom-agent'

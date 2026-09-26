@@ -12,14 +12,14 @@ Inside either host, use `/usage-dashboard view compact` for the overview or `/us
 
 ## What it does
 
-- **Live token-rate chart:** the last 20 minutes of reported usage across all models, with solid bars, a labelled scale, and an idle state.
+- **Live token-rate chart:** choose bars (the default), dots, or trace to view the same last 20 minutes of reported usage across all models, with an idle state and terminal-friendly rendering.
 - **Current and previous sessions:** cumulative token totals persist across restarts. OMP also records allowance comparisons; Claude Code does not provide account-specific quota-change history.
 - **Provider and model breakdowns:** OMP Compact mode groups tokens by provider; Details separates each model by effective thinking level and includes input/output and cache-read/write counts. Unattributed task aggregates remain explicitly labelled. Claude Code records available per-request token counts from local telemetry separately.
 - **Observed quota changes (OMP only):** Compact shows separate comparisons for each account and allowance window, in percentage points. Rows appear only when comparable samples exist; these are observations, not exact session billing.
 - **Account allowances and balances:** OMP displays remaining percentages, reset times, and reported API credit balances where supported. Claude Code can show five-hour and seven-day limits only when its status-line payload includes them.
 - **A quieter sidebar:** aligned values, section dividers, and spacing; no pending-sample rows or redundant single-provider totals in Compact mode.
 - **Local storage:** recorded usage lives in host-separated SQLite databases. OMP records are scoped by project within each OMP profile; Claude Code records are scoped by project in Claude's own storage. Preferences persist in separate local JSON files.
-- **Design-token theming:** choose from nine named palettes: green, blue, brown, yellow, cyan, magenta, orange, red, and the opt-in Claude palette inspired by Anthropic's brand colors. Rules, chart bars, and body text follow each palette's tokens; healthy, warning, and critical values stay green, orange, and red for clear allowance semantics.
+- **Design-token theming:** choose from nine named palettes: green, blue, brown, yellow, cyan, magenta, orange, red, and the opt-in Claude palette inspired by Anthropic's brand colors. Rules, chart marks, and body text follow each palette's tokens; healthy, warning, and critical values stay green, orange, and red for clear allowance semantics.
 - **Host-specific updates:** OMP uses its native marketplace manager; Claude's personal skill can check a source-checkout release and install it only when the original checkout is eligible for a safe Git fast-forward.
 
 ### When it is useful
@@ -205,6 +205,9 @@ Run `claude` or `claude --continue` in a shell with the installed hook to start 
 /usage-dashboard view compact
 /usage-dashboard view details
 /usage-dashboard theme blue
+/usage-dashboard chart bars
+/usage-dashboard chart dots
+/usage-dashboard chart trace
 /usage-dashboard position left
 /usage-dashboard window off
 /usage-dashboard window on
@@ -212,7 +215,7 @@ Run `claude` or `claude --continue` in a shell with the installed hook to start 
 /usage-dashboard update install
 ```
 
-Visibility settings change presentation, not recorded tokens; `previous show` restores the section when data is available. The skill may invoke local tools to change preferences, control the sidebar, or check/install an update. Claude Code's tool-permission prompts and your own authorization still apply: installing the skill does **not** auto-approve commands. Claude's dashboard has only the Anthropic provider: you can add, remove, hide, or show that one view, but OMP's multi-provider management and OMP account comparisons are unavailable here.
+Visibility settings change presentation, not recorded tokens; `previous show` restores the section when data is available. `/usage-dashboard chart TYPE` selects `bars`, `dots`, or `trace`; bars is the default, and the choice is saved for Claude's dashboard separately from OMP's. The skill may invoke local tools to change preferences, control the sidebar, or check/install an update. Claude Code's tool-permission prompts and your own authorization still apply: installing the skill does **not** auto-approve commands. Claude's dashboard has only the Anthropic provider: you can add, remove, hide, or show that one view, but OMP's multi-provider management and OMP account comparisons are unavailable here.
 
 Claude Code request totals come from its locally emitted OTLP `api_request` log events, tied to Claude session lifecycle hooks. The launcher creates owner-only temporary settings **for that run** rather than rewriting Claude's global settings. Only complete reported requests can count; no requests are inferred from transcripts or a provider's account allowance. Capture may be incomplete or unavailable when Claude is not emitting compatible events, when its telemetry destination conflicts, or before a completed request arrives. **Missing capture means unknown usage, not zero tokens.** The sidebar displays a token-capture warning even when separate allowance windows are available. Existing Claude telemetry and status-line destinations are not overwritten; a conflicting configuration can prevent this integration from receiving the affected data.
 
@@ -228,6 +231,14 @@ Inspect the saved configuration or choose a display mode:
 python3 dashboard.py control --host claude -- view list
 python3 dashboard.py control --host claude -- view compact
 python3 dashboard.py control --host claude -- view details
+```
+
+Choose a chart style for Claude's sidebar. Copy one command, not the whole block; bars is the default and all three styles use the same saved token-rate data:
+
+```sh
+python3 dashboard.py control --host claude -- chart bars
+python3 dashboard.py control --host claude -- chart dots
+python3 dashboard.py control --host claude -- chart trace
 ```
 
 Hide or restore individual sections. These switches do not delete recorded usage. History Other and History Total can show available token history, but Claude has no account-specific quota-change history to display.
@@ -310,19 +321,28 @@ Inside OMP, enter:
 ```text
 /usage-dashboard
 ```
-The menu has seven sections. Use the **Left Arrow** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/usage-dashboard providers`, opens its submenu.
+The menu has eight sections, including **Chart**: select Chart, then choose Bars (default), Dots, or Trace. Use the **Left Arrow** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/usage-dashboard chart` or `/usage-dashboard providers`, opens its submenu.
 
 Dashboard command results, help, warnings, and errors use a bold **Usage Dashboard** heading and readable body text in the active OMP theme. Warning and error headings retain their severity colors. Update check/install notifications keep their native presentation.
 
 | Section | Purpose | Example |
 | --- | --- | --- |
 | **View** | Switch between provider and model-level display; use `view list` directly to inspect settings | `/usage-dashboard view details` |
+| **Chart** | Select the saved token-rate visualization without changing recorded usage | `/usage-dashboard chart trace` |
 | **Section Visibility** | Choose Commands, Previous, History Other Sessions, or History Total, then Hide or Show | `/usage-dashboard history-other hide` |
 | **Position** | Move the sidebar left or right | `/usage-dashboard position left` |
 | **Theme** | Choose a named palette or customize individual color tokens | `/usage-dashboard theme blue` |
 | **Providers** | Add, remove, hide, or restore provider views | `/usage-dashboard providers add claude` |
 | **Window** | Control the sidebar, polling, and usage-window filters | `/usage-dashboard window interval 60` |
 | **Update** | Check for or install a dashboard release | `/usage-dashboard update check` |
+
+To select a chart without opening the menu, enter one of these commands in OMP (one at a time):
+
+```text
+/usage-dashboard chart bars
+/usage-dashboard chart dots
+/usage-dashboard chart trace
+```
 
 **Section Visibility** controls each section independently in Compact and Details. All four are visible by default when applicable. Hiding Previous removes the previous-session section; History Other Sessions and History Total can each be hidden without hiding the other. These settings only affect presentation: recording continues, stored usage is preserved, and Show restores the accumulated data. The former `history hide|show` command is replaced by `history-other hide|show` and `history-total hide|show`. Existing saved History visibility initializes both new settings, so previously hidden history stays hidden.
 
@@ -335,6 +355,7 @@ Dashboard command results, help, warnings, and errors use a bold **Usage Dashboa
 /usage-dashboard theme blue
 /usage-dashboard theme custom accent #58a66a
 /usage-dashboard view compact
+/usage-dashboard chart trace
 ```
 
 **Provider visibility and usage-window filters are separate:**
@@ -348,9 +369,9 @@ Window filters are case-insensitive substrings of provider usage-window labels o
 
 ### Theme preview
 
-[![Preview of the original eight palettes—green, blue, brown, yellow, cyan, magenta, orange, and red—with chart samples and green, orange, and red allowance indicators; Claude is not shown](docs/assets/themes.png)](docs/assets/themes.png)
+[![Preview of the original eight palettes—green, blue, brown, yellow, cyan, magenta, orange, and red—with bar-chart samples and green, orange, and red allowance indicators; Claude and other chart styles are not shown](docs/assets/themes.png)](docs/assets/themes.png)
 
-*Mock-data excerpts of the original eight palettes, not a preview of the Claude palette. Each uses the same values to compare accents, darker rules, and chart colors. Exact shades and dimming depend on your terminal palette and color support. Click to enlarge.*
+*Mock-data excerpts of the original eight palettes showing the bars style, not a preview of the Claude palette or other chart styles. Each uses the same values to compare accents, darker rules, and chart colors. Exact shades and dimming depend on your terminal palette and color support. Click to enlarge.*
 
 Choose a palette from `/usage-dashboard theme`, or enter a command directly:
 
@@ -362,7 +383,7 @@ Choose a palette from `/usage-dashboard theme`, or enter a command directly:
 /usage-dashboard theme reset
 ```
 
-`accent` changes section headings; `chart` changes the bars; `secondary` changes rules and axes. The original eight palettes use neutral body text and darker secondary rules; Claude instead uses warm light body text and a mid-gray secondary token. All built-in palettes keep allowance colors semantic: green for healthy, orange at 40% remaining or below (or a reported warning/unknown status), and red at 20% or below (or exhausted). Custom overrides can change those tokens too. `reset` restores green and clears all overrides. Preferences persist across launches.
+`accent` changes section headings; `chart` changes the chart marks; `secondary` changes rules and axes. The original eight palettes use neutral body text and darker secondary rules; Claude instead uses warm light body text and a mid-gray secondary token. All built-in palettes keep allowance colors semantic: green for healthy, orange at 40% remaining or below (or a reported warning/unknown status), and red at 20% or below (or exhausted). Custom overrides can change those tokens too. `reset` restores green and clears all overrides. Preferences persist across launches.
 
 <details>
 <summary>Complete command reference</summary>
@@ -374,6 +395,7 @@ All commands below are entered inside OMP.
 | `/usage-dashboard view list` | Show the current configuration. |
 | `/usage-dashboard view compact` | Show the token chart, concise session/provider totals, measured quota changes, and dense allowance rows. |
 | `/usage-dashboard view details` | Enable model-and-thinking-level rows for current/previous sessions and both history totals, including input/output and cache-read/write counts. |
+| `/usage-dashboard chart bars|dots|trace` | Select the chart style (bars by default) using the same token-rate buckets. For example, `/usage-dashboard chart trace`; omit the style to open the Chart submenu. |
 | `/usage-dashboard commands hide` | Hide the Commands footer and use its space for dashboard content. Keyboard shortcuts and scrolling remain available. |
 | `/usage-dashboard commands show` | Restore the Commands footer (visible by default). |
 | `/usage-dashboard previous hide` | Hide the Previous session section without changing recorded usage. |
@@ -423,13 +445,23 @@ Percentages in the account-allowance section mean **remaining allowance**: green
 
 ### Live chart and session history
 
-The **Token rate** chart uses 20 one-minute buckets across all models, including the current, incomplete minute. Solid bars use fractional terminal cells, with a labelled vertical scale and time axis; ASCII-only terminals get a fallback. The vertical scale adjusts to the displayed peak, and an empty minute has no bar. With no recent usage, the idle message remains visible above the same full-width x/y axes instead of replacing the chart. Token records update on completed usage events, with a one-second check for auxiliary model usage even while the parent is waiting in a command such as `/forge`. Requests emitted during an in-flight save are collected on a subsequent check; repeated checks do not double-count them. This is reported request usage, not a token-by-token stream or the current context-window size.
+The **Token rate** chart shows reported tokens per minute across all models in 20 one-minute buckets, including the current, incomplete minute. Bars is the default and preserves the original solid, fractional-cell bar chart. Choose any of three styles in either host; this changes only the presentation, not accounting or stored records:
+
+| Style | How to read it |
+| --- | --- |
+| `bars` | Solid vertical columns with fractional terminal cells. |
+| `dots` | Sparse markers for active minutes, without connecting segments. |
+| `trace` | A six-row connected linear per-minute Braille rate line, with a labelled `0`/midpoint/peak vertical axis, `-20m`/`now` time labels, and a peak/latest (`now`) tokens-per-minute caption. ASCII-only terminals use readable line characters instead of Braille. |
+
+In OMP choose **Chart** from `/usage-dashboard` or run `/usage-dashboard chart TYPE`; inside Claude Code use its personal skill `/usage-dashboard chart TYPE`, or from a shell in this checkout run `python3 dashboard.py control --host claude -- chart TYPE` (for example, `python3 dashboard.py control --host claude -- chart trace`). Replace `TYPE` with `bars`, `dots`, or `trace`. Chart style is a saved preference for each host, independent of Compact/Details mode and of the other host's settings. Previously saved `line`, `area`, `heatmap`, or `lollipop` selections display as bars without rewriting the saved preference; newly entered commands selecting those retired styles are rejected.
+
+Bars and dots use a labelled vertical token-rate scale that adjusts to the displayed peak, plus a time axis; trace has its own zero/midpoint/peak scale and peak/latest caption. In a narrow sidebar, bars and dots may max-pool adjacent minutes into a visible column so peaks remain visible; trace plots the connected linear samples of all 20 minutes. With no recent usage, the idle message remains visible along with the chart axes and time labels. Small panels scroll to show additional rows, including the lower trace labels and caption. ASCII-only terminals use readable fallback characters for all three styles. Token records update on completed usage events, with a one-second check for auxiliary model usage even while the parent is idle.
 
 **Current session** and **Previous session** show cumulative reported token totals. Compact mode groups them by provider; `/usage-dashboard view details` separates each model by thinking level, for example `Luna - Max tokens` and `Luna - xHigh tokens`. Each row includes input/output and cache-read/write counts. Switching models or thinking levels never reassigns earlier usage. Cached tokens remain part of the provider's reported total, not an extra amount added on top of it.
 
 Cache-write counts are reported values, not estimates of how much input might be cached. `w 0` can mean zero writes or that the upstream provider/runtime did not report a separate write count; it does not imply cache reads are broken. OMP's [Codex adapter](https://github.com/can1357/oh-my-pi/blob/main/packages/ai/src/providers/openai-codex-responses.ts) reads the optional `input_tokens_details.cache_write_tokens` field, and its [shared usage accounting](https://github.com/can1357/oh-my-pi/blob/main/packages/ai/src/providers/openai-shared.ts) defaults an absent write count to zero. The dashboard preserves the normalized `cacheWrite` value across current, previous, and project history; it cannot reconstruct an unreported count.
 
-Each refresh reads one consistent database snapshot, so the chart and session/project totals cannot mix records from before and after an incoming usage update. Chart buckets contain the sum of individual request totals for that minute, not the cumulative session total: requests of 370k and 17k in consecutive minutes produce bars of 370k and 17k and a session total of 387k. Compact numbers preserve significant zeroes (`170k` stays `170k`, not `17k`).
+Each refresh reads one consistent database snapshot, so the chart and session/project totals cannot mix records from before and after an incoming usage update. Chart buckets contain the sum of individual request totals for that minute, not the cumulative session total: requests of 370k and 17k in consecutive minutes produce chart values of 370k and 17k in the selected style, and a session total of 387k. Compact numbers preserve significant zeroes (`170k` stays `170k`, not `17k`).
 
 Section dividers separate token rate, session summaries, both history sections, and account allowances. Every section has a blank separator row in Compact and Details modes; Details also separates model, history, and provider entries for readability. Each history section has its own heading and Tokens total row. In Details, provider totals under Current/Previous session and history Tokens totals use theme-colored headings with totals at the right. Model names retain normal text contrast; input/output and cache-read/write rows use the secondary theme color, like Reset credits. Compact mode avoids repeating the total for a single provider, hides history when the project has no recorded usage, and omits a nonexistent previous session.
 
