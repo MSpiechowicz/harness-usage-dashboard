@@ -103,11 +103,11 @@ class RemainingAllowanceTests(unittest.TestCase):
     def test_empty_token_chart_keeps_axes_and_full_width(self):
         rows = token_chart([0] * 20, 32)
         texts = [text for text, _style in rows]
-        self.assertIn('No activity in the last 20m', texts)
-        self.assertEqual(texts[1], '')
-        self.assertTrue(any('│' in text for text in texts))
-        self.assertTrue(any('└' in text and '─' in text for text in texts))
-        self.assertTrue(all(len(text) == 32 for text in texts[2:]))
+        self.assertIn('No activity in the last 20m', texts[0])
+        self.assertTrue(all('│' in text for text in texts[1:7]))
+        self.assertEqual(texts[7], '   0 └' + '─' * 26)
+        self.assertTrue(all(len(text) == 32 for text in texts[1:]))
+
     def test_active_token_chart_keeps_one_margin_row_before_chart(self):
         rows = token_chart([0, 1, 2], 32)
         texts = [text for text, _style in rows]
@@ -131,8 +131,8 @@ class RemainingAllowanceTests(unittest.TestCase):
                                 if not any(values):
                                     self.assertIn('No activity', rows[0][0])
                                     self.assertIn('20m', rows[0][0])
-                                first = 2 if mode != 'trace' and not any(values) else 1
-                                count = 6 if mode == 'trace' else 4
+                                first = 1
+                                count = 6
                                 plot = rows[first:first + count]
                                 baseline = rows[first + count][0]
                                 labels = rows[first + count + 1][0]
@@ -166,14 +166,14 @@ class RemainingAllowanceTests(unittest.TestCase):
                     dots = token_chart(values, width, 'dots')
                     trace = token_chart(values, width, 'trace')
                     self.assertEqual(bars, token_chart(values, width))
-                    self.assertEqual(len(bars), 7)
-                    self.assertEqual(len(dots), 7)
+                    self.assertEqual(len(bars), 9)
+                    self.assertEqual(len(dots), 9)
                     self.assertEqual(len(trace), 10)
                     self.assertEqual(bars[1][0][:4], '  1k')
                     self.assertEqual(dots[1][0][:4], '  1k')
                     self.assertTrue(any('█' in text for text, _ in bars))
                     self.assertTrue(all(set(text.split('│', 1)[1]) <= {' ', '●'}
-                                        for text, _ in dots[1:5]))
+                                        for text, _ in dots[1:7]))
                     self.assertTrue(any('⠁' <= char <= '⣿'
                                         for text, _ in trace[1:7] for char in text))
                     for rows in (bars, dots, trace):
@@ -200,7 +200,7 @@ class RemainingAllowanceTests(unittest.TestCase):
                 for offset, bit in enumerate(bits)
                 if (ord(cell) - 0x2800) & bit}
 
-    def test_trace_connects_samples_through_zero_and_reaches_both_edges(self):
+    def test_trace_connects_nonzero_samples_and_leaves_zero_baseline_clear(self):
         values = [0, 1, 4, 0, 30, 70, 120, 20, 0, 1,
                   1000, 40, 10, 0, 500, 60, 90, 0, 2, 200]
         rows = token_chart(values, 32, 'trace')
@@ -208,35 +208,100 @@ class RemainingAllowanceTests(unittest.TestCase):
         self.assertEqual([row[0][5] for row in rows[1:7]], ['│'] * 6)
         self.assertTrue(all(row[1] == ('secondary', 6, 32, 'chart')
                             for row in rows[1:7]))
-        for x, expected_y in ((0, 23), (8, 23), (21, 23), (27, 0),
-                              (35, 23), (38, 11), (46, 23), (51, 18)):
+        for x, expected_y in ((3, 23), (5, 23), (27, 0),
+                              (38, 12), (48, 23), (51, 18)):
             with self.subTest(x=x, y=expected_y):
                 self.assertTrue(any((x, y) in pixels
                                     for y in range(max(0, expected_y - 1),
                                                    min(23, expected_y + 1) + 1)))
-        self.assertEqual({x for x, _ in pixels}, set(range(52)))
-        # A continuous trace has no isolated painted region, including zero crossings.
-        visited = {(0, 23)}
-        frontier = [(0, 23)]
-        while frontier:
-            x, y = frontier.pop()
-            neighbors = {(x + dx, y + dy) for dx in (-1, 0, 1)
-                         for dy in (-1, 0, 1)}
-            fresh = (neighbors & pixels) - visited
-            visited.update(fresh)
-            frontier.extend(fresh)
-        self.assertEqual(visited, pixels)
+        self.assertFalse(any(x == 0 for x, _ in pixels))
+        # Adjacent positive samples retain a connected, column-spanning rise and fall.
+        self.assertTrue(all(any((x, y) in pixels for y in range(24))
+                            for x in range(24, 33)))
+
+    def test_trace_zero_runs_do_not_draw_a_second_horizontal_baseline(self):
+        values = [0] * 5 + [1000] + [0] * 14
+        rows = token_chart(values, 32, 'trace')
+        pixels = self.trace_pixels(rows)
+        self.assertIn((13, 0), pixels)
+        self.assertTrue(all(10 < x < 17 for x, _ in pixels))
+        self.assertTrue(any(y > 0 for _, y in pixels))
+        self.assertFalse(any(y == 23 for _, y in pixels))
+        self.assertEqual(rows[7][0], '   0 └' + '─' * 26)
+
+    def test_trace_steep_transitions_leave_zero_sample_columns_unpainted(self):
+        values = [0] * 5 + [1000] + [0] * 14
+        pixels = self.trace_pixels(token_chart(values, 32, 'trace'))
+        self.assertFalse(any(x in (11, 16) for x, _ in pixels))
+        self.assertTrue(all(any(x == slope_x for x, _ in pixels)
+                            for slope_x in (12, 13, 14, 15)))
+        self.assertIn((13, 0), pixels)
+
+    def test_trace_overlapping_zero_and_positive_samples_only_mark_positive(self):
+        rows = token_chart([0, 1000, 0, 0, 0], 7, 'trace')
+        pixels = self.trace_pixels(rows)
+        self.assertEqual(pixels, {(0, 0)})
+
+    def test_trace_tiny_positive_reaches_bottom_plot_subpixel_without_zero_runs(self):
+        values = [0] * 5 + [1000, 1] + [0] * 13
+        pixels = self.trace_pixels(token_chart(values, 32, 'trace'))
+        self.assertIn((16, 23), pixels)
+        self.assertFalse(any((x, 23) in pixels for x in range(17, 52)))
+        self.assertFalse(any((x, 23) in pixels for x in range(0, 12)))
+
+        positive_run = [0] * 5 + [1000, 1, 1] + [0] * 12
+        pixels = self.trace_pixels(token_chart(positive_run, 32, 'trace'))
+        self.assertTrue(all((x, 23) in pixels for x in range(16, 20)))
+        self.assertFalse(any((x, 23) in pixels for x in range(20, 52)))
+
+    def test_ascii_trace_zero_runs_are_clear_at_narrow_widths(self):
+        values = [0] * 5 + [1000] + [0] * 14
+        with patch.object(sys, 'stdout', io.TextIOWrapper(io.BytesIO(), encoding='ascii')):
+            for width in (20, 30, 32):
+                with self.subTest(width=width):
+                    rows = token_chart(values, width, 'trace')
+                    plot = [text[6:] for text, _ in rows[1:7]]
+                    self.assertTrue(all(text.isascii() and len(text) == width
+                                        for text, _ in rows[1:]))
+                    self.assertTrue(all(line[:2].strip() == '' and line[11:].strip() == ''
+                                        for line in plot))
+                    self.assertTrue(any(char in '/\\|' for line in plot for char in line))
+                    if width == 32:
+                        self.assertTrue(all(line[5] == line[8] == ' '
+                                            for line in plot))
+                    self.assertEqual(rows[7][0], '   0 +' + '-' * (width - 6))
+
+
+    def test_bars_and_dots_show_tiny_positive_and_peak_on_six_rows(self):
+        values = [1] + [0] * 18 + [48]
+        for encoding, vertical, dot, fraction in (
+            ('utf-8', '│', '●', '▁'),
+            ('ascii', '|', 'o', '.'),
+        ):
+            with patch.object(sys, 'stdout', io.TextIOWrapper(io.BytesIO(), encoding=encoding)):
+                dots = [text for text, _ in token_chart(values, 32, 'dots')]
+                bars = [text for text, _ in token_chart(values, 32, 'bars')]
+            with self.subTest(encoding=encoding):
+                self.assertEqual(dots[1][6:], ' ' * 25 + dot)
+                self.assertEqual(dots[6][6], dot)
+                self.assertEqual(bars[1][5], vertical)
+                self.assertEqual(bars[6][6], fraction)
+                self.assertEqual(bars[1][6:], ' ' * 25 + ('█' if encoding == 'utf-8' else '@'))
+                self.assertEqual(bars[7][5], '└' if encoding == 'utf-8' else '+')
 
     def test_trace_peak_is_linear_and_segment_has_no_missing_columns(self):
         values = [0, 500, 1000, 500] + [0] * 16
         rows = token_chart(values, 32, 'trace')
         pixels = self.trace_pixels(rows)
         self.assertEqual(rows[1][0][:4], '  1k')
-        self.assertIn((0, 23), pixels)
         self.assertIn((5, 0), pixels)
         self.assertTrue(any((3, y) in pixels for y in (11, 12)))
-        self.assertTrue(any((11, y) in pixels for y in (22, 23)))
-        self.assertEqual({x for x, _ in pixels}, set(range(52)))
+        self.assertTrue(any((10, y) in pixels for y in range(12, 23)))
+        columns = {x for x, _ in pixels}
+        self.assertTrue(set(range(1, 11)) <= columns)
+        self.assertEqual(columns, set(range(min(columns), max(columns) + 1)))
+        self.assertTrue(columns <= set(range(12)))
+        self.assertFalse(any(y == 23 for _, y in pixels))
         self.assertEqual(rows[9][0].strip(), 'Peak 1k / now 0 tok/min')
 
 
