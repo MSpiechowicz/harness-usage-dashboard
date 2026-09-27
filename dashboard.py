@@ -696,10 +696,12 @@ def chart_idle_message(minutes, width):
 
 
 def trace_plot(values, peak, columns, unicode):
-    """Rasterize adjacent minute samples into a bounded 2x4-dot character grid."""
+    """Rasterize nonzero minute samples into a bounded 2x4-dot character grid."""
     grid = [[0] * columns for _ in range(6)]
     if peak:
         max_x = columns * 2 - 1
+        # Row 23 touches the axis; zero endpoints stay clear, but positive
+        # samples rounded to this row still need their bottom Braille dot.
         points = [(round(index * max_x / max(1, len(values) - 1)),
                    23 - round(value * 23 / peak))
                   for index, value in enumerate(values)]
@@ -708,14 +710,31 @@ def trace_plot(values, peak, columns, unicode):
         def mark(x, y):
             grid[y // 4][x // 2] |= bits[x % 2][y % 4]
 
-        if points:
+        if values and values[0]:
             mark(*points[0])
-        for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        for ((x0, y0), value0), ((x1, y1), value1) in zip(
+                zip(points, values), zip(points[1:], values[1:])):
+            if not value0 and not value1:
+                continue
+            if x0 == x1 and (not value0 or not value1):
+                if value0:
+                    mark(x0, y0)
+                if value1:
+                    mark(x1, y1)
+                continue
+            if y0 == y1 == 23 and (not value0 or not value1):
+                if value1:
+                    mark(x1, y1)
+                continue
             steps = max(abs(x1 - x0), abs(y1 - y0))
             for step in range(1, steps + 1):
-                mark(round(x0 + (x1 - x0) * step / steps),
-                     round(y0 + (y1 - y0) * step / steps))
-
+                x = round(x0 + (x1 - x0) * step / steps)
+                y = round(y0 + (y1 - y0) * step / steps)
+                # A zero sample owns its x coordinate, even when a steep
+                # interpolation reaches that column above the baseline.
+                if (not value0 and x == x0) or (not value1 and x == x1):
+                    continue
+                mark(x, y)
     if unicode:
         return [''.join(chr(0x2800 + mask) for mask in row) for row in grid]
 
@@ -787,26 +806,22 @@ def token_chart(values, width, chart_type='bars'):
     bins = [max(values[i * len(values) // columns:max(i * len(values) // columns + 1,
                 (i + 1) * len(values) // columns)], default=0) for i in range(columns)]
     if peak and chart_type == 'dots':
-        grid = [[' '] * columns for _ in range(4)]
+        grid = [[' '] * columns for _ in range(6)]
         for x, value in enumerate(bins):
             if value:
-                grid[4 - math.ceil(value * 4 / peak)][x] = '●' if unicode else 'o'
+                grid[6 - math.ceil(value * 6 / peak)][x] = '●' if unicode else 'o'
         plot = [''.join(row) for row in grid]
     else:
-        heights = ([math.ceil(value * 32 / peak) if value else 0 for value in bins]
+        heights = ([math.ceil(value * 48 / peak) if value else 0 for value in bins]
                    if peak else [0] * columns)
-    rows = []
-    if peak:
-        rows.append(('', 'dim'))
-    else:
-        rows.extend(((chart_idle_message(len(values), width), 'dim'),
-                     ('', 'dim')))
-    for row in range(4):
+    rows = [(('', 'dim') if peak else
+             (chart_idle_message(len(values), width), 'dim'))]
+    for row in range(6):
         label = scale if peak and row == 0 else ''
         if peak and chart_type == 'dots':
             bars = plot[row]
         else:
-            bars = ''.join(blocks[min(8, max(0, height - (3 - row) * 8))] for height in heights)
+            bars = ''.join(blocks[min(8, max(0, height - (5 - row) * 8))] for height in heights)
         text = label.rjust(axis) + ' ' + vertical + bars
         rows.append((text, ('secondary', axis + 2, len(text) if peak else axis + 2, 'chart')))
     rows.append(('0'.rjust(axis) + ' ' + corner + horizontal * columns, 'secondary'))
