@@ -688,20 +688,13 @@ def command_box_rows(count, interval, position, width):
     ]
 
 
-def chart_idle_message(minutes, width):
-    message = f'No activity in the last {minutes}m'
-    if len(message) > width:
-        message = f'No activity ({minutes}m)'
-    return message
-
-
 def trace_plot(values, peak, columns, unicode):
     """Rasterize nonzero minute samples into a bounded 2x4-dot character grid."""
     grid = [[0] * columns for _ in range(6)]
     if peak:
         max_x = columns * 2 - 1
-        # Row 23 touches the axis; zero endpoints stay clear, but positive
-        # samples rounded to this row still need their bottom Braille dot.
+        # Row 23 touches the axis; draw zero endpoints only when they border
+        # activity, leaving all-zero stretches unpainted.
         points = [(round(index * max_x / max(1, len(values) - 1)),
                    23 - round(value * 23 / peak))
                   for index, value in enumerate(values)]
@@ -716,24 +709,13 @@ def trace_plot(values, peak, columns, unicode):
                 zip(points, values), zip(points[1:], values[1:])):
             if not value0 and not value1:
                 continue
-            if x0 == x1 and (not value0 or not value1):
-                if value0:
-                    mark(x0, y0)
-                if value1:
-                    mark(x1, y1)
-                continue
-            if y0 == y1 == 23 and (not value0 or not value1):
-                if value1:
-                    mark(x1, y1)
-                continue
             steps = max(abs(x1 - x0), abs(y1 - y0))
-            for step in range(1, steps + 1):
+            if not steps:
+                mark(x1, y1)
+                continue
+            for step in range(steps + 1):
                 x = round(x0 + (x1 - x0) * step / steps)
                 y = round(y0 + (y1 - y0) * step / steps)
-                # A zero sample owns its x coordinate, even when a steep
-                # interpolation reaches that column above the baseline.
-                if (not value0 and x == x0) or (not value1 and x == x1):
-                    continue
                 mark(x, y)
     if unicode:
         return [''.join(chr(0x2800 + mask) for mask in row) for row in grid]
@@ -766,8 +748,7 @@ def trace_chart(values, width):
         vertical, corner, horizontal = '|', '+', '-'
 
     plot = trace_plot(values, peak, columns, unicode)
-    rows = [(('', 'dim') if peak else
-             (chart_idle_message(len(values), width), 'dim'))]
+    rows = [('', 'dim')]
     for row, graphic in enumerate(plot):
         label = scale if peak and row == 0 else ''
         text = label.rjust(axis) + ' ' + vertical + graphic
@@ -776,13 +757,6 @@ def trace_chart(values, width):
     rows.append(('0'.rjust(axis) + ' ' + corner + horizontal * columns, 'secondary'))
     labels = f'-{len(values)}m'.ljust(max(0, columns - 3)) + 'now'
     rows.append((' ' * (axis + 2) + labels, 'secondary'))
-    latest = format_tokens(values[-1]) if values else '0'
-    summary = f'Peak {scale} / now {latest} tok/min'
-    if len(summary) + 1 > width:
-        summary = f'Peak {scale} / now {latest}'
-    if len(summary) + 1 > width:
-        summary = f'P {scale} / N {latest}'
-    rows.append((' ' + summary.ljust(max(0, width - 1)), 'secondary'))
     return rows
 
 
@@ -814,8 +788,7 @@ def token_chart(values, width, chart_type='bars'):
     else:
         heights = ([math.ceil(value * 48 / peak) if value else 0 for value in bins]
                    if peak else [0] * columns)
-    rows = [(('', 'dim') if peak else
-             (chart_idle_message(len(values), width), 'dim'))]
+    rows = [('', 'dim')]
     for row in range(6):
         label = scale if peak and row == 0 else ''
         if peak and chart_type == 'dots':
