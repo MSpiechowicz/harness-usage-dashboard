@@ -752,8 +752,7 @@ def trace_chart(values, width):
         end = len(text) - 1 if peak else axis + 1
         rows.append((text, ('secondary', axis + 1, end, 'chart')))
 
-    bracket = (' ' * (axis + 1) + left + horizontal * max(0, columns - 2)
-               + right + ' ')
+    bracket = ' ' * axis + left + horizontal * columns + right
     rows.append((bracket, 'secondary'))
     labels = f'-{len(values)}m'.ljust(max(0, columns - 3)) + 'now'
     rows.append((' ' * (axis + 1) + labels + ' ', 'secondary'))

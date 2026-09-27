@@ -213,6 +213,29 @@ class RemainingAllowanceTests(unittest.TestCase):
                         self.assertNotEqual(middle, baseline)
                         self.assertTrue(all(len(text) == width for text, _ in rows[1:]))
 
+    def test_trace_bottom_bracket_aligns_with_plot_rails(self):
+        for encoding, vertical, corner, horizontal in (
+            ('utf-8', '│', ('└', '┘'), '─'),
+            ('ascii', '|', ('+', '+'), '-'),
+        ):
+            with patch.object(sys, 'stdout', io.TextIOWrapper(io.BytesIO(), encoding=encoding)):
+                for width in (20, 32):
+                    for values in ([0, 113_000, 500, 0] + [0] * 16, [0] * 20):
+                        with self.subTest(encoding=encoding, width=width,
+                                          active=any(values)):
+                            rows = token_chart(values, width, 'trace')
+                            plot = [text for text, _ in rows[1:7]]
+                            bracket = rows[7][0]
+                            left = plot[0].index(vertical)
+                            right = plot[0].rindex(vertical)
+                            self.assertTrue(all(line.index(vertical) == left
+                                                and line.rindex(vertical) == right
+                                                for line in plot))
+                            self.assertEqual(bracket, ' ' * left + corner[0]
+                                             + horizontal * (right - left - 1)
+                                             + corner[1])
+                            self.assertEqual(len(bracket), width)
+
     def test_trace_idle_is_empty_but_retains_honest_labels(self):
         with patch.object(sys, 'stdout', io.TextIOWrapper(io.BytesIO(), encoding='utf-8')):
             rows = token_chart([0] * 20, 32, 'trace')
