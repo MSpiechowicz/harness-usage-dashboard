@@ -31,7 +31,7 @@ SOCKET_NAME = 'omp-usage'
 NAMES = {**{value: key.upper() for key, value in ALIASES.items()}, 'anthropic': 'CLAUDE'}
 BAR_GLYPHS = '▁▂▃▄▅▆▇█│└─┌┐┘'
 CHART_GLYPHS = frozenset(BAR_GLYPHS + '●')
-TRACE_GLYPHS = '│└─┘' + ''.join(chr(code) for code in range(0x2800, 0x2900))
+TRACE_GLYPHS = '│└─' + ''.join(chr(code) for code in range(0x2800, 0x2900))
 COMMAND_BOX_HEIGHT = 5
 # A suspended terminal can leave the dashboard loop asleep while provider jobs
 # continue to hold old results. Restart them when the loop resumes.
@@ -688,6 +688,13 @@ def command_box_rows(count, interval, position, width):
     ]
 
 
+def chart_idle_message(minutes, width):
+    message = f'No activity in the last {minutes}m'
+    if len(message) > width:
+        message = f'No activity ({minutes}m)'
+    return message
+
+
 def trace_plot(values, peak, columns, unicode):
     """Rasterize adjacent minute samples into a bounded 2x4-dot character grid."""
     grid = [[0] * columns for _ in range(6)]
@@ -729,33 +736,27 @@ def trace_plot(values, peak, columns, unicode):
 def trace_chart(values, width):
     peak = max(values, default=0)
     scale = format_tokens(peak) if peak else '0'
-    if isinstance(peak, int) and 0 < peak < 2_000 and peak % 2:
-        middle = f'{peak // 2}.5'
-    else:
-        middle = format_tokens(peak / 2) if peak else '0'
-    axis = max(4, len(scale), len(middle))
+    axis = max(4, len(scale))
     columns = max(1, width - axis - 2)
     try:
         TRACE_GLYPHS.encode(sys.stdout.encoding or 'ascii')
         unicode = True
-        vertical, left, horizontal, right = '│', '└', '─', '┘'
+        vertical, corner, horizontal = '│', '└', '─'
     except UnicodeEncodeError:
         unicode = False
-        vertical, left, horizontal, right = '|', '+', '-', '+'
+        vertical, corner, horizontal = '|', '+', '-'
 
     plot = trace_plot(values, peak, columns, unicode)
     rows = [(('', 'dim') if peak else
-             (f'No activity in the last {len(values)}m', 'dim'))]
+             (chart_idle_message(len(values), width), 'dim'))]
     for row, graphic in enumerate(plot):
-        label = scale if row == 0 else middle if row == 3 else '0' if row == 5 else ''
-        text = label.rjust(axis) + vertical + graphic + vertical
-        end = len(text) - 1 if peak else axis + 1
-        rows.append((text, ('secondary', axis + 1, end, 'chart')))
+        label = scale if peak and row == 0 else ''
+        text = label.rjust(axis) + ' ' + vertical + graphic
+        rows.append((text, ('secondary', axis + 2, len(text) if peak else axis + 2, 'chart')))
 
-    bracket = ' ' * axis + left + horizontal * columns + right
-    rows.append((bracket, 'secondary'))
+    rows.append(('0'.rjust(axis) + ' ' + corner + horizontal * columns, 'secondary'))
     labels = f'-{len(values)}m'.ljust(max(0, columns - 3)) + 'now'
-    rows.append((' ' * (axis + 1) + labels + ' ', 'secondary'))
+    rows.append((' ' * (axis + 2) + labels, 'secondary'))
     latest = format_tokens(values[-1]) if values else '0'
     summary = f'Peak {scale} / now {latest} tok/min'
     if len(summary) + 1 > width:
@@ -798,20 +799,16 @@ def token_chart(values, width, chart_type='bars'):
     if peak:
         rows.append(('', 'dim'))
     else:
-        rows.extend(((f'No activity in the last {len(values)}m', 'dim'),
+        rows.extend(((chart_idle_message(len(values), width), 'dim'),
                      ('', 'dim')))
     for row in range(4):
-        label = scale if row == 0 else ''
+        label = scale if peak and row == 0 else ''
         if peak and chart_type == 'dots':
             bars = plot[row]
         else:
             bars = ''.join(blocks[min(8, max(0, height - (3 - row) * 8))] for height in heights)
         text = label.rjust(axis) + ' ' + vertical + bars
-        if peak:
-            rows.append((text, ('secondary', axis + 2, len(text), 'chart')))
-        else:
-            # Keep trailing cells so the vertical axis reaches the pane edge.
-            rows.append((text, ('secondary', axis + 2, axis + 2, 'chart')))
+        rows.append((text, ('secondary', axis + 2, len(text) if peak else axis + 2, 'chart')))
     rows.append(('0'.rjust(axis) + ' ' + corner + horizontal * columns, 'secondary'))
     labels = f'-{len(values)}m'.ljust(max(0, columns - 3)) + 'now'
     rows.append((' ' * (axis + 2) + labels, 'secondary'))

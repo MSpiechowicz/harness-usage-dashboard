@@ -114,6 +114,48 @@ class RemainingAllowanceTests(unittest.TestCase):
         self.assertEqual(texts[0], '')
         self.assertIn('│', texts[1])
 
+    def test_chart_axes_share_one_baseline_and_time_origin(self):
+        active = [0] * 10 + [1000] + [0] * 9
+        for encoding, vertical, corner, horizontal in (
+            ('utf-8', '│', '└', '─'),
+            ('ascii', '|', '+', '-'),
+        ):
+            with patch.object(sys, 'stdout', io.TextIOWrapper(io.BytesIO(), encoding=encoding)):
+                for width in (20, 30, 32):
+                    for values in (active, [0] * 20):
+                        for mode in CHART_TYPES:
+                            with self.subTest(encoding=encoding, width=width,
+                                              active=any(values), mode=mode):
+                                rows = token_chart(values, width, mode)
+                                self.assertLessEqual(len(rows[0][0]), width)
+                                if not any(values):
+                                    self.assertIn('No activity', rows[0][0])
+                                    self.assertIn('20m', rows[0][0])
+                                first = 2 if mode != 'trace' and not any(values) else 1
+                                count = 6 if mode == 'trace' else 4
+                                plot = rows[first:first + count]
+                                baseline = rows[first + count][0]
+                                labels = rows[first + count + 1][0]
+                                self.assertTrue(all(text[5] == vertical and len(text) == width
+                                                    for text, _ in plot))
+                                self.assertEqual(plot[0][0][:4], '  1k' if any(values) else '    ')
+                                self.assertTrue(all(text[:4] == '    ' for text, _ in plot[1:]))
+                                self.assertEqual(baseline, '   0 ' + corner
+                                                 + horizontal * (width - 6))
+                                self.assertEqual(labels, ' ' * 6
+                                                 + '-20m'.ljust(width - 9) + 'now')
+                                self.assertEqual(sum(text[:4].strip() == '0'
+                                                     for text, _ in plot), 0)
+                                self.assertEqual(len(baseline), width)
+                                self.assertEqual(len(labels), width)
+                                end = width if any(values) else 6
+                                self.assertTrue(all(style == ('secondary', 6, end, 'chart')
+                                                    for _text, style in plot))
+                                if mode == 'trace':
+                                    self.assertNotEqual(plot[-1][0][-1], vertical)
+                                    self.assertEqual(baseline[-1], horizontal)
+
+
     def test_chart_views_keep_bars_and_dots_and_fit_narrow_panes(self):
         values = [0, 1, 4, 0, 30, 70, 120, 20, 0, 1,
                   1000, 40, 10, 0, 500, 60, 90, 0, 2, 200]
@@ -143,8 +185,8 @@ class RemainingAllowanceTests(unittest.TestCase):
                                 self.assertLessEqual(style[2], len(text))
                             self.assertEqual(clean(text), text)
                     self.assertEqual(trace[1][0][:4], '  1k')
-                    self.assertEqual(trace[4][0][:4], ' 500')
-                    self.assertEqual(trace[6][0][:4], '   0')
+                    self.assertEqual(trace[4][0][:4], '    ')
+                    self.assertEqual(trace[7][0][:4], '   0')
                     self.assertTrue(trace[8][0].strip().endswith('now'))
                     self.assertIn('Peak 1k / now 200', trace[9][0])
 
@@ -153,7 +195,7 @@ class RemainingAllowanceTests(unittest.TestCase):
         dots = ((1, 2, 4, 64), (8, 16, 32, 128))
         return {(2 * x + side, 4 * y + offset)
                 for y, (line, _) in enumerate(rows[1:7])
-                for x, cell in enumerate(line[5:-1])
+                for x, cell in enumerate(line[6:])
                 for side, bits in enumerate(dots)
                 for offset, bit in enumerate(bits)
                 if (ord(cell) - 0x2800) & bit}
@@ -163,8 +205,9 @@ class RemainingAllowanceTests(unittest.TestCase):
                   1000, 40, 10, 0, 500, 60, 90, 0, 2, 200]
         rows = token_chart(values, 32, 'trace')
         pixels = self.trace_pixels(rows)
-        self.assertEqual([row[0][4] for row in rows[1:7]], ['│'] * 6)
-        self.assertEqual([row[0][-1] for row in rows[1:7]], ['│'] * 6)
+        self.assertEqual([row[0][5] for row in rows[1:7]], ['│'] * 6)
+        self.assertTrue(all(row[1] == ('secondary', 6, 32, 'chart')
+                            for row in rows[1:7]))
         for x, expected_y in ((0, 23), (8, 23), (21, 23), (27, 0),
                               (35, 23), (38, 11), (46, 23), (51, 18)):
             with self.subTest(x=x, y=expected_y):
@@ -188,7 +231,7 @@ class RemainingAllowanceTests(unittest.TestCase):
         values = [0, 500, 1000, 500] + [0] * 16
         rows = token_chart(values, 32, 'trace')
         pixels = self.trace_pixels(rows)
-        self.assertEqual(rows[4][0][:4], ' 500')
+        self.assertEqual(rows[1][0][:4], '  1k')
         self.assertIn((0, 23), pixels)
         self.assertIn((5, 0), pixels)
         self.assertTrue(any((3, y) in pixels for y in (11, 12)))
@@ -196,53 +239,14 @@ class RemainingAllowanceTests(unittest.TestCase):
         self.assertEqual({x for x, _ in pixels}, set(range(52)))
         self.assertEqual(rows[9][0].strip(), 'Peak 1k / now 0 tok/min')
 
-    def test_trace_midpoint_axis_labels_match_small_odd_peaks(self):
-        with patch.object(sys, 'stdout', io.TextIOWrapper(io.BytesIO(), encoding='utf-8')):
-            for width in (20, 32):
-                for peak, expected_top, expected_middle in (
-                    (1, '1', '0.5'), (3, '3', '1.5'), (1999, '2k', '999.5'),
-                    (2, '2', '1'), (1000, '1k', '500'), (2001, '2k', '1k')
-                ):
-                    with self.subTest(width=width, peak=peak):
-                        rows = token_chart([0, peak], width, 'trace')
-                        top, middle, baseline = (rows[index][0].split('│', 1)[0].strip()
-                                                 for index in (1, 4, 6))
-                        self.assertEqual(top, expected_top)
-                        self.assertEqual(middle, expected_middle)
-                        self.assertEqual(baseline, '0')
-                        self.assertNotEqual(middle, baseline)
-                        self.assertTrue(all(len(text) == width for text, _ in rows[1:]))
-
-    def test_trace_bottom_bracket_aligns_with_plot_rails(self):
-        for encoding, vertical, corner, horizontal in (
-            ('utf-8', '│', ('└', '┘'), '─'),
-            ('ascii', '|', ('+', '+'), '-'),
-        ):
-            with patch.object(sys, 'stdout', io.TextIOWrapper(io.BytesIO(), encoding=encoding)):
-                for width in (20, 32):
-                    for values in ([0, 113_000, 500, 0] + [0] * 16, [0] * 20):
-                        with self.subTest(encoding=encoding, width=width,
-                                          active=any(values)):
-                            rows = token_chart(values, width, 'trace')
-                            plot = [text for text, _ in rows[1:7]]
-                            bracket = rows[7][0]
-                            left = plot[0].index(vertical)
-                            right = plot[0].rindex(vertical)
-                            self.assertTrue(all(line.index(vertical) == left
-                                                and line.rindex(vertical) == right
-                                                for line in plot))
-                            self.assertEqual(bracket, ' ' * left + corner[0]
-                                             + horizontal * (right - left - 1)
-                                             + corner[1])
-                            self.assertEqual(len(bracket), width)
 
     def test_trace_idle_is_empty_but_retains_honest_labels(self):
         with patch.object(sys, 'stdout', io.TextIOWrapper(io.BytesIO(), encoding='utf-8')):
             rows = token_chart([0] * 20, 32, 'trace')
         self.assertIn('No activity in the last 20m', rows[0][0])
-        self.assertTrue(all(set(text[5:-1]) == {'⠀'} for text, _ in rows[1:7]))
+        self.assertTrue(all(set(text[6:]) == {'⠀'} for text, _ in rows[1:7]))
         self.assertEqual(rows[9][0].strip(), 'Peak 0 / now 0 tok/min')
-        self.assertEqual(rows[6][0][:4], '   0')
+        self.assertEqual(rows[7][0][:4], '   0')
         self.assertEqual(clean('⣀⡇⠤⠀'), '⣀⡇⠤⠀')
         self.assertEqual(clean('░╱▓'), '???')
 
@@ -257,7 +261,7 @@ class RemainingAllowanceTests(unittest.TestCase):
                         self.assertTrue(all(len(text) == width for text, _ in rows[1:]))
                         self.assertIn('now', rows[-2][0] if mode == 'trace' else rows[-1][0])
                         if mode == 'trace':
-                            plot = [text[5:-1] for text, _ in rows[1:7]]
+                            plot = [text[6:] for text, _ in rows[1:7]]
                             self.assertTrue(any('/' in row or '\\' in row for row in plot))
                             self.assertTrue(any('|' in row for row in plot))
                             self.assertTrue(all(any(plot[y][x] != ' ' for y in range(6))
@@ -275,7 +279,7 @@ class RemainingAllowanceTests(unittest.TestCase):
                                 frontier.extend(fresh)
                             self.assertEqual(visited, cells)
                             idle = token_chart([0] * 20, width, mode)
-                            self.assertTrue(all(text[5:-1].strip() == ''
+                            self.assertTrue(all(text[6:].strip() == ''
                                                 for text, _ in idle[1:7]))
                         else:
                             self.assertTrue(any(marker in ''.join(text for text, _ in rows)
