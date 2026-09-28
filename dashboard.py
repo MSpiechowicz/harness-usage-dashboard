@@ -1206,6 +1206,9 @@ def launch(args, omp_args):
             extension=extension_path(args.profile) if adapter.launch_policy == 'omp-extension' and not native else None,
             binary=getattr(args, f'{host}_binary', None),
             status_path=status_path)
+        if adapter.launch_policy == 'omp-extension':
+            # This detached pane cannot see client capabilities until attach-session.
+            command = [sys.executable, str(ROOT / 'launcher.py'), '--await-client', '--', *command]
         # A fresh server inherits credentials without embedding them in pane command strings.
         owner = mux('new-session', '-d', '-s', session, '-x', str(size.columns), '-y', str(size.lines),
                     '-c', os.getcwd(), '-P', '-F', '#{pane_id}', shlex.join(command))
