@@ -96,6 +96,7 @@ COMMANDS = {
     'providers': ('add', 'remove', 'hide', 'show'),
     'theme': (*THEME_NAMES, 'custom', 'reset'),
     'window': ('on', 'off', 'focus', 'refresh', 'interval', 'hide', 'show'),
+    'images': ('on', 'off'),
 }
 THEME_OPTIONS = '|'.join(THEME_NAMES)
 CHART_OPTIONS = '|'.join(CHART_TYPES)
@@ -105,6 +106,11 @@ HELP = (f'/usage-dashboard: view list|compact|details; chart {CHART_OPTIONS}; '
         'theme custom TOKEN COLOR; theme reset; window on|off|focus|refresh; '
         'window interval SECONDS; window hide|show PROVIDER FILTER; commands hide|show; '
         'previous hide|show; history-other hide|show; history-total hide|show')
+OMP_HELP = HELP + '; images on|off'
+
+
+def help_text(host):
+    return OMP_HELP if host == 'omp' else HELP
 
 
 def resolve_tokens(config):
@@ -273,22 +279,162 @@ def owned_panes(owner, host='omp'):
 
 
 def disable_passthrough(target):
-    # Terminal graphics passthrough is not pane-local and can cover sibling panes.
+    # Claude and fresh dashboard sessions keep window-wide graphics passthrough off.
     mux('set-option', '-t', target, 'allow-passthrough', 'off')
+
+
+PLACEHOLDER_ON = {'1', 'true', 'on', 'yes', 'y'}
+PLACEHOLDER_OFF = {'0', 'false', 'off', 'no', 'n'}
+
+
+def image_environment_problem(env):
+    """Mirror OMP's Kitty Unicode-placeholder gate; anything unproven fails closed."""
+    forced = env.get('PI_FORCE_IMAGE_PROTOCOL', '').strip().lower()
+    if forced and forced != 'kitty':
+        return f'PI_FORCE_IMAGE_PROTOCOL={clean(forced)} selects a non-Kitty image mode'
+
+    no_placeholders = env.get('PI_NO_KITTY_PLACEHOLDERS', '').strip().lower() in PLACEHOLDER_ON
+    if no_placeholders or env.get('PI_KITTY_PLACEHOLDERS', '').strip().lower() in PLACEHOLDER_OFF:
+        return 'Kitty Unicode placeholders are disabled'
+
+    herdr = env.get('HERDR_ENV') == '1' or any(
+        env.get(name) for name in ('HERDR_PANE_ID', 'HERDR_TAB_ID', 'HERDR_WORKSPACE_ID'))
+    if herdr or env.get('STY') or env.get('ZELLIJ'):
+        return 'another terminal multiplexer wraps tmux'
+
+    if not (env.get('KITTY_WINDOW_ID') or env.get('GHOSTTY_RESOURCES_DIR')):
+        return 'no Ghostty or Kitty terminal was detected'
+    return None
+
+
+def image_tmux_problem(owner, host):
+    version = re.search(r'(\d+)\.(\d+)', mux('display-message', '-p', '#{version}'))
+    if not version or tuple(map(int, version.groups())) < (3, 3):
+        return 'tmux 3.3 or newer is required'
+
+    # Placeholders stay inside OMP's own cells, but OMP can fall back to direct
+    # placement for oversized images; do not risk covering unrelated panes.
+    owned = set(owned_panes(owner, host=host))
+    window = mux('list-panes', '-t', owner, '-F', '#{pane_id}').splitlines()
+    if any(pane != owner and pane not in owned for pane in window):
+        return 'other panes share this tmux window'
+    return None
+
+
+def pane_passthrough(pane):
+    # Without -A, tmux reports only a value set on this pane, not an inherited one.
+    return mux('show-options', '-p', '-v', '-q', '-t', pane, 'allow-passthrough') or None
+
+
+def owner_passthrough(owner, host):
+    """Return the dashboard's saved record for the owner pane and its current value."""
+    saved = mux('show-options', '-p', '-v', '-q', '-t', owner, pane_option(host, 'passthrough'))
+    return (json.loads(saved) if saved else None), pane_passthrough(owner)
+
+
+def external_edit(record, current):
+    if record is None or current == record.get('applied'):
+        return None
+    return f"this pane's allow-passthrough was set to {current or 'unset'} outside the dashboard"
+
+
+def set_owner_passthrough(owner, value, host, explicit=True):
+    """Set the owner pane value; return an external edit left in place, if any."""
+    record, current = owner_passthrough(owner, host)
+    # Only an explicit images command may replace a value someone else set.
+    edited = external_edit(record, current)
+    if edited and not explicit:
+        return edited
+
+    # Remember the owner's explicit pane value once so detach restores it exactly.
+    record = record or {'prior': current}
+    record['applied'] = value
+    mux('set-option', '-p', '-t', owner, pane_option(host, 'passthrough'), json.dumps(record))
+    if current != value:
+        mux('set-option', '-p', '-t', owner, 'allow-passthrough', value)
+    return None
+
+
+def restore_owner_passthrough(owner, host):
+    record, current = owner_passthrough(owner, host)
+    if record is None:
+        return
+
+    # A different current value is an external edit; leave it in place.
+    if not external_edit(record, current):
+        if record.get('prior') in ('on', 'off', 'all'):
+            mux('set-option', '-p', '-t', owner, 'allow-passthrough', record['prior'])
+        else:
+            mux('set-option', '-p', '-u', '-t', owner, 'allow-passthrough')
+    mux('set-option', '-p', '-u', '-t', owner, pane_option(host, 'passthrough'))
+
+
+def revoke_shared_images(owner, host):
+    """Turn applied owner images off once a foreign pane shares the OMP window."""
+    record, current = owner_passthrough(owner, host)
+    if not record or record.get('applied') != 'on' or current != 'on':
+        return
+
+    if image_tmux_problem(owner, host):
+        set_owner_passthrough(owner, 'off', host, explicit=False)
+
+
+def apply_images(owner, config, panes, host, explicit=False):
+    """Apply requested images to the OMP pane only.
+
+    Return why requested images are inactive and any external owner edit left in place.
+    """
+    for pane in panes:
+        mux('set-option', '-p', '-t', pane, 'allow-passthrough', 'off')
+
+    problem = None
+    if config['images_enabled']:
+        problem = image_environment_problem(os.environ) or image_tmux_problem(owner, host)
+    value = 'on' if config['images_enabled'] and not problem else 'off'
+    try:
+        edited = set_owner_passthrough(owner, value, host, explicit)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        if value == 'on':
+            try:
+                mux('set-option', '-p', '-t', owner, 'allow-passthrough', 'off')
+            except (OSError, subprocess.SubprocessError):
+                pass
+        raise
+    return problem, edited
+
+
+def image_status(config, owner, problem=None, edited=None):
+    requested = 'on' if config['images_enabled'] else 'off'
+    if owner and edited:
+        return f'Images {requested} requested but not applied: {edited}; left unchanged'
+    if not config['images_enabled']:
+        return 'Images off: OMP and sidebar graphics passthrough blocked' if owner else 'Images off'
+    if not owner:
+        return 'Images on requested: pending until OMP attaches the dashboard in tmux'
+    if problem:
+        return f'Images on requested but inactive: {problem}'
+    return ('Images on (best effort): new OMP image output can pass through this OMP pane. '
+            'Kitty Unicode placeholder images stay in OMP cells, but OMP direct placement '
+            '(no stable image ID, or over 297 cells) and other passthrough output can still '
+            'draw over the sidebar')
 
 
 def change_config(config, words, host='omp'):
     if words == ['init']:
         return config
     if len(words) < 2 or words[0] not in COMMANDS or words[1] not in COMMANDS[words[0]]:
-        raise ValueError(HELP)
+        raise ValueError(help_text(host))
     section, action, *params = words
     window_filter = section == 'window' and action in ('hide', 'show')
     count = (2 if window_filter else 2 if section == 'theme' and action == 'custom'
              else 1 if section == 'providers' or action == 'interval' else 0)
     if len(params) != count:
-        raise ValueError(HELP)
-    if section == 'providers':
+        raise ValueError(help_text(host))
+    if section == 'images':
+        if host != 'omp':
+            raise ValueError('Image passthrough is available only in OMP.')
+        config['images_enabled'] = action == 'on'
+    elif section == 'providers':
         provider = provider_id(params[0], host)
         if action in ('add', 'show'):
             if provider not in config['providers']:
@@ -336,11 +482,11 @@ def change_config(config, words, host='omp'):
     elif action == 'refresh':
         config['refresh'] = time.time_ns()
     elif action not in ('list', 'focus'):
-        raise ValueError(HELP)
+        raise ValueError(help_text(host))
     return config
 
 
-def describe(config):
+def describe(config, images=None):
     theme = config.get('theme', 'green')
     custom = config.get('tokens') or {}
     token_note = (' / custom ' + ', '.join(f'{name}={value}' for name, value in custom.items())
@@ -352,6 +498,8 @@ def describe(config):
              f"previous {'shown' if config['previous_visible'] else 'hidden'} / "
              f"history other sessions {'shown' if config['history_other_visible'] else 'hidden'} / "
              f"history total {'shown' if config['history_total_visible'] else 'hidden'}"]
+    if images:
+        lines.append(images)
     if not config['providers']:
         lines.extend(['Add at least one provider.', '/usage-dashboard providers add PROVIDER'])
     for provider in config['providers']:
@@ -368,32 +516,75 @@ def control(args, words):
         raise ValueError('Invalid dashboard pane identity.')
     if words == ['detach']:
         if owner:
-            disable_passthrough(owner)
-            for pane in owned_panes(owner, host=host):
-                mux('kill-pane', '-t', pane)
+            if host != 'omp':
+                disable_passthrough(owner)
+                for pane in owned_panes(owner, host=host):
+                    mux('kill-pane', '-t', pane)
+            else:
+                try:
+                    for pane in owned_panes(owner, host=host):
+                        mux('kill-pane', '-t', pane)
+                finally:
+                    # Give the owner pane its prior value back even if sidebar cleanup failed.
+                    restore_owner_passthrough(owner, host)
             mux('set-option', '-p', '-u', '-t', owner, pane_option(host, 'config'))
         return
     if not owner:
         old = defaults(args)
         config = change_config(json.loads(json.dumps(old)), words, host=host)
+        if words == ['images', 'on']:
+            problem = image_environment_problem(os.environ)
+            if problem:
+                raise ValueError(f'Images unavailable: {problem}. Images stay off.')
         changes = {key: config[key] for key in DEFAULTS if config[key] != old[key]}
         if words in (['window', 'on'], ['window', 'off']):
             changes['enabled'] = config['enabled']
         if changes:
             update_preferences(config['profile'], changes, host=host)
-        print(describe(config))
+        print(describe(config, image_status(config, None) if host == 'omp' else None))
         if config['enabled'] and words != ['view', 'list']:
             print(f'Saved. Run {host} through the installed shell integration to attach the sidebar.')
         return
-    old = load_config(owner, defaults(args), host=host)
+    try:
+        fallback = defaults(args)
+    except ValueError as error:
+        if words != ['images', 'off'] or host != 'omp':
+            raise
+        block_images(owner, host)
+        raise ValueError('Images are blocked in this OMP pane for now, but the saved preference '
+                         f'was not updated because the preferences are invalid: {error}') from error
+    old = load_config(owner, fallback, host=host)
     config = change_config(json.loads(json.dumps(old)), words, host=host)
     if words == ['view', 'list']:
-        print(describe(config))
+        images = None
+        if host == 'omp':
+            problem = None
+            if config['images_enabled']:
+                # Report the pane as it is now, not as it was when images were applied.
+                revoke_shared_images(owner, host)
+            record, current = owner_passthrough(owner, host)
+            if config['images_enabled']:
+                problem = image_environment_problem(os.environ) or image_tmux_problem(owner, host)
+            if config['images_enabled'] and not problem and current != 'on':
+                problem = 'the dashboard has not applied it to this pane yet'
+            images = image_status(config, owner, problem, external_edit(record, current))
+        print(describe(config, images))
         return
-    disable_passthrough(owner)
+    if words[0] == 'images':
+        change_images(owner, old, config, host)
+        return
+    if host != 'omp':
+        disable_passthrough(owner)
+    panes = owned_panes(owner, host=host)
+    images = None
+    if host == 'omp':
+        problem, edited = apply_images(owner, config, panes, host)
+        images = image_status(config, owner, problem, edited)
+        if words == ['init'] and (problem or edited):
+            # Startup control output is quiet; stderr surfaces as a warning.
+            print(images, file=sys.stderr)
     if words == ['window', 'focus'] and not config['enabled']:
         raise ValueError('Dashboard is off; use /usage-dashboard window on first.')
-    panes = owned_panes(owner, host=host)
     recreate = config['enabled'] and (not panes or old['side'] != config['side'])
     if recreate:
         width = int(mux('display-message', '-p', '-t', owner, '#{pane_width}'))
@@ -421,12 +612,65 @@ def control(args, words):
         if config['side'] == 'left':
             options.append('-b')
         pane = mux(*options, shlex.join(command))
+        if host == 'omp':
+            mux('set-option', '-p', '-t', pane, 'allow-passthrough', 'off')
         mux('set-option', '-p', '-t', pane, pane_option(host, 'owner'), owner)
         mux('select-pane', '-t', pane, '-T', f'{host.upper()} usage')
         panes = [pane]
     if words == ['window', 'focus'] and panes:
         mux('select-pane', '-t', panes[0])
-    print(describe(config))
+    print(describe(config, images))
+
+
+def block_images(owner, host):
+    """Block this owner's images without trusting unreadable saved preferences."""
+    apply_images(owner, {'images_enabled': False}, owned_panes(owner, host=host), host,
+                 explicit=True)
+    raw = mux('show-options', '-p', '-v', '-q', '-t', owner, pane_option(host, 'config'))
+    try:
+        live = json.loads(raw) if raw else None
+    except ValueError:
+        live = None
+    if isinstance(live, dict):
+        # Keep a later command in this pane from reapplying the old live request.
+        mux('set-option', '-p', '-t', owner, pane_option(host, 'config'),
+            json.dumps({**live, 'images_enabled': False}))
+
+
+def change_images(owner, old, config, host):
+    # Apply before persisting so a rejected or failed request never saves "on".
+    problem, _ = apply_images(owner, config, owned_panes(owner, host=host), host, explicit=True)
+    if problem:
+        raise ValueError(f'Images unavailable: {problem}. Images stay off.')
+
+    def undo_on():
+        try:
+            mux('set-option', '-p', '-t', owner, pane_option(host, 'config'), json.dumps(old))
+            set_owner_passthrough(owner, 'off', host)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+
+    try:
+        mux('set-option', '-p', '-t', owner, pane_option(host, 'config'), json.dumps(config))
+    except (OSError, subprocess.SubprocessError) as error:
+        if config['images_enabled']:
+            undo_on()
+            raise
+        raise ValueError('Images are blocked in this OMP pane for now, but the dashboard could not '
+                         'record that; the next dashboard command or launch may allow them again.'
+                         ) from error
+
+    # Always reconcile the explicit request: another control may have changed the saved profile.
+    try:
+        update_preferences(config['profile'], {'images_enabled': config['images_enabled']},
+                           host=host)
+    except (OSError, ValueError) as error:
+        if config['images_enabled']:
+            undo_on()
+            raise
+        raise ValueError('Images are off for this OMP session, but the saved preference could not '
+                         'be updated; later launches will still request images.') from error
+    print(describe(config, image_status(config, owner)))
 
 
 def clean(value):
@@ -1025,6 +1269,12 @@ def watch(screen, args):
                     # the old color-pair definition until a full repaint.
                     screen.clear()
                 config = updated
+                if host == 'omp' and config.get('images_enabled'):
+                    # Bound stale eligibility: a pane split in after images on revokes them.
+                    try:
+                        revoke_shared_images(args.owner, host)
+                    except (OSError, ValueError, subprocess.SubprocessError):
+                        pass
                 next_config = tick + 1
             visible = [p for p in config['providers'] if p not in config['hidden']
                        and (adapter.allowed_providers is None or p in adapter.allowed_providers)]
@@ -1283,7 +1533,8 @@ def main():
     if args.interval is not None and args.interval < 15:
         parser.error('--interval must be at least 15 seconds')
     try:
-        config = defaults(args)
+        # Detach must restore tmux state even when saved preferences are unreadable.
+        config = None if args.action == 'control' else defaults(args)
         if args.action == 'launch':
             if get_host(args.host).launch_policy == 'omp-extension' and any(
                     arg == '--profile' or arg.startswith('--profile=') for arg in extra):
