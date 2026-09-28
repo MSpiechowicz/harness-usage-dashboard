@@ -728,6 +728,82 @@ test("chart menu and direct commands persist bars, dots, and trace and reject un
   }
 });
 
+test("images menu and direct commands persist the request and reject unsupported terminals", async () => {
+  const home = await mkdtemp(join(tmpdir(), "dashboard-images-"));
+  const keys = ["TMUX", "TMUX_PANE", "OMP_PROFILE", "PI_PROFILE"];
+  const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  for (const key of keys) delete process.env[key];
+  const environment = { ...process.env, HOME: home, PI_CODING_AGENT_DIR: join(home, "agent"),
+    OMP_PROFILE: "default", PI_PROFILE: "default",
+    GHOSTTY_RESOURCES_DIR: "/Applications/Ghostty.app/Contents/Resources/ghostty" };
+  for (const key of ["TMUX", "TMUX_PANE", "KITTY_WINDOW_ID", "PI_FORCE_IMAGE_PROTOCOL",
+    "PI_NO_KITTY_PLACEHOLDERS", "PI_KITTY_PLACEHOLDERS", "STY", "ZELLIJ"]) delete environment[key];
+  const selections = [];
+  const notices = [];
+  let command;
+
+  try {
+    usageDashboard({
+      setLabel() {}, on() {},
+      registerCommand(_name, definition) { command = definition; },
+      async exec(binary, args, options) {
+        try {
+          return { code: 0, ...await execute(binary, args, { ...options, env: environment }) };
+        } catch (error) {
+          return { code: error.code, stdout: error.stdout, stderr: error.stderr };
+        }
+      },
+    });
+    const ctx = {
+      hasUI: true, cwd: process.cwd(),
+      ui: {
+        theme,
+        async select(title, options) {
+          if (title === "Usage Dashboard / Images") {
+            assert.deepEqual(options.map(option => option.toLowerCase().split(/\s/)[0]).sort(), ["off", "on"]);
+          }
+          const choice = selections.shift();
+          if (choice === undefined) return;
+          const label = options.find(option => option.toLowerCase().split(/\s/)[0] === choice.toLowerCase());
+          assert.ok(label, `Missing choice ${choice}`);
+          return label;
+        },
+        notify(message, level) { notices.push({ message, level }); },
+      },
+    };
+    const settings = async () => JSON.parse(await readFile(join(home, "agent/usage-dashboard.json"), "utf8"));
+
+    selections.push("Images", "On");
+    await command.handler("", ctx);
+    assert.equal((await settings()).images_enabled, true);
+    assert.match(notices.at(-1).message, /Images on requested: pending/);
+    await command.handler("images off", ctx);
+    assert.equal((await settings()).images_enabled, false);
+    await command.handler("images on", ctx);
+    assert.equal((await settings()).images_enabled, true);
+    selections.push("Images", "Off");
+    await command.handler("", ctx);
+    assert.equal((await settings()).images_enabled, false);
+    assert.equal((await settings()).enabled, true);
+
+    const before = await settings();
+    await command.handler("images all", ctx);
+    assert.match(notices.at(-1).message, /images \(on/);
+    await command.handler("images on extra", ctx);
+    delete environment.GHOSTTY_RESOURCES_DIR;
+    await command.handler("images on", ctx);
+    assert.equal(notices.at(-1).level, "error");
+    assert.match(notices.at(-1).message, /Images unavailable: no Ghostty or Kitty terminal/);
+    assert.deepEqual(await settings(), before);
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("detaches the dashboard before waiting for shutdown recording", async () => {
   const home = await mkdtemp(join(tmpdir(), "dashboard-shutdown-"));
   const keys = ["HOME", "PI_CODING_AGENT_DIR", "OMP_PROFILE", "PI_PROFILE", "TMUX", "TMUX_PANE"];
