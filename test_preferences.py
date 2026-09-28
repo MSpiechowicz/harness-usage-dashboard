@@ -66,6 +66,32 @@ class PreferencesTests(unittest.TestCase):
         self.assertEqual(result['interval'], 120)
         self.assertEqual(result['side'], 'left')
 
+    def test_retired_images_request_is_ignored_without_rewriting_other_preferences(self):
+        path = preferences_path('work')
+        path.parent.mkdir(parents=True)
+        for old_value in (True, False):
+            with self.subTest(old_value=old_value):
+                saved = json.dumps({'images_enabled': old_value, 'side': 'left',
+                                    'providers': ['openai-codex'], 'theme': 'blue'})
+                path.write_text(saved)
+
+                loaded = load_preferences('work')
+                self.assertEqual(path.read_text(), saved)
+                self.assertNotIn('images_enabled', loaded)
+                self.assertEqual((loaded['side'], loaded['providers'], loaded['theme']),
+                                 ('left', ['openai-codex'], 'blue'))
+
+                changed = update_preferences('work', {'interval': 90})
+                self.assertNotIn('images_enabled', changed)
+                self.assertNotIn('images_enabled', json.loads(path.read_text()))
+                self.assertEqual((changed['side'], changed['providers'], changed['theme'],
+                                  changed['interval']),
+                                 ('left', ['openai-codex'], 'blue', 90))
+
+    def test_retired_images_field_is_not_accepted_in_new_writes(self):
+        with self.assertRaises(ValueError):
+            update_preferences(None, {'images_enabled': True})
+
     def test_legacy_history_visibility_migrates_without_defaults_or_mutation(self):
         legacy = {'history_visible': False}
         self.assertEqual(migrate_history_visibility({}), {})

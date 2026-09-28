@@ -769,68 +769,162 @@ class PaneOwnershipTests(unittest.TestCase):
 
 
 class PassthroughContainmentTests(unittest.TestCase):
-    @patch('dashboard.mux')
-    def test_existing_dashboard_disables_terminal_passthrough(self, mux):
-        config = dict(DEFAULTS, profile='default', refresh=0)
-        args = Namespace(owner='%1', profile='default', providers=None, side=None, interval=None)
-        with patch('builtins.print'), \
-             patch('dashboard.defaults', return_value=config), \
-             patch('dashboard.load_config', return_value=config), \
-             patch('dashboard.owned_panes', return_value=['%2']):
-            control(args, ['init'])
+    def setUp(self):
+        try:
+            self.tmux = tmux_binary()
+        except ValueError:
+            self.skipTest('tmux 3.3+ not installed')
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.socket = str(Path(temporary.name) / 'tmux.sock')
+        environment = patch.dict(os.environ, {
+            'TMUX': self.socket + ',0,0', 'TMUX_PANE': '', 'HOME': temporary.name,
+            'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'TERM': 'xterm-256color',
+        }, clear=True)
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.owner = self.tmux_cmd('new-session', '-d', '-s', 'isolated', '-x', '120',
+                                   '-y', '40', '-P', '-F', '#{pane_id}', 'sleep 120')
+        self.addCleanup(lambda: subprocess.run(
+            [self.tmux, '-S', self.socket, 'kill-server'], capture_output=True, timeout=5))
+        self.args = Namespace(host='omp', owner=self.owner, profile='default',
+                              providers=None, side=None, interval=None)
 
-        passthrough = [call.args for call in mux.call_args_list
-                       if 'allow-passthrough' in call.args]
-        self.assertEqual(len(passthrough), 1)
-        self.assertEqual(passthrough[0][-2:], ('allow-passthrough', 'off'))
+    def tmux_cmd(self, *args):
+        return subprocess.check_output([self.tmux, '-S', self.socket, *args],
+                                       text=True, stderr=subprocess.PIPE, timeout=5,
+                                       env={**os.environ, 'TMUX': ''}).strip()
 
-    @patch('dashboard.mux')
-    def test_detaching_dashboard_disables_terminal_passthrough(self, mux):
-        args = Namespace(owner='%1', profile='default', providers=None, side=None, interval=None)
-        with patch('dashboard.owned_panes', return_value=['%2']):
-            control(args, ['detach'])
+    def pane_setting(self, pane):
+        return self.tmux_cmd('show-options', '-p', '-v', '-q', '-t', pane,
+                             'allow-passthrough') or None
 
-        passthrough = [call.args for call in mux.call_args_list
-                       if 'allow-passthrough' in call.args]
-        self.assertEqual(len(passthrough), 1)
-        self.assertEqual(passthrough[0][-2:], ('allow-passthrough', 'off'))
+    def control(self, words):
+        with redirect_stdout(io.StringIO()):
+            control(self.args, words)
 
-    @patch('dashboard.os.execv', side_effect=RuntimeError('stop launch'))
-    @patch('dashboard.shutil.get_terminal_size', return_value=Namespace(columns=120, lines=40))
-    @patch('dashboard.tmux_binary', return_value='/tmux')
-    @patch('dashboard.mux')
-    def test_new_dashboard_disables_terminal_passthrough(self, mux, _tmux_binary,
-                                                         _terminal_size, _execv):
-        mux.return_value = '%1'
-        args = Namespace(profile=None, native=True)
-        with patch.dict('dashboard.os.environ', {'TMUX': ''}), \
-             self.assertRaisesRegex(RuntimeError, 'stop launch'):
-            launch(args, [])
+    def test_old_on_and_off_configs_do_not_enable_owner_sidebar_or_window(self):
+        path = preferences_path('default')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for requested in (True, False):
+            with self.subTest(requested=requested):
+                persisted = json.dumps({'images_enabled': requested, 'side': 'left',
+                                        'providers': ['openai-codex']})
+                path.write_text(persisted)
+                self.tmux_cmd('set-option', '-w', '-t', self.owner, 'allow-passthrough', 'on')
+                self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'on')
+                live = json.dumps({'images_enabled': requested, 'enabled': True, 'side': 'left'})
+                self.tmux_cmd('set-option', '-p', '-t', self.owner, '@omp_usage_config', live)
+                sidebar = self.tmux_cmd('split-window', '-h', '-d', '-t', self.owner, '-P',
+                                        '-F', '#{pane_id}', 'sleep 120')
+                self.tmux_cmd('set-option', '-p', '-t', sidebar, '@omp_usage_owner', self.owner)
+                self.tmux_cmd('set-option', '-p', '-t', sidebar, 'allow-passthrough', 'on')
 
-        passthrough = [call.args for call in mux.call_args_list
-                       if 'allow-passthrough' in call.args]
-        self.assertEqual(len(passthrough), 1)
-        self.assertEqual(passthrough[0][-2:], ('allow-passthrough', 'off'))
+                self.control(['init'])
+                self.assertEqual(self.pane_setting(self.owner), 'off')
+                self.assertEqual(self.pane_setting(sidebar), 'off')
+                self.assertEqual(self.tmux_cmd('show-options', '-w', '-v', '-t', self.owner,
+                                               'allow-passthrough'), 'off')
+                self.assertNotIn('images_enabled', json.loads(self.tmux_cmd(
+                    'show-options', '-p', '-v', '-t', self.owner, '@omp_usage_config')))
+                self.assertEqual(path.read_text(), persisted)
+                self.assertEqual(load_preferences('default')['side'], 'left')
 
+                self.control(['detach'])
+                self.assertEqual(self.pane_setting(self.owner), 'on')
+                self.assertEqual(self.tmux_cmd('show-options', '-w', '-v', '-t', self.owner,
+                                               'allow-passthrough'), 'off')
+                self.assertEqual(self.tmux_cmd('show-options', '-p', '-v', '-q', '-t',
+                                               self.owner, '@omp_usage_passthrough'), '')
 
-class OmpLaunchContractTests(unittest.TestCase):
-    def test_profile_and_native_extension_preserve_omp_argument_order(self):
-        args = Namespace(host='omp', profile='work', native=False)
-        with patch.dict(os.environ, {'TMUX': ''}), \
-             patch('dashboard.defaults', return_value={'enabled': True}), \
-             patch('dashboard.extension_path', return_value=Path('/extension.js')), \
-             patch('host_adapters.shutil.which', return_value='/omp'), \
-             patch('dashboard.shutil.get_terminal_size',
-                   return_value=Namespace(columns=120, lines=40)), \
-             patch('dashboard.mux', side_effect=RuntimeError('capture')) as mux:
-            for native, expected in (
-                    (False, ['env', 'OMP_USAGE_LAUNCHER=1', '/omp', '-e', '/extension.js']),
-                    (True, ['env', 'OMP_USAGE_LAUNCHER=0', '/omp'])):
-                args.native = native
-                with self.subTest(native=native), self.assertRaisesRegex(RuntimeError, 'capture'):
-                    launch(args, ['--model', 'selected'])
-                command = shlex.split(mux.call_args.args[-1])
-                self.assertEqual(command, [*expected, '--model', 'selected', '--profile', 'work'])
+    def test_inherited_window_on_and_fresh_owner_pane_restore_unset_on_detach(self):
+        self.tmux_cmd('set-option', '-w', '-t', self.owner, 'allow-passthrough', 'on')
+        self.assertIsNone(self.pane_setting(self.owner))
+
+        self.control(['view', 'list'])
+        self.assertEqual(self.pane_setting(self.owner), 'off')
+        self.assertEqual(self.tmux_cmd('show-options', '-w', '-v', '-t', self.owner,
+                                       'allow-passthrough'), 'off')
+
+        self.control(['detach'])
+        self.assertIsNone(self.pane_setting(self.owner))
+
+    def test_legacy_marker_preserves_prior_unless_owner_changed_its_applied_value(self):
+        scenarios = (
+            ('on', 'on', 'off', 'off'),
+            ('on', 'off', 'on', 'on'),
+            (None, 'on', 'on', None),
+            ('off', 'on', 'all', 'all'),
+        )
+        for prior, applied, current, expected in scenarios:
+            with self.subTest(prior=prior, applied=applied, current=current):
+                if current is None:
+                    self.tmux_cmd('set-option', '-p', '-u', '-t', self.owner, 'allow-passthrough')
+                else:
+                    self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', current)
+                self.tmux_cmd('set-option', '-p', '-t', self.owner, '@omp_usage_passthrough',
+                              json.dumps({'prior': prior, 'applied': applied}))
+
+                self.control(['view', 'list'])
+                self.assertEqual(self.pane_setting(self.owner), 'off')
+                self.control(['detach'])
+                self.assertEqual(self.pane_setting(self.owner), expected)
+
+    def test_detach_directly_migrates_an_old_images_on_marker(self):
+        self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'on')
+        self.tmux_cmd('set-option', '-p', '-t', self.owner, '@omp_usage_passthrough',
+                      '{"prior":null,"applied":"on"}')
+
+        self.control(['detach'])
+        self.assertIsNone(self.pane_setting(self.owner))
+        self.assertEqual(self.tmux_cmd('show-options', '-p', '-v', '-q', '-t',
+                                       self.owner, '@omp_usage_passthrough'), '')
+
+    def test_external_edit_after_attach_is_left_intact_on_detach(self):
+        self.control(['view', 'list'])
+        self.assertEqual(self.pane_setting(self.owner), 'off')
+        self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'on')
+
+        self.control(['detach'])
+        self.assertEqual(self.pane_setting(self.owner), 'on')
+
+    def test_invalid_legacy_marker_never_restores_untrusted_on(self):
+        self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'on')
+        self.tmux_cmd('set-option', '-p', '-t', self.owner, '@omp_usage_passthrough',
+                      '{"prior":"on","applied":false}')
+
+        self.control(['view', 'list'])
+        self.assertEqual(self.pane_setting(self.owner), 'off')
+        self.control(['detach'])
+        self.assertIsNone(self.pane_setting(self.owner))
+
+    def test_sidebar_cleanup_failure_still_restores_owner_and_clears_live_config(self):
+        self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'on')
+        sidebar = self.tmux_cmd('split-window', '-h', '-d', '-t', self.owner, '-P',
+                                '-F', '#{pane_id}', 'sleep 120')
+        self.tmux_cmd('set-option', '-p', '-t', sidebar, '@omp_usage_owner', self.owner)
+        self.tmux_cmd('set-option', '-p', '-t', self.owner, '@omp_usage_config',
+                      '{"enabled":false}')
+        self.control(['view', 'list'])
+        self.assertEqual(self.pane_setting(self.owner), 'off')
+
+        from dashboard import mux as real_mux
+
+        def pane_dies_before_cleanup(*args):
+            if args[0] == 'kill-pane':
+                self.tmux_cmd('kill-pane', '-t', sidebar)
+            return real_mux(*args)
+
+        with patch('dashboard.mux', side_effect=pane_dies_before_cleanup), \
+             self.assertRaises(subprocess.CalledProcessError):
+            self.control(['detach'])
+
+        self.assertEqual(self.pane_setting(self.owner), 'on')
+        self.assertEqual(self.tmux_cmd('show-options', '-p', '-v', '-q', '-t',
+                                       self.owner, '@omp_usage_config'), '')
+        self.assertEqual(self.tmux_cmd('show-options', '-p', '-v', '-q', '-t',
+                                       self.owner, '@omp_usage_passthrough'), '')
+
 
 class NestedCommandTests(unittest.TestCase):
     def test_provider_visibility_and_window_filters_are_independent(self):

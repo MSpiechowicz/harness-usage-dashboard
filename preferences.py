@@ -98,6 +98,13 @@ def migrate_chart_type(data):
     return data
 
 
+def migrate_images_enabled(data):
+    """Discard the retired image request when reading saved state."""
+    if not isinstance(data, dict):
+        raise ValueError('Dashboard preferences must be a JSON object.')
+    return {key: value for key, value in data.items() if key != 'images_enabled'}
+
+
 def _defaults(host):
     result = deepcopy(DEFAULTS)
     result['providers'] = list(get_host(host).default_providers)
@@ -168,7 +175,7 @@ def _load(path, host='omp'):
         data = json.loads(content)
     except ValueError as error:
         raise ValueError(f'Invalid dashboard preferences JSON in {path}.') from error
-    return _validated(migrate_chart_type(data), host)
+    return _validated(migrate_images_enabled(migrate_chart_type(data)), host)
 
 
 def load_preferences(profile: str | None = None, *, host: str = 'omp') -> dict:

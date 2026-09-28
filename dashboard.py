@@ -22,7 +22,7 @@ from host_adapters import HOST_IDS, get_host
 from usage_source import ALIASES
 from preferences import (CHART_TYPES, DEFAULTS, THEME_NAMES, TOKEN_NAMES, agent_dir,
                          load_preferences, migrate_chart_type, migrate_history_visibility,
-                         normalize_color, update_preferences)
+                         migrate_images_enabled, normalize_color, update_preferences)
 from session_usage import active_session, record_quota, summary as session_summary
 
 ROOT = Path(__file__).resolve().parent
@@ -37,6 +37,7 @@ COMMAND_BOX_HEIGHT = 5
 # continue to hold old results. Restart them when the loop resumes.
 RESUME_GAP_SECONDS = 5
 FAILED_REFRESH_RETRY_SECONDS = 15
+_INVALID_PASSTHROUGH_RECORD = object()
 
 def host_of(args):
     return get_host(getattr(args, 'host', 'omp')).host_id
@@ -263,8 +264,10 @@ def defaults(args):
 
 def load_config(owner, fallback, host='omp'):
     raw = mux('show-options', '-p', '-v', '-q', '-t', owner, pane_option(host, 'config'))
-    return ({**fallback, **migrate_chart_type(migrate_history_visibility(json.loads(raw)))}
-            if raw else fallback)
+    clean_fallback = migrate_images_enabled(fallback)
+    return ({**clean_fallback, **migrate_images_enabled(
+                migrate_chart_type(migrate_history_visibility(json.loads(raw))))}
+            if raw else clean_fallback)
 
 
 def owned_panes(owner, host='omp'):
@@ -273,8 +276,59 @@ def owned_panes(owner, host='omp'):
 
 
 def disable_passthrough(target):
-    # Terminal graphics passthrough is not pane-local and can cover sibling panes.
+    # The window default alone cannot override an explicit pane setting.
     mux('set-option', '-t', target, 'allow-passthrough', 'off')
+
+
+def pane_passthrough(pane):
+    # Without -A, tmux returns only this pane's explicit setting.
+    return mux('show-options', '-p', '-v', '-q', '-t', pane, 'allow-passthrough') or None
+
+
+def passthrough_record(owner, host):
+    raw = mux('show-options', '-p', '-v', '-q', '-t', owner, pane_option(host, 'passthrough'))
+    if not raw:
+        return None
+    try:
+        record = json.loads(raw)
+    except ValueError:
+        return _INVALID_PASSTHROUGH_RECORD
+    if (not isinstance(record, dict)
+            or 'prior' not in record
+            or (record['prior'] is not None and record['prior'] not in ('on', 'off', 'all'))
+            or record.get('applied') not in ('on', 'off', 'all')):
+        return _INVALID_PASSTHROUGH_RECORD
+    return record
+
+
+def contain_owner_passthrough(owner, host):
+    """Block the OMP pane, preserving a valid prior setting across old image records."""
+    current = pane_passthrough(owner)
+    record = passthrough_record(owner, host)
+    if record is _INVALID_PASSTHROUGH_RECORD:
+        # A malformed marker may have applied the current "on"; do not trust it.
+        prior = None
+    elif record is None:
+        prior = current if current in (None, 'on', 'off', 'all') else None
+    elif current == record['applied']:
+        prior = record['prior']
+    else:
+        # The owner edited the pane after the dashboard last applied its setting.
+        prior = current if current in (None, 'on', 'off', 'all') else None
+    if current != 'off':
+        mux('set-option', '-p', '-t', owner, 'allow-passthrough', 'off')
+    mux('set-option', '-p', '-t', owner, pane_option(host, 'passthrough'),
+        json.dumps({'prior': prior, 'applied': 'off'}))
+
+
+def restore_owner_passthrough(owner, host):
+    record = passthrough_record(owner, host)
+    if isinstance(record, dict) and pane_passthrough(owner) == 'off':
+        if record['prior'] is None:
+            mux('set-option', '-p', '-u', '-t', owner, 'allow-passthrough')
+        else:
+            mux('set-option', '-p', '-t', owner, 'allow-passthrough', record['prior'])
+    mux('set-option', '-p', '-u', '-t', owner, pane_option(host, 'passthrough'))
 
 
 def change_config(config, words, host='omp'):
@@ -369,9 +423,24 @@ def control(args, words):
     if words == ['detach']:
         if owner:
             disable_passthrough(owner)
-            for pane in owned_panes(owner, host=host):
-                mux('kill-pane', '-t', pane)
-            mux('set-option', '-p', '-u', '-t', owner, pane_option(host, 'config'))
+            if host != 'omp':
+                for pane in owned_panes(owner, host=host):
+                    mux('kill-pane', '-t', pane)
+                mux('set-option', '-p', '-u', '-t', owner, pane_option(host, 'config'))
+                return
+            try:
+                record = passthrough_record(owner, host)
+                if (record is _INVALID_PASSTHROUGH_RECORD
+                        or (isinstance(record, dict) and record['applied'] != 'off')):
+                    # An old images-on marker may still own an unsafe pane value.
+                    contain_owner_passthrough(owner, host)
+                for pane in owned_panes(owner, host=host):
+                    mux('kill-pane', '-t', pane)
+            finally:
+                try:
+                    restore_owner_passthrough(owner, host)
+                finally:
+                    mux('set-option', '-p', '-u', '-t', owner, pane_option(host, 'config'))
         return
     if not owner:
         old = defaults(args)
@@ -385,12 +454,18 @@ def control(args, words):
         if config['enabled'] and words != ['view', 'list']:
             print(f'Saved. Run {host} through the installed shell integration to attach the sidebar.')
         return
+    if host == 'omp':
+        disable_passthrough(owner)
+        contain_owner_passthrough(owner, host)
+        for pane in owned_panes(owner, host=host):
+            mux('set-option', '-p', '-t', pane, 'allow-passthrough', 'off')
     old = load_config(owner, defaults(args), host=host)
     config = change_config(json.loads(json.dumps(old)), words, host=host)
     if words == ['view', 'list']:
         print(describe(config))
         return
-    disable_passthrough(owner)
+    if host != 'omp':
+        disable_passthrough(owner)
     if words == ['window', 'focus'] and not config['enabled']:
         raise ValueError('Dashboard is off; use /usage-dashboard window on first.')
     panes = owned_panes(owner, host=host)
@@ -421,6 +496,8 @@ def control(args, words):
         if config['side'] == 'left':
             options.append('-b')
         pane = mux(*options, shlex.join(command))
+        if host == 'omp':
+            mux('set-option', '-p', '-t', pane, 'allow-passthrough', 'off')
         mux('set-option', '-p', '-t', pane, pane_option(host, 'owner'), owner)
         mux('select-pane', '-t', pane, '-T', f'{host.upper()} usage')
         panes = [pane]
@@ -1220,6 +1297,8 @@ def launch(args, omp_args):
     try:
         mux('set-option', '-t', session, 'status', 'off')
         disable_passthrough(session)
+        if host == 'omp':
+            contain_owner_passthrough(owner, host)
         args.owner = owner
         if adapter.launch_policy == 'exit-status' and callable(getattr(args, 'on_owner_ready', None)):
             args.on_owner_ready(owner)
