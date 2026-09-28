@@ -418,6 +418,64 @@ class RemainingAllowanceTests(unittest.TestCase):
     def test_section_divider_uses_secondary_base_color(self):
         _text, style = section_heading('TOKEN RATE', 32, 'tok/min')
         self.assertEqual(style[0], 'secondary')
+
+    @patch('dashboard.curses.mouseinterval')
+    @patch('dashboard.curses.mousemask')
+    @patch('dashboard.curses.curs_set')
+    def test_live_watch_draws_section_labels_bold(self, _curs_set, _mousemask, _mouseinterval):
+        session = {'id': 'active12', 'updated': 0, 'providers': [], 'models': [], 'quota': []}
+        model = {'provider': 'openai-codex', 'total': 1}
+        history = {'chart': [0] * 19 + [200], 'current': session, 'previous': session,
+                   'history': [model], 'total_history': [model]}
+        config = dict(DEFAULTS, profile='default', providers=['github-copilot'],
+                      chart_type='trace', refresh=0)
+        args = Namespace(owner=None, profile='default', providers=None, side=None, interval=None)
+        labels = ('TOKEN TRACE', 'CURRENT SESSION', 'PREVIOUS SESSION',
+                  'HISTORY OTHER SESSIONS', 'HISTORY TOTAL', 'COPILOT', 'Account 1', 'Account 2')
+        limits = [{'id': 'monthly', 'label': 'Monthly', 'amount': {'usedFraction': .25}}]
+        accounts = {'reports': [{'provider': 'github-copilot', 'fetchedAt': time.time() * 1000,
+                                 'limits': limits} for _ in range(2)]}
+
+        def draw(has_colors, width):
+            screen = MagicMock()
+            screen.getmaxyx.return_value = (60, width)
+            screen.getch.side_effect = [-1, SystemExit]
+            screen.erase.side_effect = screen.addnstr.reset_mock
+            job = MagicMock(started=0)
+            job.finish.return_value = (accounts, None)
+            with ExitStack() as stack:
+                for name, value in (('has_colors', has_colors), ('start_color', None),
+                                    ('use_default_colors', None), ('init_pair', None)):
+                    stack.enter_context(patch(f'dashboard.curses.{name}', return_value=value))
+                stack.enter_context(patch('dashboard.curses.color_pair', side_effect=lambda n: n << 8))
+                stack.enter_context(patch('dashboard.curses.COLORS', 256, create=True))
+                stack.enter_context(patch('dashboard.curses.COLOR_PAIRS', 64, create=True))
+                stack.enter_context(patch('dashboard.defaults', return_value=config))
+                stack.enter_context(patch('dashboard.session_summary', return_value=history))
+                stack.enter_context(patch('dashboard.active_session', return_value=None))
+                stack.enter_context(patch('dashboard.FetchJob', return_value=job))
+                stack.enter_context(patch('dashboard.time.monotonic', side_effect=range(100)))
+                with self.assertRaises(SystemExit):
+                    watch(screen, args)
+            return [call.args for call in screen.addnstr.call_args_list]
+
+        for has_colors in (True, False):
+            for width, expected in ((40, labels), (22, ('TOKEN TRACE', 'Account 1', 'Account 2'))):
+                with self.subTest(colors=has_colors, width=width):
+                    calls = draw(has_colors, width)
+                    for label in expected:
+                        label_attrs = [attr for _row, _col, text, _n, attr in calls if text == label]
+                        self.assertTrue(label_attrs, label)
+                        self.assertTrue(all(attr & curses.A_BOLD for attr in label_attrs), label)
+                    rules = [attr for _row, _col, text, _n, attr in calls
+                             if any(text.startswith(label + ' ') for label in expected)]
+                    self.assertTrue(rules)
+                    self.assertFalse(any(attr & curses.A_BOLD for attr in rules))
+                    chart = [attr for _row, _col, text, _n, attr in calls
+                             if any('\u2800' <= char <= '\u28ff' for char in text)]
+                    self.assertTrue(chart)
+                    self.assertFalse(any(attr & curses.A_BOLD for attr in chart))
+
     def test_command_box_uses_one_border_color_and_capitalized_actions(self):
         rows = command_box_rows(1, 60, '', 40)
         self.assertEqual(clean('┌─┐│└┘'), '┌─┐│└┘')
@@ -966,6 +1024,21 @@ class NestedCommandTests(unittest.TestCase):
                 self.assertEqual(tokens['good'], 'green')
                 self.assertEqual(tokens['warn'], 'orange')
                 self.assertEqual(tokens['error'], 'red')
+
+    def test_blue_palette_uses_bright_cyan_blue_and_keeps_overrides(self):
+        config = deepcopy(DEFAULTS)
+        change_config(config, ['theme', 'blue'])
+        tokens = resolve_tokens(config)
+        self.assertEqual(tokens['accent'], '#00b4ff')
+        self.assertEqual(tokens['chart'], '#00b4ff')
+        self.assertEqual(tokens['secondary'], '#007fae')
+        self.assertEqual((tokens['good'], tokens['warn'], tokens['error']),
+                         ('green', 'orange', 'red'))
+
+        change_config(config, ['theme', 'custom', 'accent', '#58A66A'])
+        tokens = resolve_tokens(config)
+        self.assertEqual(tokens['accent'], '#58a66a')
+        self.assertEqual(tokens['chart'], '#00b4ff')
 
     def test_claude_palette_respects_custom_overrides_and_reset(self):
         config = deepcopy(DEFAULTS)

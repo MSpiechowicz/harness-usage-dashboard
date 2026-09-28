@@ -49,8 +49,8 @@ THEME_TOKENS = {
     'green': {'text': 'white', 'muted': 'default', 'secondary': '#008f4c',
               'accent': 'green', 'chart': 'green', 'good': 'green', 'warn': 'orange',
               'error': 'red'},
-    'blue': {'text': 'white', 'muted': 'default', 'secondary': '#24527a',
-             'accent': 'blue', 'chart': 'blue', 'good': 'green', 'warn': 'orange',
+    'blue': {'text': 'white', 'muted': 'default', 'secondary': '#007fae',
+             'accent': '#00b4ff', 'chart': '#00b4ff', 'good': 'green', 'warn': 'orange',
              'error': 'red'},
     'brown': {'text': 'white', 'muted': 'default', 'secondary': '#744c24',
               'accent': 'brown', 'chart': 'brown', 'good': 'green', 'warn': 'orange',
@@ -171,7 +171,8 @@ def terminal_color(value):
 
 
 def initialize_colors(config):
-    colors = {'normal': curses.A_NORMAL, 'dim': curses.A_DIM, 'secondary': curses.A_DIM}
+    colors = {'normal': curses.A_NORMAL, 'dim': curses.A_DIM, 'secondary': curses.A_DIM,
+              'title': curses.A_BOLD}
     if not curses.has_colors():
         return colors
     curses.start_color()
@@ -191,7 +192,7 @@ def initialize_colors(config):
         'normal': token_attributes.get('text', curses.A_NORMAL),
         'dim': token_attributes.get('muted', curses.A_DIM),
         'secondary': token_attributes.get('secondary', curses.A_DIM),
-        'title': token_attributes.get('accent', curses.A_NORMAL),
+        'title': token_attributes.get('accent', curses.A_NORMAL) | curses.A_BOLD,
         'chart': token_attributes.get('chart', curses.A_NORMAL),
         'good': token_attributes.get('good', curses.A_NORMAL),
         'warn': token_attributes.get('warn', curses.A_NORMAL),
