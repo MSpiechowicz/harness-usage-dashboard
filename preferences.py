@@ -31,7 +31,6 @@ DEFAULTS = {
     'history_total_visible': True,
     'interval': 60,
     'enabled': True,
-    'images_enabled': False,
     'theme': 'green',
     'chart_type': 'bars',
     'tokens': {},
@@ -99,6 +98,13 @@ def migrate_chart_type(data):
     return data
 
 
+def migrate_images_enabled(data):
+    """Discard the retired image request when reading saved state."""
+    if not isinstance(data, dict):
+        raise ValueError('Dashboard preferences must be a JSON object.')
+    return {key: value for key, value in data.items() if key != 'images_enabled'}
+
+
 def _defaults(host):
     result = deepcopy(DEFAULTS)
     result['providers'] = list(get_host(host).default_providers)
@@ -137,7 +143,7 @@ def _validated(data, host='omp'):
             raise ValueError(f'Unknown dashboard token: {name}.')
         normalized_tokens[name] = normalize_color(color)
     result['tokens'] = normalized_tokens
-    for field in ('compact', 'enabled', 'images_enabled', 'commands_visible', 'previous_visible',
+    for field in ('compact', 'enabled', 'commands_visible', 'previous_visible',
                   'history_other_visible', 'history_total_visible'):
         if type(result[field]) is not bool:
             raise ValueError(f'Dashboard {field} must be a boolean.')
@@ -169,7 +175,7 @@ def _load(path, host='omp'):
         data = json.loads(content)
     except ValueError as error:
         raise ValueError(f'Invalid dashboard preferences JSON in {path}.') from error
-    return _validated(migrate_chart_type(data), host)
+    return _validated(migrate_images_enabled(migrate_chart_type(data)), host)
 
 
 def load_preferences(profile: str | None = None, *, host: str = 'omp') -> dict:

@@ -37,7 +37,6 @@ const sections = {
   providers: ["add", "remove", "hide", "show"],
   theme: ["green", "blue", "brown", "yellow", "cyan", "magenta", "orange", "red", "claude", "custom", "reset"],
   window: ["on", "off", "focus", "refresh", "interval", "hide", "show"],
-  images: ["on", "off"],
   update: ["check", "install"],
 };
 const chartOptions = [
@@ -58,11 +57,7 @@ const themeOptions = [
   { value: "custom", label: "custom  (override individual colors)" },
   { value: "reset", label: "reset   (restore green and remove custom colors)" },
 ];
-const imageOptions = [
-  { value: "off", label: "off  (default; block OMP image passthrough)" },
-  { value: "on", label: "on   (Ghostty/Kitty; best effort, OMP images may still cover the sidebar)" },
-];
-const help = "Sections: view (compact, details; list remains available as a command for showing settings); chart (bars [default], dots, trace); commands (hide, show); previous (hide, show); history-other (hide, show); history-total (hide, show); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, cyan, magenta, orange, red, claude [Anthropic brand-inspired], custom TOKEN COLOR, reset); window (on, off, focus, refresh, interval, hide/show PROVIDER FILTER); images (on [Ghostty/Kitty OMP pane, best effort; may cover sidebar], off [default]); update (check, install).";
+const help = "Sections: view (compact, details; list remains available as a command for showing settings); chart (bars [default], dots, trace); commands (hide, show); previous (hide, show); history-other (hide, show); history-total (hide, show); position (left, right); providers (add, remove, hide, show PROVIDER); theme (green, blue, brown, yellow, cyan, magenta, orange, red, claude [Anthropic brand-inspired], custom TOKEN COLOR, reset); window (on, off, focus, refresh, interval, hide/show PROVIDER FILTER); update (check, install).";
 const menuSections = {...sections, view: ["compact", "details"]};
 const visibilitySections = ["commands", "previous", "history-other", "history-total"];
 const visibilityLabels = {
@@ -348,8 +343,6 @@ export default function usageDashboard(pi) {
       if (!quiet || result.code !== 0) {
         notify(ctx, result.code === 0 ? result.stdout.trim() : (result.stderr.trim() || "Could not update usage dashboard"),
           result.code === 0 ? "info" : "error");
-      } else if (result.stderr?.trim()) {
-        notify(ctx, result.stderr.trim(), "warning");
       }
     } catch (error) {
       notify(ctx, `Usage Dashboard: ${error.message}`, "error");
@@ -421,7 +414,7 @@ export default function usageDashboard(pi) {
     pi.on(event, async (_event, ctx) => { await record(ctx, "start"); });
   }
   pi.registerCommand("usage-dashboard", {
-    description: "Manage usage dashboard: view, chart (bars default, dots, trace), commands, previous, history-other, history-total, position, providers, theme, window, images, and updates",
+    description: "Manage usage dashboard: view, chart (bars default, dots, trace), commands, previous, history-other, history-total, position, providers, theme, window, and updates",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const words = args.trim().split(/\s+/).filter(Boolean);
@@ -444,8 +437,7 @@ export default function usageDashboard(pi) {
             return;
           }
           const options = words[0] === "theme" ? themeOptions
-            : words[0] === "chart" ? chartOptions
-            : words[0] === "images" ? imageOptions : menuSections[words[0]];
+            : words[0] === "chart" ? chartOptions : menuSections[words[0]];
           const action = await menuSelect(ctx, `Usage Dashboard / ${capitalizeLabel(words[0])}`, options, { nested: true });
           if (!action) return;
           if (action === MENU_BACK) {
@@ -459,7 +451,7 @@ export default function usageDashboard(pi) {
           notify(ctx, help);
           return;
         }
-        if ((section === "chart" || section === "images") && words.length !== 2) {
+        if (section === "chart" && words.length !== 2) {
           notify(ctx, help);
           return;
         }

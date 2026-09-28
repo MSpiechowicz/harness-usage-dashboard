@@ -5,6 +5,82 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
+
+ATTACH_WAIT_SECONDS = 8
+ATTACH_POLL_SECONDS = 0.05
+
+
+def _pane_target(environment):
+    pane = environment.get('TMUX_PANE', '')
+    if pane.startswith('%') and pane[1:].isascii() and pane[1:].isdecimal():
+        return pane
+    return None
+
+
+def _tmux_query(environment, *arguments):
+    """Use the pane's own socket, never the caller's default tmux server."""
+    socket = environment.get('TMUX', '').rsplit(',', 2)[0]
+    if not socket or _pane_target(environment) is None:
+        return None
+    try:
+        from dashboard import tmux_binary
+        return subprocess.check_output(
+            [tmux_binary(), '-S', socket, *arguments], text=True,
+            stderr=subprocess.DEVNULL, timeout=1)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def _attached_features(environment):
+    pane = _pane_target(environment)
+    if pane is None:
+        return None
+    output = _tmux_query(environment, 'list-clients', '-t', pane, '-F',
+                         '#{client_session}|#{client_termfeatures}')
+    if output is None:
+        return None
+    clients = []
+    for row in output.splitlines():
+        session, separator, features = row.partition('|')
+        if not separator or not session:
+            return None
+        clients.append(set(features.split(',')))
+    return clients
+
+
+def select_image_environment(environment):
+    """Default to SIXEL only when this tmux build and all attached clients affirm it."""
+    force = environment.get('PI_FORCE_IMAGE_PROTOCOL', '')
+    if 'PI_FORCE_IMAGE_PROTOCOL' in environment and force.strip().lower() != 'sixel':
+        return environment
+
+    if 'PI_FORCE_IMAGE_PROTOCOL' in environment and 'PI_ALLOW_SIXEL_PASSTHROUGH' in environment:
+        return environment
+
+    clients = _attached_features(environment)
+    if not clients or not all('sixel' in features for features in clients):
+        return environment
+    support = _tmux_query(environment, 'display-message', '-p',
+                          '#{sixel_support}')
+    if support is None or support.strip() != '1':
+        return environment
+
+    environment.setdefault('PI_FORCE_IMAGE_PROTOCOL', 'sixel')
+    environment.setdefault('PI_ALLOW_SIXEL_PASSTHROUGH', '1')
+    return environment
+
+
+def await_client_and_exec(command):
+    """A new detached pane waits briefly for its first client before starting OMP."""
+    environment = os.environ.copy()
+    deadline = time.monotonic() + ATTACH_WAIT_SECONDS
+    while True:
+        clients = _attached_features(environment)
+        if clients is None or clients or time.monotonic() >= deadline:
+            break
+        time.sleep(ATTACH_POLL_SECONDS)
+    os.execvpe(command[0], command, select_image_environment(environment))
 
 # These are OMP CLI subcommands, not chat prompts. Keep them outside the TUI wrapper.
 SUBCOMMANDS = {
@@ -112,6 +188,9 @@ def normalize_cwd(argv):
 
 def main():
     argv = sys.argv[1:]
+    if len(argv) > 2 and argv[:2] == ['--await-client', '--']:
+        await_client_and_exec(argv[2:])
+        return 0
     native = argv[:1] == ['--native']
     if native:
         argv = argv[1:]
@@ -131,6 +210,7 @@ def main():
             environment = os.environ.copy()
             environment['OMP_PROFILE'] = profile
             environment.pop('OMP_USAGE_LAUNCHER', None)
+            select_image_environment(environment)
             extensions = [] if native else ['-e', str(extension_path(profile))]
             os.execve(omp, [omp, *extensions, *argv], environment)
         args = Namespace(providers=None, side=None, interval=None, profile=profile, owner=None, native=native)

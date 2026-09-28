@@ -45,11 +45,13 @@ Inside either host, use `/usage-dashboard view compact` for the overview or `/us
 | Python | Python 3.10+ with the standard-library `curses` and `sqlite3` modules. |
 | tmux | Version 3.3 or later. |
 | Git | Required for OMP marketplace Git sources and source-checkout installation; use it to obtain/update the Claude Code checkout. |
-| Terminal application | No specific application required; it must support tmux and curses. |
+| Terminal application | No specific application required for dashboard text; it must support tmux and curses. Inline OMP images additionally need native SIXEL support in the terminal, the tmux build, and the attached tmux client. |
 | Automatic shell integration | Separate bash, zsh, and fish hooks for OMP and Claude Code; use ordinary `omp` or `claude` after activating the corresponding hook. |
 | Terminal width | At least 96 columns to open the 34-column sidebar. |
 
-**Terminal-agnostic; tmux-backed.** Use your preferred terminal application. The dashboard uses tmux and curses rather than a terminal-specific API or plugin. tmux is required, but you do not need to start it manually: each host's installed shell hook starts a session or attaches the dashboard inside an existing one. Neither host's binary and renderer are patched. By default, the dashboard sets tmux terminal-graphics passthrough `off` for the window so image previews do not cover the sidebar or other panes; a pane-level `allow-passthrough` value you set yourself still takes precedence. OMP users on Ghostty or Kitty can opt into inline images for the OMP pane only with [`/usage-dashboard images on`](#inline-images-in-omp).
+**Terminal-agnostic dashboard; capability-gated OMP images.** Use your preferred terminal application for the sidebar. The dashboard uses tmux and curses rather than a terminal-specific API or plugin. tmux is required, but you do not need to start it manually: each host's installed shell hook starts a session or attaches the dashboard inside an existing one. Neither host's binary and renderer are patched. For hooked OMP, when the tmux build reports `sixel_support=1` and the attached client advertises SIXEL, the launcher automatically selects native SIXEL for OMP images; no image setting or command is needed. It preserves explicitly set `PI_FORCE_IMAGE_PROTOCOL` and `PI_ALLOW_SIXEL_PASSTHROUGH` variables. OMP's SIXEL passthrough permission is separate from tmux's `allow-passthrough` setting: the latter stays off to keep terminal-global passthrough graphics from covering sibling panes. Claude Code's image behavior is unchanged.
+
+The old `/usage-dashboard images on|off` setting from release 1.0.61 is retired. A saved `images_enabled` value is ignored without rewriting the preferences file and is removed on the next settings save. While OMP is dashboard-managed, tmux passthrough stays off in the OMP pane, the sidebar, and the window; on detach, the OMP pane's prior explicit setting is restored unless it was changed outside the dashboard.
 
 <details>
 <summary>Install operating-system prerequisites</summary>
@@ -321,7 +323,7 @@ Inside OMP, enter:
 ```text
 /usage-dashboard
 ```
-The menu has nine sections, including **Chart**: select Chart, then choose Bars (default), Dots, or Trace. Use the **Left Arrow** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/usage-dashboard chart` or `/usage-dashboard providers`, opens its submenu.
+The menu has eight sections, including **Chart**: select Chart, then choose Bars (default), Dots, or Trace. Use the **Left Arrow** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/usage-dashboard chart` or `/usage-dashboard providers`, opens its submenu.
 
 Dashboard command results, help, warnings, and errors use a bold **Usage Dashboard** heading and readable body text in the active OMP theme. Warning and error headings retain their severity colors. Update check/install notifications keep their native presentation.
 
@@ -334,7 +336,6 @@ Dashboard command results, help, warnings, and errors use a bold **Usage Dashboa
 | **Theme** | Choose a named palette or customize individual color tokens | `/usage-dashboard theme blue` |
 | **Providers** | Add, remove, hide, or restore provider views | `/usage-dashboard providers add claude` |
 | **Window** | Control the sidebar, polling, and usage-window filters | `/usage-dashboard window interval 60` |
-| **Images** | Allow or block OMP inline images in the OMP pane (off by default) | `/usage-dashboard images on` |
 | **Update** | Check for or install a dashboard release | `/usage-dashboard update check` |
 
 To select a chart without opening the menu, enter one of these commands in OMP (one at a time):
@@ -346,22 +347,6 @@ To select a chart without opening the menu, enter one of these commands in OMP (
 ```
 
 **Section Visibility** controls each section independently in Compact and Details. All four are visible by default when applicable. Hiding Previous removes the previous-session section; History Other Sessions and History Total can each be hidden without hiding the other. These settings only affect presentation: recording continues, stored usage is preserved, and Show restores the accumulated data. The former `history hide|show` command is replaced by `history-other hide|show` and `history-total hide|show`. Existing saved History visibility initializes both new settings, so previously hidden history stays hidden.
-
-#### Inline images in OMP
-
-OMP image output is **off by default**. To allow it, enter `/usage-dashboard images on` (or choose **Images → On** in the menu). You do not need OMP launch flags or environment variables. The choice is saved per profile, and later OMP launches apply it automatically. `/usage-dashboard images off` blocks image output again.
-
-tmux has two different passthrough settings. The **window option** covers every pane in a tmux window. The **pane option** covers one pane. The dashboard never enables passthrough for a whole window or globally. `images on` sets `allow-passthrough on` only on the OMP pane, and it always sets the sidebar pane to `off`. The sidebar pane's own setting is not a visual boundary: once the OMP pane may pass graphics through, the terminal, not tmux, decides where an image is drawn. Windows the dashboard creates keep their window-wide passthrough `off`. In a tmux window you opened yourself, the window setting and other panes stay as they are. When OMP exits normally and the dashboard detaches, the OMP pane gets back its earlier pane setting, or none if it had none. Detach restores the OMP pane even when closing the sidebar fails. If OMP crashes or is killed (for example with `SIGKILL`), the dashboard does not get to detach, and the OMP pane keeps `allow-passthrough on` until OMP runs again in that pane and later detaches, you run `/usage-dashboard images off`, you close that pane, or you run `tmux set-option -p -u allow-passthrough` in it. Nothing supervises a crashed OMP. If you change the OMP pane's setting yourself, other dashboard commands leave it alone and show it as **not applied**, and it is still in place after OMP exits. Only `/usage-dashboard images on` or `off` replaces it.
-
-**Images on is best effort, not containment.** OMP normally draws images with Kitty Unicode placeholders (`U=1`), which keep an image inside OMP's own text cells. OMP falls back to direct Kitty placement when an image has no stable ID or would span more than 297 cells, and any other program output in the OMP pane can also pass graphics through. Those images are positioned by the terminal and **can still draw over the sidebar**. The dashboard does not clip them. `images on` and `view list` say so.
-
-Images turn on only when these checks pass:
-
-- OMP is running in **Ghostty or Kitty**, found through `GHOSTTY_RESOURCES_DIR` or `KITTY_WINDOW_ID`. In these terminals OMP prefers Kitty Unicode placeholders (`U=1`).
-- `PI_FORCE_IMAGE_PROTOCOL` is unset or `kitty`, and Kitty placeholders have not been switched off with `PI_NO_KITTY_PLACEHOLDERS` or `PI_KITTY_PLACEHOLDERS=0`.
-- tmux is 3.3 or newer, is not running inside another multiplexer, and the OMP window has no panes besides OMP and its sidebar.
-
-If any check fails, `images on` is refused and nothing is saved. If you split another pane into the OMP window after images are on, the OMP pane is switched back to `off` the next time `view list` runs, the sidebar polls (about once a second), or another dashboard command runs, and the status reads **requested but inactive**. Images can still pass through between the split and that check. With the sidebar closed (`window off`), nothing polls, so only a dashboard command revokes them. Closing the extra pane does not turn images back on until the next dashboard command or launch. If you saved `on` earlier and a later launch fails a check, the OMP pane stays blocked, and the status reads **requested but inactive** along with the reason. Without a tmux pane, `images on` is saved as **pending** and takes effect the next time OMP attaches the dashboard. `/usage-dashboard view list` shows the current image status. The setting affects only images OMP draws after the change. Earlier images are not replayed, and images already on screen are not removed. This control is OMP-only. For Claude Code, the dashboard only sets the window-wide passthrough option to `off`; it does not change a pane-level `allow-passthrough` value already set on the Claude pane, and such a pane value overrides the window setting.
 
 ### Common tasks
 
@@ -437,8 +422,6 @@ All commands below are entered inside OMP.
 | `/usage-dashboard window interval SECONDS` | Set the polling interval; minimum 15 seconds. |
 | `/usage-dashboard window hide ID FILTER` | Hide matching usage-window rows. |
 | `/usage-dashboard window show ID FILTER` | Remove a matching usage-window filter. |
-| `/usage-dashboard images on` | Let new OMP image output pass through the OMP pane (Ghostty/Kitty). Best effort: placeholder images stay in OMP's cells, but direct-placement images can still cover the sidebar. Refused, and not saved, when the terminal or tmux layout is unsupported. |
-| `/usage-dashboard images off` | Block OMP image passthrough again (default). |
 | `/usage-dashboard update check` | Check for the latest stable dashboard release. |
 | `/usage-dashboard update install` | Upgrade this registered marketplace installation through OMP. |
 
@@ -549,7 +532,7 @@ The usage databases do **not** store prompts, responses, tool output, credential
 
 Preferences and, for OMP, release-check metadata also stay on your machine, but are stored in **JSON files, not inside the usage databases**.
 
-OMP provider order, hidden providers, window filters, position, display mode, Commands footer visibility, Previous session visibility, separate History Other Sessions and History Total visibility, polling interval, on/off state, the requested images setting, and theme tokens are saved per profile:
+OMP provider order, hidden providers, window filters, position, display mode, Commands footer visibility, Previous session visibility, separate History Other Sessions and History Total visibility, polling interval, on/off state, and theme tokens are saved per profile:
 
 | Configuration | Preferences file |
 | --- | --- |
@@ -561,7 +544,7 @@ Claude Code preferences are stored separately in **`~/.claude/usage-dashboard/us
 
 Use `omp --profile NAME` to select a profile. Keep a custom `PI_CODING_AGENT_DIR` in your launching environment. Source-checkout installations must also register the extension in each custom agent directory using `python3 install.py --agent-dir PATH`.
 
-Changes affect the current dashboard and subsequent launches, not other already-running panes. Preferences use locked, atomic updates; malformed settings produce an error rather than being silently reset. Even with malformed settings, closing OMP still removes the sidebar and restores the OMP pane's prior passthrough value, and `/usage-dashboard images off` still blocks images in the current OMP pane but reports that the saved preference was not updated. Release-check metadata is stored separately in `usage-dashboard-update.json` beside the preferences file.
+Changes affect the current dashboard and subsequent launches, not other already-running panes. Preferences use locked, atomic updates; malformed settings produce an error rather than being silently reset. Release-check metadata is stored separately in `usage-dashboard-update.json` beside the preferences file.
 
 The nine named palettes use design tokens: `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default. The original eight palettes—green, blue, brown, yellow, cyan, magenta, orange, and red—keep neutral body and muted text while varying headings, darker secondary rules, and chart color; only those eight appear in the [theme preview](#theme-preview). Blue uses bright cyan-blue `#00b4ff` for `accent` and `chart` with medium-bright `#007fae` secondary rules; the preview's blue tile predates these shades.
 
@@ -693,8 +676,8 @@ Use the same `CLAUDE_CONFIG_DIR` as during installation. If an exact legacy wrap
 | Update reports an unmanaged or unsafe installation | For OMP, use its source-checkout update instructions or migrate to the OMP marketplace. For Claude, run `/usage-dashboard update check` from the original installed checkout; installation refuses dirty/divergent/unowned or noncanonical Git sources. Repair these manually rather than overwriting another owner's files. |
 | Claude cannot find `/usage-dashboard` | Confirm the skill exists under `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/usage-dashboard/` and restart Claude. Use the same `CLAUDE_CONFIG_DIR` as at install time; normal Claude Code tool permissions still apply. |
 | Marketplace installation cannot find a release tag | Check the Releases page and wait for a successful release workflow, or use the OMP source-checkout method. |
-| Mouse selection behaves differently | tmux owns mouse input inside the session; try your terminal's selection override, often Shift. |
-| OMP images do not appear | Run `/usage-dashboard view list`. If images are **requested but inactive**, the listed reason explains why; see [Inline images in OMP](#inline-images-in-omp). Images already hidden before you enabled them are not replayed. |
+| Mouse selection behaves differently | tmux owns mouse input inside the session; try your terminal's selection override, often Shift. Native SIXEL images in OMP may disappear while tmux copy mode is active and return when you exit it. |
+| OMP images remain placeholders | The hooked launch selects native SIXEL only if the tmux build reports SIXEL support and an attached client advertises the feature. Check the terminal's SIXEL support and tmux's build/client capabilities; tmux 3.3+ alone does not guarantee native SIXEL. Unknown or unsupported capabilities leave OMP's normal image-protocol selection unchanged, which may render placeholders inside tmux. Existing OMP processes do not reselect their protocol when clients later attach or change; relaunch through the shell hook with a capable client attached. Explicit `PI_FORCE_IMAGE_PROTOCOL` or `PI_ALLOW_SIXEL_PASSTHROUGH` values take precedence. Do not enable tmux `allow-passthrough` to fix placeholders: terminal-global passthrough can draw across panes. Other image protocols and terminals without native SIXEL are not guaranteed to show inline previews. |
 
 For a temporary shell-launcher bypass, use `command omp`. Noninteractive invocations, help/version requests, and CLI subcommands pass through without opening a dashboard session. Inside an existing tmux session, a bypassed OMP can still load the extension; `window off` disables its sidebar.
 
@@ -710,6 +693,7 @@ node --check extension.js
 Tests use isolated fixtures, not live account credentials. Interactive verification has covered fish/tmux launch, mouse controls, nested menus, preference persistence, native upgrades, and project-over-user discovery. Live provider verification is limited to Codex; passing offline tests does not establish support for another account or provider.
 
 Session accounting has also been exercised with the installed OMP runtime using isolated saved sessions: multiple models/providers, `/new`, and previous-session persistence. Curses rendering and scrolling were checked in a 34-column tmux pane. Quota-reset/account-attribution checks use offline fixtures; they do not establish live quota reporting support for additional providers.
+Live OMP image verification used OMP 18.4.2, Konsole 26.08.1, and tmux 3.7c with a SIXEL-enabled build and client. A hooked OMP session displayed an image wholly within its pane beside the sidebar, both on a fresh launch and inside an existing tmux session. The window, OMP pane, and sidebar pane all had tmux `allow-passthrough` off. Resizing kept the image contained; narrowing the existing window to 122 columns temporarily compressed the sidebar below its 34-column width and showed “Widen terminal,” then widening restored it. OMP scrolling kept the image inside its pane; copy mode temporarily hid it and exiting copy mode restored it. This verifies that configuration on Linux, not every tmux build, terminal, or later client attachment.
 
 Claude Code capture has offline tests for its local events and rendering, but a live Claude API request could not be verified in this environment: the available OAuth attempt returned **403**. Passing offline tests does not establish successful live token capture or allowance visibility for a particular Claude account or plan.
 

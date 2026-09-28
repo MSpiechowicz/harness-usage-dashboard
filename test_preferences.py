@@ -33,32 +33,6 @@ class PreferencesTests(unittest.TestCase):
         update_preferences(None, {'providers': []})
         self.assertEqual(load_preferences(None)['providers'], [])
 
-    def test_legacy_preferences_default_images_disabled(self):
-        path = preferences_path('work')
-        path.parent.mkdir(parents=True)
-        original = '{"side": "left"}'
-        path.write_text(original)
-
-        loaded = load_preferences('work')
-
-        self.assertFalse(loaded['images_enabled'])
-        self.assertEqual(loaded['side'], 'left')
-        self.assertEqual(path.read_text(), original)
-
-    def test_images_preference_persists_and_is_profile_local(self):
-        update_preferences('work', {'images_enabled': True})
-        update_preferences('personal', {'images_enabled': True})
-        update_preferences('personal', {'images_enabled': False})
-
-        self.assertTrue(load_preferences('work')['images_enabled'])
-        self.assertFalse(load_preferences('personal')['images_enabled'])
-        self.assertTrue(json.loads(preferences_path('work').read_text())['images_enabled'])
-        self.assertFalse(json.loads(preferences_path('personal').read_text())['images_enabled'])
-
-        update_preferences('work', {'images_enabled': False})
-        self.assertFalse(load_preferences('work')['images_enabled'])
-        self.assertFalse(load_preferences('personal')['images_enabled'])
-
     def test_persisted_settings_survive_load_without_transient_fields(self):
         changes = {
             'providers': ['openai-codex', 'deepseek'],
@@ -72,7 +46,6 @@ class PreferencesTests(unittest.TestCase):
             'history_total_visible': True,
             'interval': 15,
             'enabled': False,
-            'images_enabled': True,
             'theme': 'blue',
             'chart_type': 'trace',
             'tokens': {'accent': '#58a66a', 'warn': 'orange'},
@@ -92,6 +65,32 @@ class PreferencesTests(unittest.TestCase):
         self.assertEqual(result['windows'], {'openai-codex': ['weekly']})
         self.assertEqual(result['interval'], 120)
         self.assertEqual(result['side'], 'left')
+
+    def test_retired_images_request_is_ignored_without_rewriting_other_preferences(self):
+        path = preferences_path('work')
+        path.parent.mkdir(parents=True)
+        for old_value in (True, False):
+            with self.subTest(old_value=old_value):
+                saved = json.dumps({'images_enabled': old_value, 'side': 'left',
+                                    'providers': ['openai-codex'], 'theme': 'blue'})
+                path.write_text(saved)
+
+                loaded = load_preferences('work')
+                self.assertEqual(path.read_text(), saved)
+                self.assertNotIn('images_enabled', loaded)
+                self.assertEqual((loaded['side'], loaded['providers'], loaded['theme']),
+                                 ('left', ['openai-codex'], 'blue'))
+
+                changed = update_preferences('work', {'interval': 90})
+                self.assertNotIn('images_enabled', changed)
+                self.assertNotIn('images_enabled', json.loads(path.read_text()))
+                self.assertEqual((changed['side'], changed['providers'], changed['theme'],
+                                  changed['interval']),
+                                 ('left', ['openai-codex'], 'blue', 90))
+
+    def test_retired_images_field_is_not_accepted_in_new_writes(self):
+        with self.assertRaises(ValueError):
+            update_preferences(None, {'images_enabled': True})
 
     def test_legacy_history_visibility_migrates_without_defaults_or_mutation(self):
         legacy = {'history_visible': False}
@@ -176,7 +175,6 @@ class PreferencesTests(unittest.TestCase):
             {'commands_visible': 'false'}, {'previous_visible': 0},
             {'history_other_visible': 1}, {'history_total_visible': 'false'},
             {'history_visible': 0}, {'interval': 14}, {'interval': 15.5},
-            {'images_enabled': 1},
             {'apiKey': 'not-a-setting'},
         )
         for changes in invalid:
