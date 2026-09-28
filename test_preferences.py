@@ -33,6 +33,32 @@ class PreferencesTests(unittest.TestCase):
         update_preferences(None, {'providers': []})
         self.assertEqual(load_preferences(None)['providers'], [])
 
+    def test_legacy_preferences_default_images_disabled(self):
+        path = preferences_path('work')
+        path.parent.mkdir(parents=True)
+        original = '{"side": "left"}'
+        path.write_text(original)
+
+        loaded = load_preferences('work')
+
+        self.assertFalse(loaded['images_enabled'])
+        self.assertEqual(loaded['side'], 'left')
+        self.assertEqual(path.read_text(), original)
+
+    def test_images_preference_persists_and_is_profile_local(self):
+        update_preferences('work', {'images_enabled': True})
+        update_preferences('personal', {'images_enabled': True})
+        update_preferences('personal', {'images_enabled': False})
+
+        self.assertTrue(load_preferences('work')['images_enabled'])
+        self.assertFalse(load_preferences('personal')['images_enabled'])
+        self.assertTrue(json.loads(preferences_path('work').read_text())['images_enabled'])
+        self.assertFalse(json.loads(preferences_path('personal').read_text())['images_enabled'])
+
+        update_preferences('work', {'images_enabled': False})
+        self.assertFalse(load_preferences('work')['images_enabled'])
+        self.assertFalse(load_preferences('personal')['images_enabled'])
+
     def test_persisted_settings_survive_load_without_transient_fields(self):
         changes = {
             'providers': ['openai-codex', 'deepseek'],
@@ -46,6 +72,7 @@ class PreferencesTests(unittest.TestCase):
             'history_total_visible': True,
             'interval': 15,
             'enabled': False,
+            'images_enabled': True,
             'theme': 'blue',
             'chart_type': 'trace',
             'tokens': {'accent': '#58a66a', 'warn': 'orange'},
@@ -149,6 +176,7 @@ class PreferencesTests(unittest.TestCase):
             {'commands_visible': 'false'}, {'previous_visible': 0},
             {'history_other_visible': 1}, {'history_total_visible': 'false'},
             {'history_visible': 0}, {'interval': 14}, {'interval': 15.5},
+            {'images_enabled': 1},
             {'apiKey': 'not-a-setting'},
         )
         for changes in invalid:

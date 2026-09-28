@@ -49,7 +49,7 @@ Inside either host, use `/usage-dashboard view compact` for the overview or `/us
 | Automatic shell integration | Separate bash, zsh, and fish hooks for OMP and Claude Code; use ordinary `omp` or `claude` after activating the corresponding hook. |
 | Terminal width | At least 96 columns to open the 34-column sidebar. |
 
-**Terminal-agnostic; tmux-backed.** Use your preferred terminal application. The dashboard uses tmux and curses rather than a terminal-specific API or plugin. tmux is required, but you do not need to start it manually: each host's installed shell hook starts a session or attaches the dashboard inside an existing one. Neither host's binary and renderer are patched. Dashboard sessions disable tmux terminal-graphics passthrough because it is terminal-global rather than pane-local; this prevents image previews from covering the editor pane.
+**Terminal-agnostic; tmux-backed.** Use your preferred terminal application. The dashboard uses tmux and curses rather than a terminal-specific API or plugin. tmux is required, but you do not need to start it manually: each host's installed shell hook starts a session or attaches the dashboard inside an existing one. Neither host's binary and renderer are patched. By default, the dashboard sets tmux terminal-graphics passthrough `off` for the window so image previews do not cover the sidebar or other panes; a pane-level `allow-passthrough` value you set yourself still takes precedence. OMP users on Ghostty or Kitty can opt into inline images for the OMP pane only with [`/usage-dashboard images on`](#inline-images-in-omp).
 
 <details>
 <summary>Install operating-system prerequisites</summary>
@@ -321,7 +321,7 @@ Inside OMP, enter:
 ```text
 /usage-dashboard
 ```
-The menu has eight sections, including **Chart**: select Chart, then choose Bars (default), Dots, or Trace. Use the **Left Arrow** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/usage-dashboard chart` or `/usage-dashboard providers`, opens its submenu.
+The menu has nine sections, including **Chart**: select Chart, then choose Bars (default), Dots, or Trace. Use the **Left Arrow** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/usage-dashboard chart` or `/usage-dashboard providers`, opens its submenu.
 
 Dashboard command results, help, warnings, and errors use a bold **Usage Dashboard** heading and readable body text in the active OMP theme. Warning and error headings retain their severity colors. Update check/install notifications keep their native presentation.
 
@@ -334,6 +334,7 @@ Dashboard command results, help, warnings, and errors use a bold **Usage Dashboa
 | **Theme** | Choose a named palette or customize individual color tokens | `/usage-dashboard theme blue` |
 | **Providers** | Add, remove, hide, or restore provider views | `/usage-dashboard providers add claude` |
 | **Window** | Control the sidebar, polling, and usage-window filters | `/usage-dashboard window interval 60` |
+| **Images** | Allow or block OMP inline images in the OMP pane (off by default) | `/usage-dashboard images on` |
 | **Update** | Check for or install a dashboard release | `/usage-dashboard update check` |
 
 To select a chart without opening the menu, enter one of these commands in OMP (one at a time):
@@ -345,6 +346,22 @@ To select a chart without opening the menu, enter one of these commands in OMP (
 ```
 
 **Section Visibility** controls each section independently in Compact and Details. All four are visible by default when applicable. Hiding Previous removes the previous-session section; History Other Sessions and History Total can each be hidden without hiding the other. These settings only affect presentation: recording continues, stored usage is preserved, and Show restores the accumulated data. The former `history hide|show` command is replaced by `history-other hide|show` and `history-total hide|show`. Existing saved History visibility initializes both new settings, so previously hidden history stays hidden.
+
+#### Inline images in OMP
+
+OMP image output is **off by default**. To allow it, enter `/usage-dashboard images on` (or choose **Images → On** in the menu). You do not need OMP launch flags or environment variables. The choice is saved per profile, and later OMP launches apply it automatically. `/usage-dashboard images off` blocks image output again.
+
+tmux has two different passthrough settings. The **window option** covers every pane in a tmux window. The **pane option** covers one pane. The dashboard never enables passthrough for a whole window or globally. `images on` sets `allow-passthrough on` only on the OMP pane, and it always sets the sidebar pane to `off`. The sidebar pane's own setting is not a visual boundary: once the OMP pane may pass graphics through, the terminal, not tmux, decides where an image is drawn. Windows the dashboard creates keep their window-wide passthrough `off`. In a tmux window you opened yourself, the window setting and other panes stay as they are. When OMP exits normally and the dashboard detaches, the OMP pane gets back its earlier pane setting, or none if it had none. Detach restores the OMP pane even when closing the sidebar fails. If OMP crashes or is killed (for example with `SIGKILL`), the dashboard does not get to detach, and the OMP pane keeps `allow-passthrough on` until OMP runs again in that pane and later detaches, you run `/usage-dashboard images off`, you close that pane, or you run `tmux set-option -p -u allow-passthrough` in it. Nothing supervises a crashed OMP. If you change the OMP pane's setting yourself, other dashboard commands leave it alone and show it as **not applied**, and it is still in place after OMP exits. Only `/usage-dashboard images on` or `off` replaces it.
+
+**Images on is best effort, not containment.** OMP normally draws images with Kitty Unicode placeholders (`U=1`), which keep an image inside OMP's own text cells. OMP falls back to direct Kitty placement when an image has no stable ID or would span more than 297 cells, and any other program output in the OMP pane can also pass graphics through. Those images are positioned by the terminal and **can still draw over the sidebar**. The dashboard does not clip them. `images on` and `view list` say so.
+
+Images turn on only when these checks pass:
+
+- OMP is running in **Ghostty or Kitty**, found through `GHOSTTY_RESOURCES_DIR` or `KITTY_WINDOW_ID`. In these terminals OMP prefers Kitty Unicode placeholders (`U=1`).
+- `PI_FORCE_IMAGE_PROTOCOL` is unset or `kitty`, and Kitty placeholders have not been switched off with `PI_NO_KITTY_PLACEHOLDERS` or `PI_KITTY_PLACEHOLDERS=0`.
+- tmux is 3.3 or newer, is not running inside another multiplexer, and the OMP window has no panes besides OMP and its sidebar.
+
+If any check fails, `images on` is refused and nothing is saved. If you split another pane into the OMP window after images are on, the OMP pane is switched back to `off` the next time `view list` runs, the sidebar polls (about once a second), or another dashboard command runs, and the status reads **requested but inactive**. Images can still pass through between the split and that check. With the sidebar closed (`window off`), nothing polls, so only a dashboard command revokes them. Closing the extra pane does not turn images back on until the next dashboard command or launch. If you saved `on` earlier and a later launch fails a check, the OMP pane stays blocked, and the status reads **requested but inactive** along with the reason. Without a tmux pane, `images on` is saved as **pending** and takes effect the next time OMP attaches the dashboard. `/usage-dashboard view list` shows the current image status. The setting affects only images OMP draws after the change. Earlier images are not replayed, and images already on screen are not removed. This control is OMP-only. For Claude Code, the dashboard only sets the window-wide passthrough option to `off`; it does not change a pane-level `allow-passthrough` value already set on the Claude pane, and such a pane value overrides the window setting.
 
 ### Common tasks
 
@@ -371,7 +388,7 @@ Window filters are case-insensitive substrings of provider usage-window labels o
 
 [![Preview of the original eight palettes—green, blue, brown, yellow, cyan, magenta, orange, and red—with bar-chart samples and green, orange, and red allowance indicators; Claude and other chart styles are not shown](docs/assets/themes.png)](docs/assets/themes.png)
 
-*Mock-data excerpts of the original eight palettes showing the bars style, not a preview of the Claude palette or other chart styles. Each uses the same values to compare accents, darker rules, and chart colors. Exact shades and dimming depend on your terminal palette and color support. Click to enlarge.*
+*Mock-data excerpts of the original eight palettes showing the bars style, not a preview of the Claude palette or other chart styles. Each uses the same values to compare accents, darker rules, and chart colors. The blue tile is historical: it shows the former dark blue, not the current bright cyan-blue `#00b4ff` accent and chart with `#007fae` rules. Exact shades and dimming depend on your terminal palette and color support. Click to enlarge.*
 
 Choose a palette from `/usage-dashboard theme`, or enter a command directly:
 
@@ -420,6 +437,8 @@ All commands below are entered inside OMP.
 | `/usage-dashboard window interval SECONDS` | Set the polling interval; minimum 15 seconds. |
 | `/usage-dashboard window hide ID FILTER` | Hide matching usage-window rows. |
 | `/usage-dashboard window show ID FILTER` | Remove a matching usage-window filter. |
+| `/usage-dashboard images on` | Let new OMP image output pass through the OMP pane (Ghostty/Kitty). Best effort: placeholder images stay in OMP's cells, but direct-placement images can still cover the sidebar. Refused, and not saved, when the terminal or tmux layout is unsupported. |
+| `/usage-dashboard images off` | Block OMP image passthrough again (default). |
 | `/usage-dashboard update check` | Check for the latest stable dashboard release. |
 | `/usage-dashboard update install` | Upgrade this registered marketplace installation through OMP. |
 
@@ -463,7 +482,7 @@ Cache-write counts are reported values, not estimates of how much input might be
 
 Each refresh reads one consistent database snapshot, so the chart and session/project totals cannot mix records from before and after an incoming usage update. Chart buckets contain the sum of individual request totals for that minute, not the cumulative session total: requests of 370k and 17k in consecutive minutes produce chart values of 370k and 17k in the selected style, and a session total of 387k. Compact numbers preserve significant zeroes (`170k` stays `170k`, not `17k`).
 
-Section dividers separate token rate, session summaries, both history sections, and account allowances. Every section has a blank separator row in Compact and Details modes; Details also separates model, history, and provider entries for readability. Each history section has its own heading and Tokens total row. In Details, provider totals under Current/Previous session and history Tokens totals use theme-colored headings with totals at the right. Model names retain normal text contrast; input/output and cache-read/write rows use the secondary theme color, like Reset credits. Compact mode avoids repeating the total for a single provider, hides history when the project has no recorded usage, and omits a nonexistent previous session.
+Section dividers separate token rate, session summaries, both history sections, and account allowances. Section labels such as TOKEN TRACE, CURRENT SESSION, HISTORY TOTAL, and provider names are bold and use the theme accent color on color terminals; on monochrome terminals they are bold without color. The divider rule and right-side detail stay in the secondary color. Every section has a blank separator row in Compact and Details modes; Details also separates model, history, and provider entries for readability. Each history section has its own heading and Tokens total row. In Details, provider totals under Current/Previous session and history Tokens totals use the same bold theme-colored headings with totals at the right. Model names retain normal text contrast; input/output and cache-read/write rows use the secondary theme color, like Reset credits. Compact mode avoids repeating the total for a single provider, hides history when the project has no recorded usage, and omits a nonexistent previous session.
 
 **Recorded history** is split into two independently visible sections. **HISTORY OTHER SESSIONS** is the total of locally recorded requests from sessions other than the current one in the current Git repository (or current working directory when no repository root is found). **HISTORY TOTAL** is the aggregate of all recorded requests in the current project, including the current session. In Details mode, both sections expand to the model/thinking-level rows and token dimensions used by the session summaries. `/new` preserves both totals. Resuming the same conversation continues its record, while inherited fork context is excluded from new consumption. Large token totals use compact `k`, `M`, `B`,…
 
@@ -530,7 +549,7 @@ The usage databases do **not** store prompts, responses, tool output, credential
 
 Preferences and, for OMP, release-check metadata also stay on your machine, but are stored in **JSON files, not inside the usage databases**.
 
-OMP provider order, hidden providers, window filters, position, display mode, Commands footer visibility, Previous session visibility, separate History Other Sessions and History Total visibility, polling interval, on/off state, and theme tokens are saved per profile:
+OMP provider order, hidden providers, window filters, position, display mode, Commands footer visibility, Previous session visibility, separate History Other Sessions and History Total visibility, polling interval, on/off state, the requested images setting, and theme tokens are saved per profile:
 
 | Configuration | Preferences file |
 | --- | --- |
@@ -542,9 +561,9 @@ Claude Code preferences are stored separately in **`~/.claude/usage-dashboard/us
 
 Use `omp --profile NAME` to select a profile. Keep a custom `PI_CODING_AGENT_DIR` in your launching environment. Source-checkout installations must also register the extension in each custom agent directory using `python3 install.py --agent-dir PATH`.
 
-Changes affect the current dashboard and subsequent launches, not other already-running panes. Preferences use locked, atomic updates; malformed settings produce an error rather than being silently reset. Release-check metadata is stored separately in `usage-dashboard-update.json` beside the preferences file.
+Changes affect the current dashboard and subsequent launches, not other already-running panes. Preferences use locked, atomic updates; malformed settings produce an error rather than being silently reset. Even with malformed settings, closing OMP still removes the sidebar and restores the OMP pane's prior passthrough value, and `/usage-dashboard images off` still blocks images in the current OMP pane but reports that the saved preference was not updated. Release-check metadata is stored separately in `usage-dashboard-update.json` beside the preferences file.
 
-The nine named palettes use design tokens: `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default. The original eight palettes—green, blue, brown, yellow, cyan, magenta, orange, and red—keep neutral body and muted text while varying headings, darker secondary rules, and chart color; only those eight appear in the [theme preview](#theme-preview).
+The nine named palettes use design tokens: `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default. The original eight palettes—green, blue, brown, yellow, cyan, magenta, orange, and red—keep neutral body and muted text while varying headings, darker secondary rules, and chart color; only those eight appear in the [theme preview](#theme-preview). Blue uses bright cyan-blue `#00b4ff` for `accent` and `chart` with medium-bright `#007fae` secondary rules; the preview's blue tile predates these shades.
 
 Opt into `claude` with `/usage-dashboard theme claude` in OMP or `python3 dashboard.py control --host claude -- theme claude` for Claude Code. Inspired by [Anthropic's published brand colors](https://raw.githubusercontent.com/anthropics/skills/main/skills/brand-guidelines/SKILL.md), it sets `text` to warm light `#faf9f5`, `muted` and `secondary` to mid-gray `#b0aea5`, and `accent` and `chart` to orange `#d97757`. This is a dashboard palette for an assumed dark terminal, not a verified match for Claude Code's built-in terminal theme; it inherits your terminal background rather than setting one. Muted text also uses terminal dimming. Hex colors are mapped to the nearest xterm color on 256-color terminals and the nearest basic color on basic-color terminals, so displayed shades depend on terminal support and palette.
 
@@ -674,7 +693,8 @@ Use the same `CLAUDE_CONFIG_DIR` as during installation. If an exact legacy wrap
 | Update reports an unmanaged or unsafe installation | For OMP, use its source-checkout update instructions or migrate to the OMP marketplace. For Claude, run `/usage-dashboard update check` from the original installed checkout; installation refuses dirty/divergent/unowned or noncanonical Git sources. Repair these manually rather than overwriting another owner's files. |
 | Claude cannot find `/usage-dashboard` | Confirm the skill exists under `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/usage-dashboard/` and restart Claude. Use the same `CLAUDE_CONFIG_DIR` as at install time; normal Claude Code tool permissions still apply. |
 | Marketplace installation cannot find a release tag | Check the Releases page and wait for a successful release workflow, or use the OMP source-checkout method. |
-| Mouse selection behaves differently | tmux owns mouse input inside the session; try your terminal's selection override, often Shift. Dashboard sessions disable terminal-graphics passthrough so inline images cannot cover sibling panes. |
+| Mouse selection behaves differently | tmux owns mouse input inside the session; try your terminal's selection override, often Shift. |
+| OMP images do not appear | Run `/usage-dashboard view list`. If images are **requested but inactive**, the listed reason explains why; see [Inline images in OMP](#inline-images-in-omp). Images already hidden before you enabled them are not replayed. |
 
 For a temporary shell-launcher bypass, use `command omp`. Noninteractive invocations, help/version requests, and CLI subcommands pass through without opening a dashboard session. Inside an existing tmux session, a bypassed OMP can still load the extension; `window off` disables its sidebar.
 
