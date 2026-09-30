@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import pty
 import shlex
+import select
 import signal
 import struct
 import subprocess
@@ -803,7 +804,50 @@ class NativeImagePaneTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             control(self.args, words)
 
-    def test_native_passthrough_preserves_window_and_restores_owner(self):
+    def test_graphics_cannot_bypass_pane_grid(self):
+        self.control(['init'])
+        master, slave = pty.openpty()
+        self.addCleanup(os.close, master)
+        self.addCleanup(os.close, slave)
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 40, 120, 0, 0))
+        client = subprocess.Popen(
+            [self.tmux, '-S', self.socket, 'attach-session', '-t', 'isolated'],
+            stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
+            preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0),
+            env={**os.environ, 'TMUX': ''})
+        self.addCleanup(client.wait, timeout=5)
+        self.addCleanup(client.terminate)
+        deadline = time.monotonic() + 5
+        while not self.tmux_cmd('list-clients', '-F', '#{client_tty}'):
+            if time.monotonic() >= deadline:
+                self.fail('Isolated tmux client did not attach')
+            time.sleep(.02)
+
+        # Direct placements must stay blocked through resize, side changes and
+        # sidebar removal, while ordinary pane text keeps reaching the client.
+        placement = b'\x1b_Ga=p,i=424242,c=10,r=4\x1b\\'
+        wrapped = b'\x1bPtmux;' + placement.replace(b'\x1b', b'\x1b\x1b') + b'\x1b\\'
+        stages = ((['init'], None), (['init'], 45),
+                  (['position', 'left'], None), (['window', 'off'], None))
+        for index, (words, sidebar_width) in enumerate(stages):
+            self.control(words)
+            if sidebar_width is not None:
+                self.tmux_cmd('resize-pane', '-t', owned_panes(self.owner)[0],
+                              '-x', str(sidebar_width))
+            marker = f'PANE_TEXT_AFTER_GRAPHICS_{index}'.encode()
+            payload = wrapped + marker
+            command = [sys.executable, '-c',
+                       f'import os,time; os.write(1, bytes.fromhex("{payload.hex()}")); time.sleep(30)']
+            self.tmux_cmd('respawn-pane', '-k', '-t', self.owner, *command)
+            output = bytearray()
+            deadline = time.monotonic() + 5
+            while marker not in output and time.monotonic() < deadline:
+                if select.select([master], [], [], .1)[0]:
+                    output.extend(os.read(master, 65536))
+            self.assertIn(marker, output)
+            self.assertNotIn(placement, output)
+
+    def test_containment_preserves_window_and_restores_owner(self):
         for prior in (None, 'on', 'off', 'all'):
             with self.subTest(prior=prior):
                 self.tmux_cmd('set-option', '-w', '-t', self.owner, 'allow-passthrough', 'off')
@@ -813,11 +857,11 @@ class NativeImagePaneTests(unittest.TestCase):
                     self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', prior)
 
                 self.control(['init'])
-                self.assertEqual(self.pane_setting(self.owner), 'all' if prior == 'all' else 'on')
+                self.assertEqual(self.pane_setting(self.owner), 'off')
                 self.assertEqual(self.tmux_cmd('show-options', '-w', '-v', '-t', self.owner,
                                                'allow-passthrough'), 'off')
                 self.control(['window', 'off'])
-                self.assertEqual(self.pane_setting(self.owner), 'all' if prior == 'all' else 'on')
+                self.assertEqual(self.pane_setting(self.owner), 'off')
                 self.control(['detach'])
                 self.assertEqual(self.pane_setting(self.owner), prior)
                 self.assertEqual(self.tmux_cmd('show-options', '-p', '-v', '-q', '-t',
@@ -837,24 +881,26 @@ class NativeImagePaneTests(unittest.TestCase):
         self.assertEqual(self.tmux_cmd('show-options', '-w', '-v', '-t', self.owner,
                                        'allow-passthrough'), 'on')
 
-    def test_old_containment_marker_restores_original_before_native_rendering(self):
-        for prior in (None, 'on', 'off', 'all'):
-            with self.subTest(prior=prior):
-                self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'off')
-                self.tmux_cmd('set-option', '-p', '-t', self.owner, '@omp_usage_passthrough',
-                              json.dumps({'prior': prior, 'applied': 'off'}))
+    def test_previous_policies_retain_original_setting_across_migration(self):
+        for applied in ('off', 'on', 'all'):
+            for prior in (None, 'on', 'off', 'all'):
+                with self.subTest(applied=applied, prior=prior):
+                    self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', applied)
+                    self.tmux_cmd('set-option', '-p', '-t', self.owner, '@omp_usage_passthrough',
+                                  json.dumps({'prior': prior, 'applied': applied}))
 
-                self.control(['init'])
-                self.assertEqual(self.pane_setting(self.owner), 'all' if prior == 'all' else 'on')
-                self.control(['detach'])
-                self.assertEqual(self.pane_setting(self.owner), prior)
+                    self.control(['init'])
+                    self.control(['init'])
+                    self.assertEqual(self.pane_setting(self.owner), 'off')
+                    self.control(['detach'])
+                    self.assertEqual(self.pane_setting(self.owner), prior)
 
     def test_external_edit_after_attach_is_left_intact_on_detach(self):
         self.control(['init'])
-        self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'off')
+        self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'all')
 
         self.control(['detach'])
-        self.assertEqual(self.pane_setting(self.owner), 'off')
+        self.assertEqual(self.pane_setting(self.owner), 'all')
 
     def test_invalid_legacy_marker_does_not_restore_untrusted_value(self):
         self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'off')
@@ -862,7 +908,7 @@ class NativeImagePaneTests(unittest.TestCase):
                       '{"prior":"all","applied":false}')
 
         self.control(['init'])
-        self.assertEqual(self.pane_setting(self.owner), 'on')
+        self.assertEqual(self.pane_setting(self.owner), 'off')
         self.control(['detach'])
         self.assertEqual(self.pane_setting(self.owner), 'off')
 

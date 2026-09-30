@@ -37,8 +37,35 @@ def _attached_clients(environment):
     if pane is None:
         return None
     output = _tmux_query(environment, 'list-clients', '-t', pane, '-F',
-                         '#{client_session}')
-    return output.splitlines() if output is not None else None
+                         '#{client_session}|#{client_termfeatures}')
+    if output is None:
+        return None
+    clients = []
+    for row in output.splitlines():
+        session, separator, features = row.partition('|')
+        if not separator or not session:
+            return None
+        clients.append(set(features.split(',')))
+    return clients
+
+
+def select_image_environment(environment):
+    """Use pane-managed SIXEL only when tmux and every attached client support it."""
+    if ('PI_FORCE_IMAGE_PROTOCOL' in environment
+            and environment['PI_FORCE_IMAGE_PROTOCOL'].strip().lower() != 'sixel'):
+        return environment
+    if 'PI_FORCE_IMAGE_PROTOCOL' in environment and 'PI_ALLOW_SIXEL_PASSTHROUGH' in environment:
+        return environment
+    clients = _attached_clients(environment)
+    if not clients or not all('sixel' in features for features in clients):
+        return environment
+    support = _tmux_query(environment, 'display-message', '-p', '-t',
+                          _pane_target(environment), '#{sixel_support}')
+    if support is not None and support.strip() == '1':
+        environment.setdefault('PI_FORCE_IMAGE_PROTOCOL', 'sixel')
+        # This permits raw SIXEL in OMP's renderer, not tmux DCS passthrough.
+        environment.setdefault('PI_ALLOW_SIXEL_PASSTHROUGH', '1')
+    return environment
 
 
 def await_client_and_exec(command):
@@ -50,7 +77,7 @@ def await_client_and_exec(command):
         if clients is None or clients or time.monotonic() >= deadline:
             break
         time.sleep(ATTACH_POLL_SECONDS)
-    os.execvpe(command[0], command, environment)
+    os.execvpe(command[0], command, select_image_environment(environment))
 
 # These are OMP CLI subcommands, not chat prompts. Keep them outside the TUI wrapper.
 SUBCOMMANDS = {
@@ -170,7 +197,7 @@ def main():
     if not should_wrap(argv, sys.stdin.isatty() and sys.stdout.isatty()):
         os.execv(omp, [omp, *argv])
     from argparse import Namespace
-    from dashboard import allow_owner_passthrough, extension_path, launch
+    from dashboard import contain_owner_passthrough, extension_path, launch
     from preferences import resolve_profile
     try:
         profile = resolve_profile(selected_profile(argv))
@@ -182,7 +209,8 @@ def main():
             environment.pop('OMP_USAGE_LAUNCHER', None)
             pane = _pane_target(environment)
             if pane is not None:
-                allow_owner_passthrough(pane)
+                contain_owner_passthrough(pane)
+            select_image_environment(environment)
             extensions = [] if native else ['-e', str(extension_path(profile))]
             os.execve(omp, [omp, *extensions, *argv], environment)
         args = Namespace(providers=None, side=None, interval=None, profile=profile, owner=None, native=native)
