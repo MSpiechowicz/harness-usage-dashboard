@@ -768,7 +768,7 @@ class PaneOwnershipTests(unittest.TestCase):
                                      '#{pane_id}\t#{@omp_usage_owner}')
 
 
-class PassthroughContainmentTests(unittest.TestCase):
+class NativeImagePaneTests(unittest.TestCase):
     def setUp(self):
         try:
             self.tmux = tmux_binary()
@@ -803,110 +803,73 @@ class PassthroughContainmentTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             control(self.args, words)
 
-    def test_old_on_and_off_configs_do_not_enable_owner_sidebar_or_window(self):
-        path = preferences_path('default')
-        path.parent.mkdir(parents=True, exist_ok=True)
-        for requested in (True, False):
-            with self.subTest(requested=requested):
-                persisted = json.dumps({'images_enabled': requested, 'side': 'left',
-                                        'providers': ['openai-codex']})
-                path.write_text(persisted)
-                self.tmux_cmd('set-option', '-w', '-t', self.owner, 'allow-passthrough', 'on')
-                self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'on')
-                live = json.dumps({'images_enabled': requested, 'enabled': True, 'side': 'left'})
-                self.tmux_cmd('set-option', '-p', '-t', self.owner, '@omp_usage_config', live)
-                sidebar = self.tmux_cmd('split-window', '-h', '-d', '-t', self.owner, '-P',
-                                        '-F', '#{pane_id}', 'sleep 120')
-                self.tmux_cmd('set-option', '-p', '-t', sidebar, '@omp_usage_owner', self.owner)
-                self.tmux_cmd('set-option', '-p', '-t', sidebar, 'allow-passthrough', 'on')
-
-                self.control(['init'])
-                self.assertEqual(self.pane_setting(self.owner), 'off')
-                self.assertEqual(self.pane_setting(sidebar), 'off')
-                self.assertEqual(self.tmux_cmd('show-options', '-w', '-v', '-t', self.owner,
-                                               'allow-passthrough'), 'off')
-                self.assertNotIn('images_enabled', json.loads(self.tmux_cmd(
-                    'show-options', '-p', '-v', '-t', self.owner, '@omp_usage_config')))
-                self.assertEqual(path.read_text(), persisted)
-                self.assertEqual(load_preferences('default')['side'], 'left')
-
-                self.control(['detach'])
-                self.assertEqual(self.pane_setting(self.owner), 'on')
-                self.assertEqual(self.tmux_cmd('show-options', '-w', '-v', '-t', self.owner,
-                                               'allow-passthrough'), 'off')
-                self.assertEqual(self.tmux_cmd('show-options', '-p', '-v', '-q', '-t',
-                                               self.owner, '@omp_usage_passthrough'), '')
-
-    def test_inherited_window_on_and_fresh_owner_pane_restore_unset_on_detach(self):
-        self.tmux_cmd('set-option', '-w', '-t', self.owner, 'allow-passthrough', 'on')
-        self.assertIsNone(self.pane_setting(self.owner))
-
-        self.control(['view', 'list'])
-        self.assertEqual(self.pane_setting(self.owner), 'off')
-        self.assertEqual(self.tmux_cmd('show-options', '-w', '-v', '-t', self.owner,
-                                       'allow-passthrough'), 'off')
-
-        self.control(['detach'])
-        self.assertIsNone(self.pane_setting(self.owner))
-
-    def test_legacy_marker_preserves_prior_unless_owner_changed_its_applied_value(self):
-        scenarios = (
-            ('on', 'on', 'off', 'off'),
-            ('on', 'off', 'on', 'on'),
-            (None, 'on', 'on', None),
-            ('off', 'on', 'all', 'all'),
-        )
-        for prior, applied, current, expected in scenarios:
-            with self.subTest(prior=prior, applied=applied, current=current):
-                if current is None:
+    def test_native_passthrough_preserves_window_and_restores_owner(self):
+        for prior in (None, 'on', 'off', 'all'):
+            with self.subTest(prior=prior):
+                self.tmux_cmd('set-option', '-w', '-t', self.owner, 'allow-passthrough', 'off')
+                if prior is None:
                     self.tmux_cmd('set-option', '-p', '-u', '-t', self.owner, 'allow-passthrough')
                 else:
-                    self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', current)
-                self.tmux_cmd('set-option', '-p', '-t', self.owner, '@omp_usage_passthrough',
-                              json.dumps({'prior': prior, 'applied': applied}))
+                    self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', prior)
 
-                self.control(['view', 'list'])
-                self.assertEqual(self.pane_setting(self.owner), 'off')
+                self.control(['init'])
+                self.assertEqual(self.pane_setting(self.owner), 'all' if prior == 'all' else 'on')
+                self.assertEqual(self.tmux_cmd('show-options', '-w', '-v', '-t', self.owner,
+                                               'allow-passthrough'), 'off')
+                self.control(['window', 'off'])
+                self.assertEqual(self.pane_setting(self.owner), 'all' if prior == 'all' else 'on')
                 self.control(['detach'])
-                self.assertEqual(self.pane_setting(self.owner), expected)
+                self.assertEqual(self.pane_setting(self.owner), prior)
+                self.assertEqual(self.tmux_cmd('show-options', '-p', '-v', '-q', '-t',
+                                               self.owner, '@omp_usage_passthrough'), '')
+                self.control(['window', 'on'])
+                self.control(['detach'])
 
-    def test_detach_directly_migrates_an_old_images_on_marker(self):
-        self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'on')
-        self.tmux_cmd('set-option', '-p', '-t', self.owner, '@omp_usage_passthrough',
-                      '{"prior":null,"applied":"on"}')
+    def test_existing_window_and_sidebar_passthrough_are_not_overridden(self):
+        self.tmux_cmd('set-option', '-w', '-t', self.owner, 'allow-passthrough', 'on')
+        sidebar = self.tmux_cmd('split-window', '-h', '-d', '-l', '34', '-t', self.owner,
+                                '-P', '-F', '#{pane_id}', 'sleep 120')
+        self.tmux_cmd('set-option', '-p', '-t', sidebar, '@omp_usage_owner', self.owner)
+        self.tmux_cmd('set-option', '-p', '-t', sidebar, 'allow-passthrough', 'all')
 
-        self.control(['detach'])
-        self.assertIsNone(self.pane_setting(self.owner))
-        self.assertEqual(self.tmux_cmd('show-options', '-p', '-v', '-q', '-t',
-                                       self.owner, '@omp_usage_passthrough'), '')
+        self.control(['init'])
+        self.assertEqual(self.pane_setting(sidebar), 'all')
+        self.assertEqual(self.tmux_cmd('show-options', '-w', '-v', '-t', self.owner,
+                                       'allow-passthrough'), 'on')
+
+    def test_old_containment_marker_restores_original_before_native_rendering(self):
+        for prior in (None, 'on', 'off', 'all'):
+            with self.subTest(prior=prior):
+                self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'off')
+                self.tmux_cmd('set-option', '-p', '-t', self.owner, '@omp_usage_passthrough',
+                              json.dumps({'prior': prior, 'applied': 'off'}))
+
+                self.control(['init'])
+                self.assertEqual(self.pane_setting(self.owner), 'all' if prior == 'all' else 'on')
+                self.control(['detach'])
+                self.assertEqual(self.pane_setting(self.owner), prior)
 
     def test_external_edit_after_attach_is_left_intact_on_detach(self):
-        self.control(['view', 'list'])
-        self.assertEqual(self.pane_setting(self.owner), 'off')
-        self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'on')
+        self.control(['init'])
+        self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'off')
 
         self.control(['detach'])
-        self.assertEqual(self.pane_setting(self.owner), 'on')
+        self.assertEqual(self.pane_setting(self.owner), 'off')
 
-    def test_invalid_legacy_marker_never_restores_untrusted_on(self):
-        self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'on')
+    def test_invalid_legacy_marker_does_not_restore_untrusted_value(self):
+        self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'off')
         self.tmux_cmd('set-option', '-p', '-t', self.owner, '@omp_usage_passthrough',
-                      '{"prior":"on","applied":false}')
+                      '{"prior":"all","applied":false}')
 
-        self.control(['view', 'list'])
-        self.assertEqual(self.pane_setting(self.owner), 'off')
+        self.control(['init'])
+        self.assertEqual(self.pane_setting(self.owner), 'on')
         self.control(['detach'])
-        self.assertIsNone(self.pane_setting(self.owner))
+        self.assertEqual(self.pane_setting(self.owner), 'off')
 
     def test_sidebar_cleanup_failure_still_restores_owner_and_clears_live_config(self):
-        self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'on')
-        sidebar = self.tmux_cmd('split-window', '-h', '-d', '-t', self.owner, '-P',
-                                '-F', '#{pane_id}', 'sleep 120')
-        self.tmux_cmd('set-option', '-p', '-t', sidebar, '@omp_usage_owner', self.owner)
-        self.tmux_cmd('set-option', '-p', '-t', self.owner, '@omp_usage_config',
-                      '{"enabled":false}')
-        self.control(['view', 'list'])
-        self.assertEqual(self.pane_setting(self.owner), 'off')
+        self.tmux_cmd('set-option', '-p', '-t', self.owner, 'allow-passthrough', 'off')
+        self.control(['init'])
+        sidebar = owned_panes(self.owner)[0]
 
         from dashboard import mux as real_mux
 
@@ -919,7 +882,7 @@ class PassthroughContainmentTests(unittest.TestCase):
              self.assertRaises(subprocess.CalledProcessError):
             self.control(['detach'])
 
-        self.assertEqual(self.pane_setting(self.owner), 'on')
+        self.assertEqual(self.pane_setting(self.owner), 'off')
         self.assertEqual(self.tmux_cmd('show-options', '-p', '-v', '-q', '-t',
                                        self.owner, '@omp_usage_config'), '')
         self.assertEqual(self.tmux_cmd('show-options', '-p', '-v', '-q', '-t',
