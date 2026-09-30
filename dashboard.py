@@ -301,8 +301,8 @@ def passthrough_record(owner, host):
     return record
 
 
-def allow_owner_passthrough(owner, host='omp'):
-    """Let OMP's native renderer reach the terminal, restoring pane state on detach."""
+def contain_owner_passthrough(owner, host='omp'):
+    """Keep graphics in tmux's pane grid; restore the prior setting on detach."""
     current = pane_passthrough(owner)
     record = passthrough_record(owner, host)
     if isinstance(record, dict) and current == record['applied']:
@@ -310,7 +310,7 @@ def allow_owner_passthrough(owner, host='omp'):
     else:
         # Preserve external edits, including when an old marker is malformed.
         prior = current
-    applied = 'all' if prior == 'all' else 'on'
+    applied = 'off'
     if current != applied:
         mux('set-option', '-p', '-t', owner, 'allow-passthrough', applied)
     mux('set-option', '-p', '-t', owner, pane_option(host, 'passthrough'),
@@ -443,7 +443,7 @@ def control(args, words):
             print(f'Saved. Run {host} through the installed shell integration to attach the sidebar.')
         return
     if host == 'omp':
-        allow_owner_passthrough(owner, host)
+        contain_owner_passthrough(owner, host)
     old = load_config(owner, defaults(args), host=host)
     config = change_config(json.loads(json.dumps(old)), words, host=host)
     if words == ['view', 'list']:
@@ -1280,7 +1280,7 @@ def launch(args, omp_args):
     try:
         mux('set-option', '-t', session, 'status', 'off')
         if host == 'omp':
-            allow_owner_passthrough(owner, host)
+            contain_owner_passthrough(owner, host)
         else:
             disable_passthrough(session)
         args.owner = owner
