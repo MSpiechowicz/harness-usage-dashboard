@@ -301,29 +301,25 @@ def passthrough_record(owner, host):
     return record
 
 
-def contain_owner_passthrough(owner, host):
-    """Block the OMP pane, preserving a valid prior setting across old image records."""
+def allow_owner_passthrough(owner, host='omp'):
+    """Let OMP's native renderer reach the terminal, restoring pane state on detach."""
     current = pane_passthrough(owner)
     record = passthrough_record(owner, host)
-    if record is _INVALID_PASSTHROUGH_RECORD:
-        # A malformed marker may have applied the current "on"; do not trust it.
-        prior = None
-    elif record is None:
-        prior = current if current in (None, 'on', 'off', 'all') else None
-    elif current == record['applied']:
+    if isinstance(record, dict) and current == record['applied']:
         prior = record['prior']
     else:
-        # The owner edited the pane after the dashboard last applied its setting.
-        prior = current if current in (None, 'on', 'off', 'all') else None
-    if current != 'off':
-        mux('set-option', '-p', '-t', owner, 'allow-passthrough', 'off')
+        # Preserve external edits, including when an old marker is malformed.
+        prior = current
+    applied = 'all' if prior == 'all' else 'on'
+    if current != applied:
+        mux('set-option', '-p', '-t', owner, 'allow-passthrough', applied)
     mux('set-option', '-p', '-t', owner, pane_option(host, 'passthrough'),
-        json.dumps({'prior': prior, 'applied': 'off'}))
+        json.dumps({'prior': prior, 'applied': applied}))
 
 
 def restore_owner_passthrough(owner, host):
     record = passthrough_record(owner, host)
-    if isinstance(record, dict) and pane_passthrough(owner) == 'off':
+    if isinstance(record, dict) and pane_passthrough(owner) == record['applied']:
         if record['prior'] is None:
             mux('set-option', '-p', '-u', '-t', owner, 'allow-passthrough')
         else:
@@ -422,23 +418,15 @@ def control(args, words):
         raise ValueError('Invalid dashboard pane identity.')
     if words == ['detach']:
         if owner:
-            disable_passthrough(owner)
             if host != 'omp':
-                for pane in owned_panes(owner, host=host):
-                    mux('kill-pane', '-t', pane)
-                mux('set-option', '-p', '-u', '-t', owner, pane_option(host, 'config'))
-                return
+                disable_passthrough(owner)
             try:
-                record = passthrough_record(owner, host)
-                if (record is _INVALID_PASSTHROUGH_RECORD
-                        or (isinstance(record, dict) and record['applied'] != 'off')):
-                    # An old images-on marker may still own an unsafe pane value.
-                    contain_owner_passthrough(owner, host)
                 for pane in owned_panes(owner, host=host):
                     mux('kill-pane', '-t', pane)
             finally:
                 try:
-                    restore_owner_passthrough(owner, host)
+                    if host == 'omp':
+                        restore_owner_passthrough(owner, host)
                 finally:
                     mux('set-option', '-p', '-u', '-t', owner, pane_option(host, 'config'))
         return
@@ -455,10 +443,7 @@ def control(args, words):
             print(f'Saved. Run {host} through the installed shell integration to attach the sidebar.')
         return
     if host == 'omp':
-        disable_passthrough(owner)
-        contain_owner_passthrough(owner, host)
-        for pane in owned_panes(owner, host=host):
-            mux('set-option', '-p', '-t', pane, 'allow-passthrough', 'off')
+        allow_owner_passthrough(owner, host)
     old = load_config(owner, defaults(args), host=host)
     config = change_config(json.loads(json.dumps(old)), words, host=host)
     if words == ['view', 'list']:
@@ -496,8 +481,6 @@ def control(args, words):
         if config['side'] == 'left':
             options.append('-b')
         pane = mux(*options, shlex.join(command))
-        if host == 'omp':
-            mux('set-option', '-p', '-t', pane, 'allow-passthrough', 'off')
         mux('set-option', '-p', '-t', pane, pane_option(host, 'owner'), owner)
         mux('select-pane', '-t', pane, '-T', f'{host.upper()} usage')
         panes = [pane]
@@ -1285,7 +1268,7 @@ def launch(args, omp_args):
             binary=getattr(args, f'{host}_binary', None),
             status_path=status_path)
         if adapter.launch_policy == 'omp-extension':
-            # This detached pane cannot see client capabilities until attach-session.
+            # Give OMP's native terminal detection an attached client at startup.
             command = [sys.executable, str(ROOT / 'launcher.py'), '--await-client', '--', *command]
         # A fresh server inherits credentials without embedding them in pane command strings.
         owner = mux('new-session', '-d', '-s', session, '-x', str(size.columns), '-y', str(size.lines),
@@ -1296,9 +1279,10 @@ def launch(args, omp_args):
         raise
     try:
         mux('set-option', '-t', session, 'status', 'off')
-        disable_passthrough(session)
         if host == 'omp':
-            contain_owner_passthrough(owner, host)
+            allow_owner_passthrough(owner, host)
+        else:
+            disable_passthrough(session)
         args.owner = owner
         if adapter.launch_policy == 'exit-status' and callable(getattr(args, 'on_owner_ready', None)):
             args.on_owner_ready(owner)

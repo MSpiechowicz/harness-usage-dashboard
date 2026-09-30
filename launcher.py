@@ -32,43 +32,13 @@ def _tmux_query(environment, *arguments):
         return None
 
 
-def _attached_features(environment):
+def _attached_clients(environment):
     pane = _pane_target(environment)
     if pane is None:
         return None
     output = _tmux_query(environment, 'list-clients', '-t', pane, '-F',
-                         '#{client_session}|#{client_termfeatures}')
-    if output is None:
-        return None
-    clients = []
-    for row in output.splitlines():
-        session, separator, features = row.partition('|')
-        if not separator or not session:
-            return None
-        clients.append(set(features.split(',')))
-    return clients
-
-
-def select_image_environment(environment):
-    """Default to SIXEL only when this tmux build and all attached clients affirm it."""
-    force = environment.get('PI_FORCE_IMAGE_PROTOCOL', '')
-    if 'PI_FORCE_IMAGE_PROTOCOL' in environment and force.strip().lower() != 'sixel':
-        return environment
-
-    if 'PI_FORCE_IMAGE_PROTOCOL' in environment and 'PI_ALLOW_SIXEL_PASSTHROUGH' in environment:
-        return environment
-
-    clients = _attached_features(environment)
-    if not clients or not all('sixel' in features for features in clients):
-        return environment
-    support = _tmux_query(environment, 'display-message', '-p',
-                          '#{sixel_support}')
-    if support is None or support.strip() != '1':
-        return environment
-
-    environment.setdefault('PI_FORCE_IMAGE_PROTOCOL', 'sixel')
-    environment.setdefault('PI_ALLOW_SIXEL_PASSTHROUGH', '1')
-    return environment
+                         '#{client_session}')
+    return output.splitlines() if output is not None else None
 
 
 def await_client_and_exec(command):
@@ -76,11 +46,11 @@ def await_client_and_exec(command):
     environment = os.environ.copy()
     deadline = time.monotonic() + ATTACH_WAIT_SECONDS
     while True:
-        clients = _attached_features(environment)
+        clients = _attached_clients(environment)
         if clients is None or clients or time.monotonic() >= deadline:
             break
         time.sleep(ATTACH_POLL_SECONDS)
-    os.execvpe(command[0], command, select_image_environment(environment))
+    os.execvpe(command[0], command, environment)
 
 # These are OMP CLI subcommands, not chat prompts. Keep them outside the TUI wrapper.
 SUBCOMMANDS = {
@@ -200,7 +170,7 @@ def main():
     if not should_wrap(argv, sys.stdin.isatty() and sys.stdout.isatty()):
         os.execv(omp, [omp, *argv])
     from argparse import Namespace
-    from dashboard import extension_path, launch
+    from dashboard import allow_owner_passthrough, extension_path, launch
     from preferences import resolve_profile
     try:
         profile = resolve_profile(selected_profile(argv))
@@ -210,7 +180,9 @@ def main():
             environment = os.environ.copy()
             environment['OMP_PROFILE'] = profile
             environment.pop('OMP_USAGE_LAUNCHER', None)
-            select_image_environment(environment)
+            pane = _pane_target(environment)
+            if pane is not None:
+                allow_owner_passthrough(pane)
             extensions = [] if native else ['-e', str(extension_path(profile))]
             os.execve(omp, [omp, *extensions, *argv], environment)
         args = Namespace(providers=None, side=None, interval=None, profile=profile, owner=None, native=native)
