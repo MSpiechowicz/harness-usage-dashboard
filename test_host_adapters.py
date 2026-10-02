@@ -56,11 +56,21 @@ class HostAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Unknown dashboard host'):
             get_host('unregistered')
 
-    def test_claude_launch_records_real_child_exit_status(self):
+    def test_native_claude_rejects_polling_and_wrapper_launch(self):
+        with self.assertRaises(ValueError):
+            get_host('claude').fetch_command('anthropic', owner='native-owner')
+        with self.assertRaises(ValueError):
+            get_host('claude').launch_command([], binary=sys.executable)
+
+    def test_third_host_launch_records_real_child_exit_status(self):
+        def exit_status(argv, profile, native, extension, binary, status_path):
+            script = 'status=$1; shift; \"$@\"; code=$?; printf \"%s\\n\" \"$code\" > \"$status\"; exit \"$code\"'
+            return ['sh', '-c', script, 'synthetic-exit', str(status_path), binary, *argv]
+        synthetic = replace(get_host('omp'), host_id='synthetic', launch_policy='exit-status',
+                            launch_builder=exit_status)
         status_path = self.home / 'exit-status'
-        command = get_host('claude').launch_command(
-            ['-c', 'raise SystemExit(23)'], binary=sys.executable, status_path=status_path,
-        )
+        command = synthetic.launch_command(
+            ['-c', 'raise SystemExit(23)'], binary=sys.executable, status_path=status_path)
         result = subprocess.run(command, check=False, capture_output=True, text=True)
         self.assertEqual(result.returncode, 23)
         self.assertEqual(status_path.read_text(), '23\n')

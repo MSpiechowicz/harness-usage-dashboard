@@ -1,0 +1,285 @@
+"""Native accounting, privacy, lifecycle and allowance boundaries in disposable storage."""
+from copy import deepcopy
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from claude_native import RequestError, handle_request
+from preferences import agent_dir, load_preferences, preferences_path, update_preferences
+from session_usage import active_session, database, ingest, summary
+
+ROOT = Path(__file__).resolve().parent
+
+
+class NativeHelperTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.home = Path(temporary.name)
+        self.cwd = self.home / 'project'
+        self.cwd.mkdir()
+        environment = patch.dict(os.environ, {
+            'HOME': str(self.home), 'CLAUDE_CONFIG_DIR': str(self.home / 'claude'),
+            'TMUX': '/private/inherited/tmux,123,0', 'TMUX_PANE': '%9',
+        }, clear=True)
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.context = {'version': 1, 'cwd': str(self.cwd), 'owner': 'native-one',
+                        'session': 'session-one', 'activation': 'activation-one'}
+
+    def entry(self, identity='request', at=101, **changes):
+        return {'id': hashlib.sha256(identity.encode()).hexdigest(), 'at': at,
+                'provider': 'anthropic', 'model': 'claude-sonnet', 'thinkingLevel': 'high',
+                'input': 12, 'output': 7, 'cacheRead': 4, 'cacheWrite': 2, 'total': 25, **changes}
+
+    def capture(self, action='start', entries=(), now=100, **changes):
+        return handle_request({**self.context, 'op': 'capture', 'action': action,
+                               'entries': list(entries), 'incomplete': False, **changes}, now=now)
+
+    def snapshot(self, now=110, **changes):
+        return handle_request({**self.context, 'op': 'snapshot', 'width': 80,
+                               'allowance': None, **changes}, now=now)
+
+    def invoke(self, request):
+        # Exercise the real JSON subprocess with curses deliberately unavailable.
+        command = [sys.executable, '-c',
+                   'import os, runpy, sys; sys.path.insert(0, os.path.dirname(sys.argv[1])); '
+                   'sys.modules["curses"] = None; '
+                   'runpy.run_path(sys.argv[1], run_name="__main__")', str(ROOT / 'claude_native.py')]
+        return subprocess.run(command, input=json.dumps(request), text=True,
+                              capture_output=True, env=dict(os.environ), cwd=self.cwd, timeout=10)
+
+    def test_owners_ignore_inherited_tmux_and_history_remains_host_project_scoped(self):
+        ingest({'session': 'old-omp', 'activation': 'omp', 'action': 'start',
+                'owner': 'native-one', 'entries': [self.entry('omp')]}, cwd=self.cwd, now=90)
+        self.capture(entries=[self.entry()])
+        self.capture(owner='native-two', session='session-two', activation='activation-two',
+                     entries=[self.entry('second', input=2, output=0, cacheRead=0, cacheWrite=0, total=2)])
+        with patch.dict(os.environ, {'TMUX': '/another/socket,44,1', 'TMUX_PANE': '%44'}):
+            self.assertEqual(self.snapshot()['history']['current']['providers'][0]['total'], 25)
+            second = self.snapshot(owner='native-two', session='session-two', activation='activation-two')
+            self.assertEqual(second['history']['current']['providers'][0]['total'], 2)
+            self.assertIsNone(active_session(owner='native-one', cwd=self.cwd, host='claude'))
+            self.assertEqual(active_session(owner='native-one', cwd=self.cwd, host='claude', socket='')['session'],
+                             'session-one')
+        isolated = summary(owner='native-one', cwd=self.home / 'another-project', host='claude', socket='')
+        self.assertEqual(isolated['total_history'], [])
+        self.assertEqual(summary(owner='native-one', cwd=self.cwd)['current']['id'], 'old-omp')
+
+    def test_unknown_usage_is_not_zero_but_reported_zero_and_thinking_survive(self):
+        self.capture()
+        first = self.snapshot()
+        self.assertEqual(first['capture']['state'], 'unknown')
+        self.assertEqual(first['history']['current']['providers'], [])
+        self.assertFalse(any('0 tokens' in row['text'] for row in first['rows']))
+        zero = self.entry(input=0, output=0, cacheRead=0, cacheWrite=0, total=0)
+        self.capture('record', [zero], now=102)
+        result = self.snapshot()
+        self.assertEqual(result['capture']['state'], 'available')
+        self.assertEqual(result['history']['current']['providers'][0]['total'], 0)
+        self.assertEqual(result['history']['current']['models'][0]['thinking_level'], 'high')
+        handle_request({'version': 1, 'op': 'preferences', 'words': ['view', 'details']})
+        self.assertTrue(any('High tokens' in row['text'] for row in self.snapshot()['rows']))
+
+    def test_partial_counters_do_not_enter_ledger_and_gap_is_sticky(self):
+        self.capture()
+        incomplete = self.entry()
+        del incomplete['cacheRead']
+        with self.assertRaises(RequestError):
+            self.capture('record', [incomplete])
+        self.assertEqual(self.snapshot()['history']['total_history'], [])
+        self.capture('record', incomplete=True)
+        self.capture('record', [self.entry()], now=103)
+        result = self.snapshot()
+        self.assertEqual(result['capture']['state'], 'incomplete')
+        self.assertEqual(result['history']['current']['providers'][0]['total'], 25)
+
+    def test_replay_and_late_stop_never_rebind_current_or_change_first_report(self):
+        self.capture(entries=[self.entry()])
+        self.capture('record', [self.entry(input=100, total=113)], now=102)
+        self.capture(session='session-two', activation='activation-two',
+                     entries=[self.entry('new')], now=103)
+        self.capture('stop', [self.entry(input=900, total=913)], now=104)
+        self.capture('start', [self.entry()], now=105)
+        active = active_session(owner='native-one', cwd=self.cwd, host='claude', socket='')
+        self.assertEqual((active['session'], active['activation']), ('session-two', 'activation-two'))
+        report = self.snapshot(session='session-two', activation='activation-two')['history']
+        self.assertEqual(report['current']['providers'][0]['total'], 25)
+        self.assertEqual(report['previous']['providers'][0]['total'], 25)
+        self.assertEqual(sum(row['total'] for row in report['total_history']), 50)
+        self.capture('stop', session='session-two', activation='activation-two', now=106)
+        self.capture('start', session='session-two', activation='activation-two', now=107)
+        self.assertIsNone(self.snapshot(session='session-two', activation='activation-two')['history']['current'])
+
+    def test_cross_session_replay_does_not_claim_new_usage_or_steal_history(self):
+        self.capture(entries=[self.entry()])
+        self.capture(session='branch', activation='branch-activation', entries=[self.entry()], now=102)
+        result = self.snapshot(session='branch', activation='branch-activation')
+        self.assertEqual(result['capture']['state'], 'unknown')
+        self.assertEqual(result['history']['current']['providers'], [])
+        self.assertEqual(result['history']['previous']['providers'][0]['total'], 25)
+
+    def test_invalid_batch_never_commits_its_valid_prefix(self):
+        self.capture()
+        for value in (True, -1, 1.5, 2**53):
+            with self.subTest(value=value), self.assertRaises(RequestError):
+                self.capture('record', [self.entry('valid-prefix'), self.entry('invalid', input=value)])
+        self.assertEqual(self.snapshot()['history']['total_history'], [])
+
+    def test_historical_limits_and_preferences_are_read_without_rewrite(self):
+        path = preferences_path(host='claude')
+        path.parent.mkdir(parents=True)
+        saved = b'{"side":"left","interval":180,"theme":"claude","chart_type":"dots"}\n'
+        path.write_bytes(saved)
+        ingest({'owner': 'native-one', 'socket': '', 'session': 'historical',
+                'activation': 'old-activation', 'action': 'start', 'entries': [self.entry('historic')]},
+               cwd=self.cwd, now=90, host='claude')
+        with database(cwd=self.cwd, host='claude') as db:
+            db.execute('CREATE TABLE claude_limits (observed REAL, five_pct REAL)')
+            db.execute('INSERT INTO claude_limits VALUES (100, 25)')
+        result = self.snapshot(session='historical', activation='old-activation')
+        self.assertEqual(result['history']['current']['providers'][0]['total'], 25)
+        self.assertEqual(result['reports'], [])
+        self.assertEqual(result['capture']['state'], 'unknown')
+        self.assertEqual(path.read_bytes(), saved)
+        with database(cwd=self.cwd, host='claude') as db:
+            self.assertEqual(tuple(db.execute('SELECT * FROM claude_limits').fetchone()), (100, 25))
+
+    def test_private_extras_never_persist_or_escape_helper_stdout(self):
+        canary = 'PRIVATE_PROMPT_EMAIL_API_KEY_CANARY'
+        event = self.entry(prompt=canary, messages=[canary], email=canary, apiKey=canary,
+                           transcript_path=canary)
+        result = self.invoke({**self.context, 'op': 'capture', 'action': 'start',
+                              'entries': [event], 'incomplete': False, 'private': canary})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(canary, result.stdout + result.stderr)
+        with database(cwd=self.cwd, host='claude') as db:
+            self.assertNotIn(canary, '\n'.join(db.iterdump()))
+        result = self.invoke({**self.context, 'op': 'snapshot', 'width': 48, 'allowance': None})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(canary, result.stdout + result.stderr)
+        bad = self.entry(model='secret\n' + canary)
+        result = self.invoke({**self.context, 'op': 'capture', 'action': 'record',
+                              'entries': [bad], 'incomplete': False})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(json.loads(result.stdout)['ok'])
+        self.assertNotIn(canary, result.stdout + result.stderr)
+
+    def test_allowance_requires_live_matching_fresh_observation_and_never_persists(self):
+        self.capture()
+        allowance = {'session': 'session-one', 'activation': 'activation-one', 'observedAt': 101,
+                     'windows': [{'id': 'five-hour', 'label': '5 hour', 'usedFraction': 0, 'resetsAt': 200}]}
+        valid = self.snapshot(allowance=allowance)
+        self.assertEqual(valid['reports'][0]['limits'][0]['amount']['usedFraction'], 0)
+        self.assertTrue(any('100% left' in row['text'] for row in valid['rows']))
+        for changes, now in (({'session': 'other'}, 110), ({'activation': 'other'}, 110),
+                             ({'observedAt': 99}, 110), ({'observedAt': 111}, 110), ({}, 402)):
+            with self.subTest(changes=changes, now=now):
+                result = self.snapshot(allowance={**allowance, **changes}, now=now)
+                self.assertEqual(result['reports'], [])
+                self.assertFalse(any('100% left' in row['text'] for row in result['rows']))
+        expired = deepcopy(allowance)
+        expired['windows'][0]['resetsAt'] = 109
+        self.assertEqual(self.snapshot(allowance=expired)['reports'], [])
+        self.assertEqual(self.snapshot()['reports'], [])
+        with database(cwd=self.cwd, host='claude') as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM quota').fetchone()[0], 0)
+            self.assertNotIn('five-hour', '\n'.join(db.iterdump()))
+        self.capture('stop')
+        self.assertEqual(self.snapshot(allowance=allowance)['reports'], [])
+
+    def test_refresh_never_mixes_history_with_another_activation_allowance(self):
+        self.capture(entries=[self.entry()])
+        with database(cwd=self.cwd, host='claude') as db:
+            db.execute('PRAGMA journal_mode=WAL')
+        allowance = {'session': 'session-one', 'activation': 'activation-one', 'observedAt': 101,
+                     'windows': [{'id': 'five-hour', 'label': '5 hour', 'usedFraction': 0, 'resetsAt': 200}]}
+
+        def switch_after_history(*args, **kwargs):
+            history = summary(*args, **kwargs)
+            self.capture(session='new', activation='new-activation', now=103,
+                         entries=[self.entry('new', input=2, output=0, cacheRead=0, cacheWrite=0, total=2)])
+            return history
+
+        with patch('claude_native.summary', side_effect=switch_after_history):
+            result = self.snapshot(allowance=allowance)
+        self.assertEqual(result['history']['current']['id'], 'session-one')
+        self.assertEqual(result['history']['current']['providers'][0]['total'], 25)
+        self.assertEqual(result['reports'][0]['limits'][0]['amount']['usedFraction'], 0)
+        refreshed = self.snapshot(session='new', activation='new-activation', allowance=allowance)
+        self.assertEqual(refreshed['history']['current']['id'], 'new')
+        self.assertEqual(refreshed['reports'], [])
+
+    def test_old_record_blocks_only_capture_without_changing_saved_history(self):
+        self.capture(entries=[self.entry()])
+        record = agent_dir(host='claude') / 'installation.json'
+        record.write_text('{"private":"unchanged-old-record"}')
+        before = record.read_bytes()
+        with self.assertRaises(RequestError) as error:
+            self.capture('record', [self.entry('blocked')])
+        self.assertEqual(error.exception.code, 'migration_required')
+        result = self.snapshot()
+        self.assertEqual(result['capture']['state'], 'unknown')
+        self.assertEqual(result['history']['current']['providers'][0]['total'], 25)
+        self.assertEqual(record.read_bytes(), before)
+
+    def test_unsupported_controls_preserve_saved_layout_and_interval(self):
+        update_preferences(None, {'side': 'left', 'interval': 180}, host='claude')
+        for words in (['position', 'right'], ['window', 'interval', '15']):
+            with self.assertRaises(RequestError):
+                handle_request({'version': 1, 'op': 'preferences', 'words': words})
+        result = handle_request({'version': 1, 'op': 'preferences', 'words': ['chart', 'trace']})
+        self.assertEqual((result['preferences']['side'], result['preferences']['interval']), ('left', 180))
+        self.assertNotIn('180s', result['text'])
+        self.assertNotIn('/ left', result['text'])
+        for enabled in (False, True):
+            handle_request({'version': 1, 'op': 'preferences', 'words': ['window', 'on' if enabled else 'off']})
+            self.assertEqual(load_preferences(host='claude')['enabled'], enabled)
+
+    def test_invalid_preferences_are_visible_errors_not_empty_success(self):
+        path = preferences_path(host='claude')
+        path.parent.mkdir(parents=True)
+        path.write_text('{private-corrupt-canary')
+        for request in ({**self.context, 'op': 'snapshot', 'width': 32, 'allowance': None},
+                        {'version': 1, 'op': 'preferences', 'words': ['chart', 'trace']}):
+            result = self.invoke(request)
+            self.assertNotEqual(result.returncode, 0)
+            response = json.loads(result.stdout)
+            self.assertFalse(response['ok'])
+            self.assertEqual(response['error']['code'], 'storage_unavailable')
+            self.assertNotIn('private-corrupt-canary', result.stdout + result.stderr)
+
+    def test_symlinked_storage_is_rejected_without_touching_target(self):
+        target = self.home / 'target'
+        target.mkdir()
+        (self.home / 'claude').symlink_to(target, target_is_directory=True)
+        result = self.invoke({**self.context, 'op': 'capture', 'action': 'start',
+                              'entries': [], 'incomplete': False})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(list(target.iterdir()), [])
+
+    def test_native_rows_are_terminal_safe_and_styled_at_narrow_widths(self):
+        self.capture(entries=[self.entry()])
+        handle_request({'version': 1, 'op': 'preferences',
+                        'words': ['theme', 'custom', 'accent', '#123456']})
+        for width in (1, 10, 20, 48):
+            result = self.snapshot(width=width)
+            self.assertEqual(result['tokens']['accent'], '#123456')
+            for row in result['rows']:
+                self.assertLessEqual(len(row['text']), width)
+                self.assertFalse(any(ord(char) < 32 or ord(char) == 127 for char in row['text']))
+                self.assertIn(row['token'], result['tokens'])
+                if row['emphasis']:
+                    self.assertLess(row['emphasis']['start'], row['emphasis']['end'])
+                    self.assertLessEqual(row['emphasis']['end'], len(row['text']))
+                    self.assertIn(row['emphasis']['token'], result['tokens'])
+
+
+if __name__ == '__main__':
+    unittest.main()

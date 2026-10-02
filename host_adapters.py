@@ -50,11 +50,8 @@ def _omp_fetch(provider: str, profile: str | None, owner: str | None) -> list[st
     return command
 
 
-def _claude_fetch(provider: str, profile: str | None, owner: str | None) -> list[str]:
-    command = [sys.executable, str(ROOT / 'claude_usage_source.py')]
-    if owner is not None:
-        command += ['--owner', owner]
-    return command
+def _native_fetch(provider: str, profile: str | None, owner: str | None) -> list[str]:
+    raise ValueError('Native Claude allowance is provided by the mod, not a polling executable.')
 
 
 def _omp_launch(omp_args: list[str], profile: str | None, native: bool,
@@ -72,17 +69,10 @@ def _omp_launch(omp_args: list[str], profile: str | None, native: bool,
     return command
 
 
-def _claude_launch(omp_args: list[str], profile: str | None, native: bool,
+def _native_launch(omp_args: list[str], profile: str | None, native: bool,
                    extension: str | Path | None, binary: str | None,
                    status_path: str | Path | None) -> list[str]:
-    executable = binary or shutil.which('claude')
-    if not executable:
-        raise ValueError('Install Claude Code before opening the Claude sidebar.')
-    if status_path is None:
-        raise ValueError('Claude exit-status path is required.')
-    # Only the exit code crosses the pane boundary, not CLI output or credentials.
-    script = 'status=$1; shift; "$@"; code=$?; printf "%s\\n" "$code" > "$status"; exit "$code"'
-    return ['sh', '-c', script, 'claude-exit', str(status_path), executable, *omp_args]
+    raise ValueError('Run Claude directly with the native usage-dashboard mod.')
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,8 +137,8 @@ _HOSTS = MappingProxyType({
         aliases=MappingProxyType({'claude': 'anthropic'}), empty_title='Allowance unknown',
         empty_note='Rate limits not yet captured', empty_compact_note='Rate limits not yet captured',
         capture_status=True, keep_prior_on_empty=False, quota_history=False,
-        launch_policy='exit-status', profile_resolver=_ignore_profile, root_resolver=_claude_root,
-        fetch_builder=_claude_fetch, launch_builder=_claude_launch,
+        launch_policy='native-mod', profile_resolver=_ignore_profile, root_resolver=_claude_root,
+        fetch_builder=_native_fetch, launch_builder=_native_launch,
     ),
 })
 HOST_IDS = tuple(_HOSTS)

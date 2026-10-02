@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Project-scoped token ledger and explicitly observed account-quota changes."""
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from functools import lru_cache
 import errno
 import hashlib
@@ -91,11 +91,22 @@ def _ensure_thinking_level(connection):
         )
 
 
-def _check_ledger_directory(directory):
-    """Only reopen the ledger by name under directories other users cannot replace."""
+def _check_ledger_directory(directory, *, create=False):
+    """Validate each ancestor before creating or entering the next component."""
     ancestors = list(reversed((directory, *directory.parents)))
     for ancestor in ancestors:
-        details = os.lstat(ancestor)
+        try:
+            details = os.lstat(ancestor)
+        except FileNotFoundError:
+            if not create:
+                continue
+            try:
+                ancestor.mkdir(mode=0o700)
+            except FileExistsError:
+                # A concurrent first use may have filled this name. Validate
+                # it without following symlinks before descending further.
+                pass
+            details = os.lstat(ancestor)
         if not stat.S_ISDIR(details.st_mode) or details.st_uid not in (os.geteuid(), 0):
             raise PermissionError('Unsafe usage ledger storage.')
         if details.st_mode & 0o022:
@@ -110,10 +121,10 @@ def _check_ledger_directory(directory):
 @contextmanager
 def database(profile=None, cwd=None, *, host='omp'):
     path = agent_dir(profile, host=host) / 'usage-dashboard.sqlite3'
-    path.parent.mkdir(parents=True, exist_ok=True)
     _check_ledger_directory(path.parent.absolute())
+    _check_ledger_directory(path.parent.absolute(), create=True)
     try:
-        descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
     except OSError as exc:
         if isinstance(exc, PermissionError) or exc.errno == errno.ELOOP:
             raise PermissionError('Unsafe usage ledger storage.') from None
@@ -189,14 +200,14 @@ def _reconcile_task(db, project, session, group):
                    (*residual, project, session, row['id']))
 
 
-def ingest(payload, profile=None, now=None, cwd=None, *, host='omp'):
+def ingest(payload, profile=None, now=None, cwd=None, *, host='omp', _db=None):
     now = time.time() if now is None else now
     project = project_id(cwd)
     session, activation = payload['session'], payload['activation']
     if not all(isinstance(value, str) and value for value in (session, activation)):
         raise ValueError('Session identity is missing.')
     owner = owner_key(payload.get('owner'), socket=payload.get('socket'))
-    with database(profile, cwd, host=host) as db:
+    with (nullcontext(_db) if _db is not None else database(profile, cwd, host=host)) as db:
         db.execute('INSERT OR IGNORE INTO sessions VALUES (?, ?, ?, ?)', (project, session, now, now))
         active = db.execute('SELECT * FROM active WHERE project=? AND owner=?', (project, owner)).fetchone()
         if payload.get('action') == 'start':
@@ -262,10 +273,11 @@ def ingest(payload, profile=None, now=None, cwd=None, *, host='omp'):
                        ('', project, owner, session, activation))
 
 
-def active_session(profile=None, owner=None, cwd=None, *, host='omp'):
+def active_session(profile=None, owner=None, cwd=None, *, host='omp', socket=None):
     project = project_id(cwd)
     with database(profile, cwd, host=host) as db:
-        row = db.execute('SELECT * FROM active WHERE project=? AND owner=?', (project, owner_key(owner))).fetchone()
+        row = db.execute('SELECT * FROM active WHERE project=? AND owner=?',
+                         (project, owner_key(owner, socket=socket))).fetchone()
         return dict(row) if row else None
 
 
@@ -302,7 +314,7 @@ def record_quota(profile, owner, activation, samples, cwd=None, *, host='omp'):
                            (project, active['session'], activation, key, sample['provider'], sample['label'],
                             segment, reset, at, at, value, value, 1))
 
-def summary(profile=None, owner=None, now=None, minutes=20, cwd=None, *, host='omp'):
+def summary(profile=None, owner=None, now=None, minutes=20, cwd=None, *, host='omp', socket=None, _db=None):
     now = time.time() if now is None else now
     project = project_id(cwd)
     # Keep legitimate zero native requests; only fully covered task aggregates are hidden.
@@ -310,12 +322,12 @@ def summary(profile=None, owner=None, now=None, minutes=20, cwd=None, *, host='o
                   OR NOT EXISTS (SELECT 1 FROM task_tokens AS g
                                  WHERE g.project=tokens.project AND g.session=tokens.session
                                    AND g.id=tokens.id AND g.task_aggregate=1))'''
-    with database(profile, cwd, host=host) as db:
+    with (nullcontext(_db) if _db is not None else database(profile, cwd, host=host)) as db:
         # sqlite3's connection context only starts transactions for writes.
         # Pin every section to the same snapshot while new usage is committed.
         db.execute('BEGIN')
         active = db.execute('SELECT * FROM active WHERE project=? AND owner=?',
-                            (project, owner_key(owner))).fetchone()
+                            (project, owner_key(owner, socket=socket))).fetchone()
         current = active['session'] if active and active['activation'] else None
         previous = active['previous'] if current else (active['session'] if active else None)
         if not previous:

@@ -1,26 +1,26 @@
 # Harness Usage Dashboard
 
-Live token charts and persistent session history in a tmux sidebar for [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi) and, through a separate opt-in shell hook, Claude Code.
+Live token charts and persistent session history for [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi) in a tmux sidebar and for Claude Code in a native Pane.
 
-For OMP, see how quickly your current session is using tokens, what your previous session consumed, and how much account allowance remains—without leaving the terminal. Token usage stays attributed to the provider and model that handled each request, even when you switch models. Session history and dashboard preferences persist across restarts. The standalone Claude Code path records locally reported API-request tokens and, when available, displays its status-line rate limits; it does not use OMP's provider accounting or provide account-specific quota-change history.
+For OMP, see how quickly your current session is using tokens, what your previous session consumed, and how much account allowance remains—without leaving the terminal. Token usage stays attributed to the provider and model that handled each request, even when you switch models. Session history and dashboard preferences persist across restarts. The independent Claude Code mod records native reported request usage and displays fresh native rate-limit observations when available; it does not use OMP's provider accounting or provide account-specific quota-change history.
 
 **Your recorded usage history stays on your machine.** Session token records and OMP's observed quota changes are saved in local SQLite databases, not a hosted dashboard service. OMP and Claude Code use physically separate data directories and JSON settings. See [Settings and privacy](#settings-and-privacy) for file locations and exactly what is stored.
 
 [Install](#installation) · [Use](#usage) · [Themes](#theme-preview) · [Update](#updating) · [Uninstall](#uninstalling) · [Troubleshoot](#troubleshooting)
 
-Inside either host, use `/usage-dashboard view compact` for the overview or `/usage-dashboard view details` for per-model token accounting. OMP's command and Claude's personal skill are separate integrations; only OMP records observed account-specific session quota changes.
+Inside either host, use `/usage-dashboard view compact` for the overview or `/usage-dashboard view details` for per-model token accounting. OMP's command and Claude's immediate native command are separate integrations; only OMP records observed account-specific session quota changes.
 
 ## What it does
 
 - **Live token-rate chart:** choose bars (the default), dots, or trace to view the same last 20 minutes of reported usage across all models, with an idle state and terminal-friendly rendering.
 - **Current and previous sessions:** cumulative token totals persist across restarts. OMP also records allowance comparisons; Claude Code does not provide account-specific quota-change history.
-- **Provider and model breakdowns:** OMP Compact mode groups tokens by provider; Details separates each model by effective thinking level and includes input/output and cache-read/write counts. Unattributed task aggregates remain explicitly labelled. Claude Code records available per-request token counts from local telemetry separately.
+- **Provider and model breakdowns:** OMP Compact mode groups tokens by provider; Details separates each model by effective thinking level and includes input/output and cache-read/write counts. Unattributed task aggregates remain explicitly labelled. Claude Code records complete native reported usage separately, with model and thinking level only where the host exposes them.
 - **Observed quota changes (OMP only):** Compact shows separate comparisons for each account and allowance window, in percentage points. Rows appear only when comparable samples exist; these are observations, not exact session billing.
-- **Account allowances and balances:** OMP displays remaining percentages, reset times, and reported API credit balances where supported. Claude Code can show five-hour and seven-day limits only when its status-line payload includes them.
+- **Account allowances and balances:** OMP displays remaining percentages, reset times, and reported API credit balances where supported. Claude Code displays allowance windows only when a fresh native event reports them for the current session activation.
 - **A quieter sidebar:** aligned values, section dividers, and spacing; no pending-sample rows or redundant single-provider totals in Compact mode.
 - **Local storage:** recorded usage lives in host-separated SQLite databases. OMP records are scoped by project within each OMP profile; Claude Code records are scoped by project in Claude's own storage. Preferences persist in separate local JSON files.
 - **Design-token theming:** choose from nine named palettes: green, blue, brown, yellow, cyan, magenta, orange, red, and the opt-in Claude palette inspired by Anthropic's brand colors. Rules, chart marks, and body text follow each palette's tokens; healthy, warning, and critical values stay green, orange, and red for clear allowance semantics.
-- **Host-specific updates:** OMP uses its native marketplace manager; Claude's personal skill can check a source-checkout release and install it only when the original checkout is eligible for a safe Git fast-forward.
+- **Host-specific updates:** each host uses its own native plugin manager for marketplace installations; source checkouts remain a manual development path.
 
 ### When it is useful
 
@@ -29,7 +29,7 @@ Inside either host, use `/usage-dashboard view compact` for the overview or `/us
 | Follow token activity while working | Watch the reported tokens-per-minute chart and current session total in either host. |
 | Compare this session with the last one | Keep the previous session's token totals; OMP also preserves available quota comparisons after `/new`. |
 | Work across models and providers in OMP | Preserve each request's provider/model attribution and inspect input/output/cache breakdowns. |
-| Plan work around subscription limits | See remaining allowance and reported reset times when supported; Claude Code status-line limits may be unavailable. |
+| Plan work around subscription limits | See remaining allowance and reported reset times when supported; Claude Code native limits may be unavailable. |
 | Reduce unnecessary information in OMP | Use Compact mode, hide providers or account windows, and omit quota comparisons that have no data yet. |
 | Monitor prepaid API accounts in OMP | Read the provider's reported credit balance alongside other account views. |
 
@@ -39,17 +39,17 @@ Inside either host, use `/usage-dashboard view compact` for the overview or `/us
 
 | Component | Requirement |
 | --- | --- |
-| Operating system | Linux or macOS. Linux is verified for OMP; macOS and live Claude Code usage have not been verified here. |
-| OMP path | OMP installed on `PATH`, with `omp usage` support. Session accounting verified with OMP 18.1.21; managed updates require native marketplace commands. Not required for Claude Code. |
-| Claude Code path | Claude CLI installed on `PATH`; independent of OMP. |
-| Python | Python 3.10+ with the standard-library `curses` and `sqlite3` modules. |
-| tmux | Version 3.3 or later. |
-| Git | Required for OMP marketplace Git sources and source-checkout installation; use it to obtain/update the Claude Code checkout. |
-| Terminal application | No specific application required for dashboard text; it must support tmux and curses. Inline OMP images require native SIXEL support in the terminal, tmux build, and attached client. |
-| Automatic shell integration | Separate bash, zsh, and fish hooks for OMP and Claude Code; use ordinary `omp` or `claude` after activating the corresponding hook. |
-| Terminal width | At least 96 columns to open the 34-column sidebar. |
+| Operating system | Linux or macOS. Linux is verified for OMP and Claude's terminal Pane; macOS, Claude Desktop painting, and successful live Claude accounting have not been verified here. |
+| OMP path | OMP installed on `PATH`, with `omp usage` support. Historical session-accounting verification used OMP 18.1.21; the native-cutover launch/sidebar/control smoke used OMP 18.4.10. Managed updates require native marketplace commands. Not required for Claude Code. |
+| Claude Code path | Claude CLI 2.1.287 or later with native mods enabled; independent of OMP. Check `claude --version` and upgrade the global CLI yourself if needed. The dashboard does not ship or upgrade the runtime. |
+| Python | Python 3.10+ with standard-library `sqlite3`; OMP additionally requires `curses`. Claude's native helper does not import curses. |
+| tmux | OMP only: version 3.3 or later. Claude's native mod does not require tmux. |
+| Git | Required for OMP marketplace Git sources and source-checkout installation; also used for Claude's GitHub marketplace or manual checkout updates. |
+| Terminal application | OMP text requires tmux and curses. Inline OMP images require native SIXEL support in the terminal, tmux build, and attached client. Claude draws through its own native UI surface. |
+| Automatic shell integration | OMP uses its bash, zsh, or fish hook. Claude loads a native plugin, with no new shell function or wrapper. |
+| Terminal width | OMP requires at least 96 columns to open the 34-column sidebar. Claude controls Pane placement and can switch from docked to inline when resized. |
 
-**Terminal-agnostic dashboard; pane-managed OMP images.** Use your preferred terminal application for the sidebar. The dashboard uses tmux and curses rather than a terminal-specific API or plugin. tmux is required, but you do not need to start it manually: each host's installed shell hook starts a session or attaches the dashboard inside an existing one. Neither host's binary nor renderer is patched. When the tmux build reports `sixel_support=1` and every client attached to the OMP pane's session advertises SIXEL, the launcher sets process-local defaults `PI_FORCE_IMAGE_PROTOCOL=sixel` and `PI_ALLOW_SIXEL_PASSTHROUGH=1`. Explicit shell values remain unchanged. Fresh panes wait briefly for a client before capability selection. Unsupported or unknown capabilities leave OMP's protocol selection unchanged; inline previews are not guaranteed in that case.
+**Terminal-agnostic OMP dashboard; pane-managed OMP images.** Use your preferred terminal application for the OMP sidebar. It uses tmux and curses rather than a terminal-specific API or plugin. tmux is required for OMP, but you do not need to start it manually: OMP's installed shell hook starts a session or attaches the dashboard inside an existing one. Neither host's binary nor renderer is patched. When the tmux build reports `sixel_support=1` and every client attached to the OMP pane's session advertises SIXEL, the launcher sets process-local defaults `PI_FORCE_IMAGE_PROTOCOL=sixel` and `PI_ALLOW_SIXEL_PASSTHROUGH=1`. Explicit shell values remain unchanged. Fresh panes wait briefly for a client before capability selection. Unsupported or unknown capabilities leave OMP's protocol selection unchanged; inline previews are not guaranteed in that case.
 
 The old `/usage-dashboard images on|off` setting from release 1.0.61 remains retired. A saved `images_enabled` value is ignored without rewriting the preferences file and is removed on the next settings save. While OMP is dashboard-managed, its pane has tmux `allow-passthrough=off`, including when the sidebar is hidden. Window and sidebar settings are left alone. On detach, the OMP pane's prior explicit setting is restored unless it was changed outside the dashboard. Records from both earlier containment and passthrough-enabling releases retain their original pre-dashboard value.
 
@@ -58,7 +58,7 @@ The old `/usage-dashboard images on|off` setting from release 1.0.61 remains ret
 <details>
 <summary>Install operating-system prerequisites</summary>
 
-For the OMP path, install OMP using its [official instructions](https://github.com/can1357/oh-my-pi). For the separate Claude Code path, install the Claude CLI using its official instructions. Then install the remaining tools:
+For the OMP path, install OMP using its [official instructions](https://github.com/can1357/oh-my-pi). For the separate Claude Code path, install or manually upgrade the Claude CLI using its [official instructions](https://code.claude.com/docs/en/setup). The commands below install OMP's prerequisites; Claude needs Python and, for Git sources, Git, but not tmux or curses:
 
 ```sh
 # Arch / CachyOS
@@ -71,12 +71,12 @@ sudo apt install python3 tmux git
 brew install python tmux git
 ```
 
-The OMP installer validates Python, curses, OMP, and tmux; the Claude Code installer validates Python, curses, Claude CLI, and tmux. Both recognize an already-installed compatible tmux at `~/.local/share/omp-usage-dashboard/vendor/usr/bin/tmux`. Neither downloads or bundles tmux.
+The OMP installer validates Python, curses, OMP, and tmux. It recognizes an already-installed compatible tmux at `~/.local/share/omp-usage-dashboard/vendor/usr/bin/tmux` and does not download or bundle tmux. Claude's native plugin uses `python3` to invoke its packaged helper and leaves the globally installed CLI unchanged.
 
 </details>
 
 ## Installation
-Choose **one or both** independent host integrations. OMP installation uses its native marketplace; Claude Code installs a shell hook and a personal skill from a source checkout, without requiring OMP.
+Choose **one or both** independent host integrations. OMP installation uses its native marketplace plus an OMP shell hook; Claude Code uses a native marketplace plugin or a local development directory, without requiring OMP.
 
 ### Recommended for OMP: marketplace
 
@@ -129,28 +129,55 @@ python3 install.py
 
 Then run `omp`, using the shell-activation guidance above. **Keep the checkout in place:** the shell hook and extension point to its files. This installation is not managed by native marketplace upgrades; see [Updating a source checkout](#updating-a-source-checkout).
 
-### Claude Code: independent source-checkout integration
+### Claude Code: native plugin
 
-Install the Claude CLI first. Clone this repository if needed (or use your existing source checkout), then run:
+Install Claude CLI **2.1.287 or later** and Python **3.10+** first. The runtime is not bundled with this dashboard. If you used the old shell-hook integration, complete [legacy migration](#migrating-the-legacy-claude-integration) before enabling native capture.
 
-```sh
-git clone https://github.com/MSpiechowicz/harness-usage-dashboard.git
-cd harness-usage-dashboard
-python3 claude_install.py
-```
-
-Keep the checkout in place: the shell hook and Claude's personal `/usage-dashboard` skill refer to its files. The skill is installed under `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/usage-dashboard/`. Open a new shell to activate the bash or zsh hook (fish autoloads its function), then start an interactive session:
+**Current checkout / local development:** use the checkout containing these native files, not an installed version cache:
 
 ```sh
-claude
-claude --continue
+claude --plugin-dir /absolute/path/to/harness-usage-dashboard
 ```
 
-The hook launches interactive Claude Code beside the sidebar. Help, subcommands, and noninteractive invocations pass straight through to the Claude CLI. Use `command claude` to bypass the hook temporarily. `python3 claude_install.py --shell none` installs only the personal skill on a fresh setup; on an existing owned installation it removes that installation's owned hooks. It does not remove other owners' files or an already-loaded shell function. Claude's skill controls only the Anthropic-backed Claude dashboard, not OMP or other providers. This is not a native Claude marketplace installation.
+From this checkout root, `claude --plugin-dir .` also works. Claude watches development modules for reloads. Keep the checkout in place, and avoid loading a marketplace copy of the same plugin simultaneously. For a local catalog installation instead:
 
-The installer respects `CLAUDE_CONFIG_DIR` for Claude's personal skill and dashboard data. Use the same environment when launching Claude and when uninstalling. Existing shell customizations and unrelated files at managed destinations are not overwritten: resolve a collision explicitly rather than deleting or replacing another owner's files. An exact legacy wrapper from this checkout can be migrated; if it was installed in a custom location, provide its original `--bin-dir PATH`. See [Claude Code usage](#claude-code-usage) for skill commands and capture limits.
+```sh
+claude plugin marketplace add /absolute/path/to/harness-usage-dashboard
+claude plugin install harness-usage-dashboard@harness-usage-dashboard --scope user
+```
 
-To choose a shell explicitly, use `python3 claude_install.py --shell bash`, `--shell zsh`, `--shell fish`, or `--shell all`; the default detects your shell. For manual activation, source `~/.config/claude-usage-dashboard/bash.sh` in bash, `~/.config/claude-usage-dashboard/zsh.sh` in zsh, or `~/.config/fish/functions/claude.fish` in fish (replace `~/.config` with `$XDG_CONFIG_HOME` when set). These are Claude-specific paths; OMP's hook remains separate.
+The catalog is `.claude-plugin/marketplace.json`, whose plugin source is the repository root (`./`). Use `--plugin-dir` for active edits: version-cached installed copies do not necessarily reflect checkout changes.
+
+**Future published GitHub versions:** once the native manifest, catalog, and corresponding code are published, users can install them with:
+
+```sh
+claude plugin marketplace add MSpiechowicz/harness-usage-dashboard
+claude plugin install harness-usage-dashboard@harness-usage-dashboard --scope user
+```
+
+These GitHub commands fetch published repository content, **not uncommitted local changes**. This cutover does not itself bump a version or publish a release. Until a native version is available there, use the current checkout or local catalog above.
+
+Restart Claude after installation and confirm the plugin is enabled in `/plugin`. Workspace trust, safe/bare mode, disabled hooks, and organizational mod policy can prevent loading; see [Claude's mod troubleshooting](https://code.claude.com/docs/en/plugins/mods/troubleshoot). The plugin registers an immediate `/usage-dashboard` command and opens a native Pane where the surface supports it. It does not install a personal skill, shell wrapper, or OMP extension.
+
+### Migrating the legacy Claude integration
+
+Migration is **manual and never runs on plugin load**. Use the same `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, and shell-startup environment as the old installation. First preview from the native checkout:
+
+```sh
+python3 claude_migrate.py
+```
+
+Review every proposed path. **Close all Claude sessions using the old integration before applying**, then remove only the recorded owned integration:
+
+```sh
+python3 claude_migrate.py --apply
+```
+
+If an old `claude-usage` wrapper was installed in a custom directory, pass its original `--bin-dir PATH` to both commands. Open a **new shell after applying**, then load the native plugin.
+
+The ownership record is `${CLAUDE_CONFIG_DIR:-~/.claude}/usage-dashboard/installation.json`. Migration verifies recorded paths, digests, and exact startup-block ownership before removing managed shell files, startup blocks, the old personal skill, a proven-owned wrapper, and finally the record. Both preview and apply refuse modified, foreign, malformed, missing-required, symlinked, or unsafe-ownership/permission paths. Shared writable custom config or bin directories can let another user redirect a checked path: every existing ancestor must be owned by the current user or root and not group/world-writable. Root-owned sticky ancestors such as `/tmp` are allowed, but not as a target's immediate parent. Files must be current-user-owned and not group/world-writable; ordinary `644` startup files, `755` wrappers, and read-only owned files remain eligible. Migration never adopts, creates, or changes directory permissions to make unsafe paths eligible, and rechecks all targets before applying. This does not protect against hostile same-user or root processes. No ownership record grants no permission to delete familiar-looking files. The ledger, preferences, checkout, unrelated startup text, and user files are preserved.
+
+**Existing source users:** the source cutover removes the old launcher, but an already-loaded `claude` shell function can still point to it, and the old personal skill can still point to this checkout. Until manual migration and a new shell, use `command claude` to bypass that loaded function when invoking the actual CLI. This bypass does not complete migration or enable native capture while the old ownership record remains. Do not run the removed installer or old skill to repair the cutover, and do not delete foreign files to force migration.
 
 ### Migrating a source installation to the marketplace
 
@@ -201,116 +228,85 @@ These paths follow `XDG_CONFIG_HOME` when set. Existing aliases, functions, abbr
 
 ### Claude Code usage
 
-Run `claude` or `claude --continue` in a shell with the installed hook to start interactive Claude Code alongside the tmux sidebar. The hook forwards ordinary Claude arguments; help, subcommands, and noninteractive invocations pass through. For a temporary hook bypass, use `command claude`. This mode does not install an OMP extension. Inside Claude Code, use the separately installed **personal skill** `/usage-dashboard`; this is model-mediated skill guidance, not OMP's native command or menu. Enter `/usage-dashboard` with no arguments to see help and the current configuration, not an interactive section menu. For example:
+Start Claude with the native plugin installed/enabled, or with `claude --plugin-dir /absolute/path/to/harness-usage-dashboard` for development. `--continue` and resume use Claude's normal session handling. `/usage-dashboard` is an **immediate native command**, not model-mediated personal skill guidance: it refreshes the local snapshot, opens/focuses the Pane on rendering surfaces, and returns readable text when no Pane can be placed.
+
+Fresh native preferences select `anthropic`, Compact mode, bars, the green theme, and an enabled Pane. Existing Claude preferences and token history are retained separately from OMP.
+
+Use one command at a time:
 
 ```text
-/usage-dashboard previous hide
-/usage-dashboard previous show
+/usage-dashboard
+/usage-dashboard help
+/usage-dashboard view list
 /usage-dashboard view compact
 /usage-dashboard view details
-/usage-dashboard theme blue
 /usage-dashboard chart bars
 /usage-dashboard chart dots
 /usage-dashboard chart trace
-/usage-dashboard position left
-/usage-dashboard window off
+/usage-dashboard previous hide
+/usage-dashboard previous show
+/usage-dashboard commands hide
+/usage-dashboard commands show
+/usage-dashboard history-other hide
+/usage-dashboard history-other show
+/usage-dashboard history-total hide
+/usage-dashboard history-total show
 /usage-dashboard window on
-/usage-dashboard update check
-/usage-dashboard update install
+/usage-dashboard window off
+/usage-dashboard window focus
+/usage-dashboard window refresh
 ```
 
-Visibility settings change presentation, not recorded tokens; `previous show` restores the section when data is available. `/usage-dashboard chart TYPE` selects `bars`, `dots`, or `trace`; bars is the default, and the choice is saved for Claude's dashboard separately from OMP's. The skill may invoke local tools to change preferences, control the sidebar, or check/install an update. Claude Code's tool-permission prompts and your own authorization still apply: installing the skill does **not** auto-approve commands. Claude's dashboard has only the Anthropic provider: you can add, remove, hide, or show that one view, but OMP's multi-provider management and OMP account comparisons are unavailable here.
+The Pane also has View, Chart, and Theme controls, section-visibility buttons, a Setting field on non-mobile surfaces, and **Refresh (`r`)** / **Close (`x`)** actions when focused. `window off` and a user-initiated close save the disabled preference; `window on` reopens it. Escape can close a focused Pane, and `/usage-dashboard` can reopen it. Visibility changes never delete recorded tokens.
 
-Claude Code request totals come from its locally emitted OTLP `api_request` log events, tied to Claude session lifecycle hooks. The launcher creates owner-only temporary settings **for that run** rather than rewriting Claude's global settings. Only complete reported requests can count; no requests are inferred from transcripts or a provider's account allowance. Capture may be incomplete or unavailable when Claude is not emitting compatible events, when its telemetry destination conflicts, or before a completed request arrives. **Missing capture means unknown usage, not zero tokens.** The sidebar displays a token-capture warning even when separate allowance windows are available. Existing Claude telemetry and status-line destinations are not overwritten; a conflicting configuration can prevent this integration from receiving the affected data.
+**Claude owns placement; events replace polling.** Native controls do not support `position left|right` or `window interval`. Old saved side/interval values remain untouched but do not control the native Pane. `window refresh` reads the local snapshot; it does not poll an account API or make an old allowance observation fresh. A small layout timer adapts text to changed Pane width, not token or provider polling.
 
-When Claude supplies `rate_limits` in a compatible status-line payload, the sidebar can display five-hour and seven-day allowance windows. These fields may be absent on unsupported plans or early in a session, and an existing status-line command may prevent capture. The dashboard does **not** know a stable Claude account identity, so it does not record or display account-specific session quota-change history. Its OMP `claude` provider view and OMP quota observations are separate and cannot be used as Claude Code session totals.
+All nine palettes are available:
 
-#### Direct shell controls for Claude's dashboard
-
-From a regular shell in this repository's checkout root, run `python3 dashboard.py control --host claude --` followed by one command shown below. These are **alternatives**, not a script to run from top to bottom: copy only the line for the change you want. They configure the local Claude dashboard without a Claude subscription or a Claude Code tool-permission prompt. They do not bypass Claude Code authentication: using Claude models and receiving request or allowance data still depend on Claude Code and the available telemetry. Keep `CLAUDE_CONFIG_DIR` the same as for your Claude installation/session so the commands read and save the same preferences.
-
-Inspect the saved configuration or choose a display mode:
-
-```sh
-python3 dashboard.py control --host claude -- view list
-python3 dashboard.py control --host claude -- view compact
-python3 dashboard.py control --host claude -- view details
+```text
+/usage-dashboard theme green
+/usage-dashboard theme blue
+/usage-dashboard theme brown
+/usage-dashboard theme yellow
+/usage-dashboard theme cyan
+/usage-dashboard theme magenta
+/usage-dashboard theme orange
+/usage-dashboard theme red
+/usage-dashboard theme claude
+/usage-dashboard theme custom accent #58a66a
+/usage-dashboard theme custom chart #58a66a
+/usage-dashboard theme reset
 ```
 
-Choose a chart style for Claude's sidebar. Copy one command, not the whole block; bars is the default and all three styles use the same saved token-rate data:
+Choosing a named theme keeps custom overrides. `theme reset` restores green **and clears all overrides**. Supported custom tokens are `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`.
 
-```sh
-python3 dashboard.py control --host claude -- chart bars
-python3 dashboard.py control --host claude -- chart dots
-python3 dashboard.py control --host claude -- chart trace
+Claude supports only the Anthropic provider view. These are alternatives, not a sequence:
+
+```text
+/usage-dashboard providers add anthropic
+/usage-dashboard providers remove anthropic
+/usage-dashboard providers hide anthropic
+/usage-dashboard providers show anthropic
+/usage-dashboard window hide anthropic five_hour
+/usage-dashboard window show anthropic five_hour
+/usage-dashboard window hide anthropic seven_day
+/usage-dashboard window show anthropic seven_day
 ```
 
-Hide or restore individual sections. These switches do not delete recorded usage. History Other and History Total can show available token history, but Claude has no account-specific quota-change history to display.
+Provider removal also removes its window filters; hiding retains settings. Window filters match reported labels or IDs, and cannot manufacture missing allowance data. Use a filter matching the actual native report if its window IDs differ.
 
-```sh
-python3 dashboard.py control --host claude -- commands hide
-python3 dashboard.py control --host claude -- commands show
-python3 dashboard.py control --host claude -- previous hide
-python3 dashboard.py control --host claude -- previous show
-python3 dashboard.py control --host claude -- history-other hide
-python3 dashboard.py control --host claude -- history-other show
-python3 dashboard.py control --host claude -- history-total hide
-python3 dashboard.py control --host claude -- history-total show
-```
+#### Native accounting and coverage
 
-Choose the sidebar side or one of the nine named palettes, including the opt-in Claude palette:
+The mod observes complete native main/subagent step results and reported compaction usage, deduplicates stable request identities, and sends only allowlisted scalar metadata and counters to its packaged Python helper. Aggregate turn totals are not added again. Lifecycle handling binds each report to its original session and activation so reload, clear, branch, resume, and late completions do not switch its owner. It does not infer usage from transcripts, elapsed time, account allowance, prompts, or responses.
 
-```sh
-python3 dashboard.py control --host claude -- position left
-python3 dashboard.py control --host claude -- position right
-python3 dashboard.py control --host claude -- theme green
-python3 dashboard.py control --host claude -- theme blue
-python3 dashboard.py control --host claude -- theme brown
-python3 dashboard.py control --host claude -- theme yellow
-python3 dashboard.py control --host claude -- theme cyan
-python3 dashboard.py control --host claude -- theme magenta
-python3 dashboard.py control --host claude -- theme orange
-python3 dashboard.py control --host claude -- theme red
-python3 dashboard.py control --host claude -- theme claude
-```
+**Normalization caveat:** the native result must contain all four nonnegative safe-integer counters: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, and `cache_creation_input_tokens`, and their sum must also be a safe integer. Claude CLI normalizes upstream omitted counters to zero before exposing a result. The dashboard accepts that host report; it cannot distinguish an upstream omission from a genuine reported zero. If a counter is missing from the native result, the dashboard does **not** guess it. Total is the sum of the four reported counters.
 
-Override the heading accent or chart color with a quoted hex color. Choosing another named theme keeps custom overrides; `theme reset` returns to green **and clears all overrides**.
+Compaction's responding model is **unknown** when the host does not expose it. A compaction result without usage is ambiguous: it can mean a reused summary or unreported work, so coverage stays unknown/incomplete rather than inventing a request or asserting a billed loss. Thinking level is likewise unknown unless exposed by the host. Capture warnings preserve previously saved history, and helper failures do not replace the host's original result or error.
 
-```sh
-python3 dashboard.py control --host claude -- theme custom accent '#58a66a'
-python3 dashboard.py control --host claude -- theme custom chart '#58a66a'
-python3 dashboard.py control --host claude -- theme reset
-```
+These totals count **observed reports**, not exact subscription billing. Successful live native main/subagent/retry/compaction accounting has not been verified here; the latest live request returned **401, expired OAuth access token**. Missing reports mean unknown coverage, not measured zero. Offline tests and seeded local reports prove local accounting behavior, not service-side completeness.
 
-Enable/disable the sidebar or set its poll interval (60 seconds here; minimum 15 seconds). `window focus` selects the targeted sidebar pane, and `window refresh` requests a fresh poll. Use either only when deliberately targeting the actual owning Claude pane: when the sidebar is enabled, either command can create one if the targeted pane has none.
+Allowance windows come only from fresh native rate-limit observations for the current session activation. Cached snapshots, Refresh, resize, and reopen do not renew them; stale or wrong-session observations become unknown. Claude exposes no stable account identity for this integration, so there is **no Claude account-quota-change history**. OMP's `claude` provider view cannot fill missing Claude Code session usage.
 
-```sh
-python3 dashboard.py control --host claude -- window on
-python3 dashboard.py control --host claude -- window off
-python3 dashboard.py control --host claude -- window focus
-python3 dashboard.py control --host claude -- window refresh
-python3 dashboard.py control --host claude -- window interval 60
-```
-
-Claude supports only `anthropic`. `providers hide` requires that view to be selected; `providers show` adds it back if needed. `providers remove` also removes its window filters, while hiding retains its settings. Use these as alternatives, not in sequence:
-
-```sh
-python3 dashboard.py control --host claude -- providers add anthropic
-python3 dashboard.py control --host claude -- providers remove anthropic
-python3 dashboard.py control --host claude -- providers hide anthropic
-python3 dashboard.py control --host claude -- providers show anthropic
-```
-
-With `anthropic` selected, hide or restore each reported allowance row independently. Filters match the window IDs; they do not remove token totals or manufacture unavailable rate-limit data.
-
-```sh
-python3 dashboard.py control --host claude -- window hide anthropic 'claude:five_hour'
-python3 dashboard.py control --host claude -- window show anthropic 'claude:five_hour'
-python3 dashboard.py control --host claude -- window hide anthropic 'claude:seven_day'
-python3 dashboard.py control --host claude -- window show anthropic 'claude:seven_day'
-```
-
-For preference-only changes, run these commands outside tmux with `TMUX_PANE` unset; `window on` there saves the preference without immediately opening a sidebar. Inside **any** tmux pane, the shell inherits `TMUX_PANE` and the CLI uses that pane as the owner unless you pass `--owner` **before** `--`. The CLI checks the pane ID format, not whether that pane belongs to Claude: an enabled configuration can cause these commands, including `window focus` or `window refresh`, to select or create a sidebar in an unrelated tmux pane. To change an already-running sidebar, run the command from its actual owning Claude pane's shell context, or pass that pane's actual tmux ID with `--owner` **before** `--`; do not target an unrelated pane. Saved changes do not update other already-running Claude panes; restart those sessions to pick up the preferences. Without an owner pane, `window focus` and `window refresh` cannot affect a running sidebar.
 
 ### OMP usage
 
@@ -318,7 +314,7 @@ Run `omp` normally, including `omp --resume` or `omp --continue`. Fresh installs
 
 ### OMP commands and settings
 
-The following slash commands and provider-management guidance apply **only inside OMP**. Claude Code's separate `/usage-dashboard` personal skill is not OMP's native command or menu; shared rendering descriptions below do not make OMP's per-provider measurements into Claude session accounting.
+The following slash commands and provider-management guidance apply **only inside OMP**. Claude Code has its own immediate native `/usage-dashboard` command and Pane; shared rendering descriptions below do not make OMP's per-provider measurements into Claude session accounting.
 
 Inside OMP, enter:
 
@@ -457,9 +453,11 @@ The **Token rate** chart shows reported tokens per minute across all models in 2
 | `dots` | Sparse markers for active minutes across six plot rows, without connecting segments; even the smallest positive minute occupies the bottom plot row. |
 | `trace` | A six-row connected linear per-minute Braille rate line. Rising from zero and falling back to zero touch the plot's lowest subpixel row beside the axis, while long zero-only stretches remain unpainted. Tiny positive samples remain visible at that lowest subpixel; there is no extra horizontal zero line. ASCII-only terminals use readable line characters instead of Braille. |
 
-In OMP choose **Chart** from `/usage-dashboard` or run `/usage-dashboard chart TYPE`; inside Claude Code use its personal skill `/usage-dashboard chart TYPE`, or from a shell in this checkout run `python3 dashboard.py control --host claude -- chart TYPE` (for example, `python3 dashboard.py control --host claude -- chart trace`). Replace `TYPE` with `bars`, `dots`, or `trace`. Chart style is a saved preference for each host, independent of Compact/Details mode and of the other host's settings. Previously saved `line`, `area`, `heatmap`, or `lollipop` selections display as bars without rewriting the saved preference; newly entered commands selecting those retired styles are rejected.
+In OMP choose **Chart** from `/usage-dashboard` or run `/usage-dashboard chart TYPE`; inside Claude Code use its immediate native `/usage-dashboard chart TYPE` command. Replace `TYPE` with `bars`, `dots`, or `trace`. Chart style is a saved preference for each host, independent of Compact/Details mode and of the other host's settings. Previously saved `line`, `area`, `heatmap`, or `lollipop` values fall back to bars and are normalized to bars on the next save.
 
 All three styles have one blank row above six plot rows, then an immediately adjacent open bottom axis and aligned `-20m`/`now` time labels. The existing blank row after the labels separates the chart from the session summary, including for trace; no extra caption or idle-only message occupies either margin. The peak appears at the top only when usage is present, and a single `0` labels the baseline, including when idle. In a narrow sidebar, bars and dots may max-pool adjacent minutes into a visible column so peaks remain visible; trace plots the connected linear samples of all 20 minutes without a right rail or midpoint tick. With no recent usage, the plot stays empty while its axes and time labels remain visible. Small panels scroll to show additional rows. ASCII-only terminals use readable fallback characters for all three styles. Token records update on completed usage events, with a one-second check for auxiliary model usage even while the parent is idle.
+
+The one-second auxiliary-usage check above belongs to OMP. Claude captures usage only from native completed-step and compaction reports. While its native pane is shown and placed on a rendering surface, a local presentation timer checks every 500 ms: snapshots refresh at minute boundaries for the rolling chart, every second for reset countdowns below one hour, and at the earliest allowance reset or 300-second observation expiry. Hidden, unplaced and nonrendering panes do not launch timer-driven helpers. Refreshes are serialized with at most one pending timer refresh; a busy helper can delay the display. This reads only local history and the existing allowance observation: it neither polls a provider nor makes an observation fresh. Reset windows disappear independently, and observations older than 300 seconds become unknown.
 
 **Current session** and **Previous session** show cumulative reported token totals. Compact mode groups them by provider; `/usage-dashboard view details` separates each model by thinking level, for example `Luna - Max tokens` and `Luna - xHigh tokens`. Each row includes input/output and cache-read/write counts. Switching models or thinking levels never reassigns earlier usage. Cached tokens remain part of the provider's reported total, not an extra amount added on top of it.
 
@@ -526,7 +524,9 @@ Claude Code instead uses **`~/.claude/usage-dashboard/usage-dashboard.sqlite3`**
 
 The OMP database is created with owner-only permissions and updated transactionally as usage arrives, not just at shutdown. It stores hashed project scopes, session/request identifiers, timestamps, provider/model/thinking-level identities, numeric token counters, hashed task-group associations and original aggregate counters for deduplication, and quota observation summaries with hashed account/window identities. Charts and session/project totals are derived from those local records.
 
-The Claude Code receiver binds only to loopback, authenticates incoming hook/status-line/OTLP requests, bounds payload size, and persists only allowlisted counters, model/session identifiers, timestamps, capture health, and optional status-line limit windows. It discards log bodies and unknown attributes; it does not inspect transcripts. **Claude can still emit sensitive attributes such as `user_prompt` even with `OTEL_LOG_USER_PROMPTS=0`**: those bytes may reach the local receiver but are not stored or forwarded by the dashboard. Protect your local machine and avoid redirecting Claude telemetry to an untrusted destination.
+Ledger and preference storage reject symlinked, foreign-owned, or group/world-writable directory components instead of repairing their permissions. Missing components are created one at a time with mode `0700` and validated before descending, so a first-use directory race cannot redirect access into another host's storage. Existing trusted directory permissions remain unchanged. Root-owned sticky directories such as `/tmp` are allowed only as ancestors, never as the directory containing the ledger or preferences.
+
+Claude's native module passes an explicit allowlist of numeric token counters, provider/model/thinking-level labels, hashed request identities, timestamps, and opaque session/owner/activation identifiers to `claude_native.py` through local JSON stdin/stdout. The helper persists ledger entries and capture health; fresh allowance observations remain in native session state, not account-quota history. It does not read transcripts, forward whole host events, bind a loopback receiver, or inject telemetry or status-line settings. Historical capture-only and obsolete limit data may remain in the existing database but are not reused as native observations.
 
 The usage databases do **not** store prompts, responses, tool output, credentials, raw account IDs, or raw project paths. A crash can lose usage not yet reported or saved, but does not erase already committed session history. Uninstalling either integration leaves its database intact.
 
@@ -542,19 +542,19 @@ OMP provider order, hidden providers, window filters, position, display mode, Co
 | Custom default agent directory | `$PI_CODING_AGENT_DIR/usage-dashboard.json` |
 | Named profile | `~/.omp/profiles/NAME/agent/usage-dashboard.json` |
 
-Claude Code preferences are stored separately in **`~/.claude/usage-dashboard/usage-dashboard.json`**, or **`$CLAUDE_CONFIG_DIR/usage-dashboard/usage-dashboard.json`** when configured. Its storage does not use `PI_CODING_AGENT_DIR`, OMP named profiles, or the OMP settings file.
+Claude Code preferences are stored separately in **`~/.claude/usage-dashboard/usage-dashboard.json`**, or **`$CLAUDE_CONFIG_DIR/usage-dashboard/usage-dashboard.json`** when configured. Its storage does not use `PI_CODING_AGENT_DIR`, OMP named profiles, or the OMP settings file. The native cutover preserves this location and existing token records; migration removes integration ownership, not usage data. Native preferences retain charts, palettes/custom tokens, view/filter/section visibility, and enabled state. Saved legacy side/interval fields are preserved but ignored by native placement/event observation.
 
 Use `omp --profile NAME` to select a profile. Keep a custom `PI_CODING_AGENT_DIR` in your launching environment. Source-checkout installations must also register the extension in each custom agent directory using `python3 install.py --agent-dir PATH`.
 
-Changes affect the current dashboard and subsequent launches, not other already-running panes. Preferences use locked, atomic updates; malformed settings produce an error rather than being silently reset. Release-check metadata is stored separately in `usage-dashboard-update.json` beside the preferences file.
+Changes affect the current dashboard and subsequent launches, not all other already-running instances. Preferences use locked, atomic transforms so concurrent changes to different settings are retained; malformed settings produce an error rather than being silently reset. OMP release-check metadata is stored separately in `usage-dashboard-update.json` beside its preferences file; Claude updates belong to its plugin manager.
 
 The nine named palettes use design tokens: `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default. The original eight palettes—green, blue, brown, yellow, cyan, magenta, orange, and red—keep neutral body and muted text while varying headings, darker secondary rules, and chart color; only those eight appear in the [theme preview](#theme-preview). Blue uses bright cyan-blue `#00b4ff` for `accent` and `chart` with medium-bright `#007fae` secondary rules; the preview's blue tile predates these shades.
 
-Opt into `claude` with `/usage-dashboard theme claude` in OMP or `python3 dashboard.py control --host claude -- theme claude` for Claude Code. Inspired by [Anthropic's published brand colors](https://raw.githubusercontent.com/anthropics/skills/main/skills/brand-guidelines/SKILL.md), it sets `text` to warm light `#faf9f5`, `muted` and `secondary` to mid-gray `#b0aea5`, and `accent` and `chart` to orange `#d97757`. This is a dashboard palette for an assumed dark terminal, not a verified match for Claude Code's built-in terminal theme; it inherits your terminal background rather than setting one. Muted text also uses terminal dimming. Hex colors are mapped to the nearest xterm color on 256-color terminals and the nearest basic color on basic-color terminals, so displayed shades depend on terminal support and palette.
+Opt into `claude` with `/usage-dashboard theme claude` in either host's own command. Inspired by [Anthropic's published brand colors](https://raw.githubusercontent.com/anthropics/skills/main/skills/brand-guidelines/SKILL.md), it sets `text` to warm light `#faf9f5`, `muted` and `secondary` to mid-gray `#b0aea5`, and `accent` and `chart` to orange `#d97757`. This is a dashboard palette for an assumed dark terminal, not a verified match for Claude Code's built-in terminal theme; it inherits your terminal background rather than setting one. Muted text also uses terminal dimming. Hex colors are mapped to the nearest xterm color on 256-color terminals and the nearest basic color on basic-color terminals, so terminal settings can shift the result.
 
 All built-in palettes preserve allowance semantics: `good` is green, `warn` is orange, and `error` is red; orange falls back to yellow without 256-color support. Custom token values override one token on the selected palette and accept basic terminal color names, `gray`, `brown`, `orange`, or a six-digit hexadecimal value. Use the `custom` menu option to enter a token and color, such as `accent #58a66a`; repeat it for additional tokens, or use `reset` to restore green and remove overrides.
 
-**Do not paste API keys or tokens into dashboard commands.** OMP uses its own authentication, does not store credentials in preference files, and does not render account emails or account/credential IDs. DeepSeek's fallback obtains its credential from OMP and uses it in the provider-fetch process. Claude Code remains responsible for Claude authentication; this launcher does not add an OMP login flow. OMP release checks contact the public GitHub API without provider credentials.
+**Do not paste API keys or tokens into dashboard commands.** OMP uses its own authentication, does not store credentials in preference files, and does not render account emails or account/credential IDs. DeepSeek's fallback obtains its credential from OMP and uses it in the provider-fetch process. Claude Code remains responsible for Claude authentication; the native mod does not add an OMP login flow or change credentials, model selection, prompts, or permission policy. OMP release checks contact the public GitHub API without provider credentials.
 
 ## Updating
 
@@ -605,23 +605,17 @@ Restart OMP afterward. If Git reports a conflict or divergent history, resolve i
 
 ### Updating Claude Code integration
 
-Inside Claude Code, use the personal skill to check the latest stable release before choosing whether to install it:
-
-```text
-/usage-dashboard update check
-/usage-dashboard update install
-```
-
-Claude updates are independent of OMP's marketplace, and checks never install code. Installation is limited to the original owned source checkout: it must be clean, track the canonical GitHub source, and allow a fast-forward to the verified release tag. The installer refreshes that checkout's owned hook and skill after advancing it. An unowned installation, dirty checkout, divergent history, unexpected remote, or untrusted/unavailable release is not an invitation to overwrite files or discard local changes. Resolve the issue manually and retry; do not force-reset Git.
-
-**Restart Claude and open a new shell after installing** to load the updated skill and hook. If Git advances but refreshing the integration fails, the checkout may be only partially updated: inspect the error, repair the owned installation from the original checkout with `python3 claude_install.py --refresh`, and restart rather than assuming it rolled back. As a manual alternative, exit Claude, review local changes, then from the original checkout run:
+For a marketplace installation, use Claude's `/plugin` manager or its CLI:
 
 ```sh
-git pull --ff-only
-python3 claude_install.py --refresh
+claude plugin update harness-usage-dashboard@harness-usage-dashboard
 ```
 
-Manual Git updates also require you to review the source and resolve conflicts or divergent history without discarding your work.
+This updates the dashboard from that registered marketplace when a newer published plugin version exists. It does not upgrade the globally installed Claude runtime. Restart Claude to load the installed update. The old `/usage-dashboard update check|install` commands and source-checkout updater are removed; OMP's update commands remain OMP-only.
+
+For development, exit Claude, review local changes, update your checkout manually with `git pull --ff-only` when appropriate, then restart with `--plugin-dir` pointing at it. Resolve conflicts/divergence without discarding your work. A marketplace copy cached at the same version is not a substitute for testing local edits, and unpublished edits are not available through GitHub plugin updates.
+
+Check `claude --version` yourself and use Claude's own official upgrade procedure if it is below 2.1.287. No dashboard command installs, bundles, or silently upgrades that global CLI.
 
 ## Uninstalling
 
@@ -656,27 +650,29 @@ Repeat with the original `--agent-dir PATH` for custom agent directories. Use th
 
 ### Claude Code installation
 
-From the same original checkout, after exiting Claude:
+Exit Claude sessions using the plugin. For a marketplace installation:
 
 ```sh
-python3 claude_install.py --uninstall
+claude plugin uninstall harness-usage-dashboard@harness-usage-dashboard --scope user
 ```
 
-Use the same `CLAUDE_CONFIG_DIR` as during installation. If an exact legacy wrapper was installed with a custom `--bin-dir PATH`, pass that option as well. Uninstall removes only the checkout's owned hook and skill, and any exact owned legacy wrapper; it preserves Claude CLI, unrelated or modified user files, the checkout, and `~/.claude/usage-dashboard/` data (or the corresponding `$CLAUDE_CONFIG_DIR/usage-dashboard/` directory). Start a new shell to drop an already-loaded hook. OMP installation and storage are untouched.
+Use the scope in which you installed it. If no other installation uses the catalog, you can also run `claude plugin marketplace remove harness-usage-dashboard`. For a development session, stop passing `--plugin-dir`; do not delete the checkout before checking for your own changes.
+
+Native uninstall leaves Claude CLI, authentication, dashboard preferences, and `${CLAUDE_CONFIG_DIR:-~/.claude}/usage-dashboard/usage-dashboard.sqlite3` intact. It does not manage OMP. If an old shell hook/personal skill remains, use the explicit [legacy migration](#migrating-the-legacy-claude-integration) dry-run and `--apply` sequence, then start a new shell; native uninstall does not silently remove legacy or foreign files.
 
 ## Troubleshooting
 
 | Symptom | What to check |
 | --- | --- |
 | `omp` starts without a sidebar | Widen the terminal to at least 96 columns, then try `/usage-dashboard window on`. Confirm the correct shell hook is loaded and restart an OMP process opened before installation. |
-| `claude` starts without a sidebar | Open a new shell after installation and inspect `type claude` (or `functions claude` in fish). Check terminal width, tmux 3.3+, and that this is an interactive invocation. Help, subcommands, noninteractive invocations, and `command claude` bypass the hook; `--shell none` omits it (open a new shell if replacing a prior owned hook). |
+| `claude` starts without a Pane | Check CLI 2.1.287+, `/plugin` enablement, workspace trust, mod policy, and the actual `--plugin-dir` path for development. Run `/usage-dashboard window on` or `/usage-dashboard` to reopen it. Claude owns docked/inline placement; tmux and a shell hook are not required. A remaining legacy ownership record requires manual migration. |
 | The shell still runs a custom `omp` command | An existing function or alias can take precedence over the installed hook. Inspect `type omp`; do not overwrite your customization blindly. |
 | OMP provider usage is unavailable | Confirm the provider login in OMP and try `omp usage --provider openai-codex` in your shell, substituting the appropriate provider ID. Chat access alone does not guarantee a usage API. |
-| Claude token counts are unavailable or incomplete | Check that a compatible completed API request occurred in an interactive hooked `claude` session and that Claude's existing OTLP telemetry destination does not conflict. Missing requests are unknown, not zero; the OMP `claude` provider view cannot fill them in. |
-| Claude five-hour/seven-day limits are unavailable | Claude may omit `rate_limits` for the plan or early session; an existing status-line destination also prevents this launcher from receiving them. No account-specific quota-change history is available in this mode. |
+| Claude token counts are unavailable or incomplete | Check native mod loading and whether the host reported a completed request with all four counters. Helper errors remain visible and saved history is preserved. A live request here returned 401 because the OAuth access token expired; resolve authentication through Claude itself. Unknown coverage is not zero, and OMP's `claude` view cannot fill it in. |
+| Claude allowance windows are unavailable | A fresh native rate-limit event for the current activation may not have arrived, may be omitted by the host, or may have expired. Refresh and resize do not refresh its timestamp. No Claude account-specific quota-change history is available. |
 | OMP values look old | Inspect `view details`, then request `window refresh`. The provider may still return cached data. |
-| Update reports an unmanaged or unsafe installation | For OMP, use its source-checkout update instructions or migrate to the OMP marketplace. For Claude, run `/usage-dashboard update check` from the original installed checkout; installation refuses dirty/divergent/unowned or noncanonical Git sources. Repair these manually rather than overwriting another owner's files. |
-| Claude cannot find `/usage-dashboard` | Confirm the skill exists under `${CLAUDE_CONFIG_DIR:-~/.claude}/skills/usage-dashboard/` and restart Claude. Use the same `CLAUDE_CONFIG_DIR` as at install time; normal Claude Code tool permissions still apply. |
+| Update reports an unmanaged or unsafe installation | For OMP, use its source-checkout update instructions or migrate to the OMP marketplace. For Claude, use `/plugin` or `claude plugin update` for an installed marketplace copy, and `--plugin-dir` for local development; `/usage-dashboard update` is not supported. |
+| Claude cannot find `/usage-dashboard` | Confirm the native plugin is loaded/enabled and restart Claude. The command is registered by the mod, not a personal skill. If an old shell function still targets the deleted launcher, use `command claude` for the CLI until manual migration and a new shell. |
 | Marketplace installation cannot find a release tag | Check the Releases page and wait for a successful release workflow, or use the OMP source-checkout method. |
 | Mouse selection behaves differently | tmux owns mouse input inside the session; try your terminal's selection override, often Shift. Native SIXEL images may disappear in tmux copy mode and return when it closes. |
 | OMP images remain placeholders | Relaunch OMP through the shell hook with a SIXEL-capable client attached. Both the tmux build and every attached client must report SIXEL support; tmux 3.3+ alone is insufficient. Explicit `PI_FORCE_IMAGE_PROTOCOL` and `PI_ALLOW_SIXEL_PASSTHROUGH` values take precedence; unset them to use automatic selection. Do not enable raw tmux passthrough to fix missing previews. Other protocols and macOS display have not been verified here. |
@@ -693,18 +689,52 @@ python3 -m unittest discover -v
 node --check extension.js
 ```
 
+With Claude CLI 2.1.287+ available, validate both native metadata files and run the credential-free SDK cases:
+
+```sh
+claude plugin validate --strict --json .claude-plugin/plugin.json
+claude plugin validate --strict --json .claude-plugin/marketplace.json
+claude plugin test .
+node --check hooks/register.js
+node --check hooks/claude-view.js
+```
+
+`hooks/claude-native.test.ts` uses `claude-code/testing` to exercise accounting boundaries, late lifecycle attribution/privacy, preserved history, and original-error handling. `types/index.d.ts` is the checked-in **production** PluginState contract. It is not disposable generated output. Claude-generated `.claude-plugin/types/` declarations describe the current runtime and are ignored; do not substitute them for the production state contract.
+
 Tests use isolated fixtures, not live account credentials. Interactive verification has covered fish/tmux launch, mouse controls, nested menus, preference persistence, native upgrades, and project-over-user discovery. Live provider verification is limited to Codex; passing offline tests does not establish support for another account or provider.
 
 Session accounting has also been exercised with the installed OMP runtime using isolated saved sessions: multiple models/providers, `/new`, and previous-session persistence. Curses rendering and scrolling were checked in a 34-column tmux pane. Quota-reset/account-attribution checks use offline fixtures; they do not establish live quota reporting support for additional providers.
 Image-regression verification used tmux 3.7c in an isolated Linux PTY. A real-client regression failed before the fix when a wrapped Kitty placement escaped the pane, then passed with containment during sidebar resize, side changes, and hiding. A smoke run launched the installed OMP image component through the fresh-pane launcher helper: native SIXEL reached the client with raw passthrough off, and the component rendered new frames at 105, 90, and 95 pane columns as the sidebar and terminal resized. tmux re-emitted the image on redraw and after leaving copy mode. The existing-pane launcher path also selected the SIXEL environment against the isolated server. These checks verify transport and lifecycle behavior, not visual correctness in every graphical terminal or on macOS.
 
-Claude Code capture has offline tests for its local events and rendering, but a live Claude API request could not be verified in this environment: the available OAuth attempt returned **403**. Passing offline tests does not establish successful live token capture or allowance visibility for a particular Claude account or plan.
+Final combined verification passed **208 Python tests**, **10 OMP Node tests**, and syntax checks for `extension.js`, `hooks/register.js`, and `hooks/claude-view.js`. An actual **OMP 18.4.10** process launched through `launcher.py` with a disposable `PI_CODING_AGENT_DIR` and its own tmux socket; the app setup UI and real 34-column sidebar painted. Chart Trace, theme Cyan, and Details controls applied, and explicit `--providers openai-codex` control succeeded after the shared-view extraction repair. These fresh OMP checks supplement the historical session and image verification above.
+
+Native Claude cutover verification to date used a signed, isolated **2.1.287** runtime and disposable homes/configuration. Both `claude plugin validate --strict --json .claude-plugin/plugin.json` and the corresponding `.claude-plugin/marketplace.json` command passed; `claude plugin test .` passed four native cases covering counter/allowance boundaries, late-clear attribution/privacy, and original-error/preserved-history failure behavior. These are offline native regressions, not authenticated service accounting.
+
+A real terminal Pane rendered with **TMUX unset**. Its Compact/Details controls, all three charts, all nine themes, docked-to-inline resize, focus, Refresh/Close hotkeys, and reopen were exercised. Clear/branch/resume retained the correct isolated owner and created a new activation without recounting 175 seeded tokens. Backend smoke checks retained 185 historical tokens, deduplicated 25 new tokens, accepted a reported zero without adding tokens, retained both concurrent preference changes, and rejected stale/wrong-session allowance observations as unknown. The helper also ran with curses imports blocked.
+
+A stable **160×58** native terminal Pane reproduced the idle-chart defect before repair: an oldest-bucket five-token bar stayed visible past the next real minute boundary although the real helper returned an idle chart. After repair and module reload, the same no-input/no-new-events scenario aged the oldest five-token bucket to an empty chart at the next minute while retaining **10 cumulative fixture tokens**. Separate real-helper allowance fixtures removed an elapsed five-hour window while retaining the still-valid weekly window, and marked a 301-second-old observation unknown. Those allowance checks did **not** exercise a native rate-limit event or its Pane paint.
+
+Storage-safety verification deterministically injected first-use directory races into disposable fixtures; it was **not a cross-UID exploit**. Before repair, a late symlink redirected native capture into an OMP ledger and a preference update into another target. After repair, both operations raised `PermissionError` and the exact target database/preference bytes remained unchanged. Six new regressions cover storage preservation and directory-creation boundaries. Normal helper capture, replay deduplication, and preference persistence also passed; missing nested storage components were `0700` even under `umask 000`. The real native Pane and restarted OMP sidebar still painted after the repair.
+
+An explicit `/reload-plugins` reported **nine mod hooks reloaded**. The active owner/session/activation tuple and single 175-token fixture record stayed unchanged, and reopening the real Pane retained those tokens and selected settings. Unsupported `providers codex`, `window provider`, position, and interval inputs returned normal guidance without changing preference bytes or showing a false storage warning; the `claude` provider alias saved `anthropic`.
+
+A native local-catalog lifecycle used a completely disposable HOME/configuration: catalog add, plugin install at **1.0.63**, an **up-to-date update check**, a cold installed `/usage-dashboard chart dots` command, and uninstall all succeeded. The installed cache contained the Python helper and production state types, with no legacy launcher. Uninstall preserved history and preference bytes. This verifies an up-to-date check, **not an upgrade to a newer plugin version**.
+
+Legacy install/migration was exercised **only in disposable homes**: default dry-run left files unchanged, explicit `--apply` removed owned integration, a new shell no longer used the old function, modified files were refused, and database bytes were preserved. The real user's installation record, shell setup, authentication, global CLI, and ledger were not migrated or upgraded.
+
+Eight additional migration regressions cover directory-ownership and replacement boundaries. In a deterministic disposable fixture, the pre-repair `--apply` exited successfully after a late symlink redirected removal into a foreign target. After root-to-leaf directory validation was added, the same unsafe shared-parent setup exited with status 1 before injection, preserving the foreign file, ownership record, all managed bytes and modes, wrapper, and shared directory's `0777` mode. This is fixture evidence, **not a cross-UID exploit**; same-UID and root attackers are outside this protection's threat model.
+
+A separate normal CLI smoke covering all three supported shells passed: dry-run made no changes, apply removed owned integration and its record, and repeat apply made no changes. Ledger, preferences, unrelated settings, and surrounding startup-file bytes, including CRLF, were preserved.
+
+The final strict native manifest/catalog validations and all four native SDK cases also passed. The native live request returned **401, expired OAuth access token**, and capture became incomplete without fabricated usage. Successful live main/subagent/retry/compaction accounting, Claude Desktop painting, and macOS behavior remain **unverified**. The previous legacy 403 observation does not describe this native path. Offline passing cases do not establish coverage for a Claude account or plan. All new installation/migration checks used disposable state; no real-user migration or installation, global CLI upgrade, version bump, or release was performed.
+
+Release-conflict reconciliation preserves the already-released **1.0.64** in `package.json`, the native plugin manifest, and the OMP plugin version/source ref (`v1.0.64`). The fresh Python run passed **208 tests**. Against a disposable local bare origin, `release.py` rejected a mismatched native **1.0.63** fixture with exit 1 before making changes; the aligned metadata preview succeeded with exit 0 and planned a future **1.0.65** / `v1.0.65`. That preview changed neither checkout/source bytes nor remote heads/tags; it did **not** bump the current version to 1.0.65 or perform a release or real-base push. The historical 1.0.63 install and native SDK evidence above is unchanged; this reconciliation does not claim a fresh SDK run.
 
 ### Adding another coding-agent host
 
-`host_adapters.py` statically registers OMP and Claude policies for storage roots, provider selection, allowance-fetch commands, empty/capture states, quota-history eligibility, and tmux launch behavior. `preferences.py`, `session_usage.py`, and `dashboard.py` share the preference, ledger, chart, and rendering paths. A future host adds an adapter definition and its own event-to-ledger and allowance-source integration; it need not reuse Claude's OTLP hooks or status line. The included test-only third host exercises real local storage, fetching, and rendering, but **Codex CLI is not supported by this integration yet**. There is no dynamic plugin discovery.
+`host_adapters.py` statically registers host policies for storage roots, provider selection, empty/capture states, and quota-history eligibility. OMP retains allowance-fetch commands and tmux launch behavior; Claude's native launch/fetch routes are deliberately unsupported in the generic launcher because its mod observes events and uses a native Pane. `preferences.py`, `session_usage.py`, and `dashboard_view.py` share pure preference, ledger, chart, and formatting paths; `dashboard.py` owns OMP's terminal renderer, while `claude_native.py` exposes the native JSON helper. A future host adds an adapter and its own event-to-ledger and allowance integration. The included test-only third host exercises real local storage, fetching, and rendering, but **Codex CLI is not supported by this integration yet**. There is no dynamic plugin discovery.
 
-GitHub Actions validates pull requests and `main` pushes. A successful main push bumps the patch version, synchronizes the marketplace version and pinned tag, atomically pushes the metadata commit and tag, and publishes a GitHub Release. Manual dispatch supports patch, minor, and major bumps. No npm publishing token is required.
+GitHub Actions validates pull requests and `main` pushes with the full Python suite, OMP/native JavaScript syntax checks, strict native manifest/catalog validation, and credential-free native SDK tests against a signed, checksum-pinned Claude 2.1.287 runtime in a disposable home. A successful main push bumps the patch version, synchronizes `package.json`, the OMP marketplace version/pinned tag, and the native Claude manifest version, atomically pushes the metadata commit and tag, and publishes a GitHub Release. Claude's root-source catalog inherits the plugin manifest version rather than duplicating it. Manual dispatch supports patch, minor, and major bumps. No npm publishing token is required. Preparing this local cutover did not bump a version, push, or publish anything.
 
 Repository policy must allow the release job's `GITHUB_TOKEN` to write commits and tags. Protected branch/tag rules can block publication. Stale revisions are skipped; token-authored pushes do not recursively release. If publication fails after the Git push, rerun the failed workflow in a fresh checkout while `main` still points to that release commit. If `main` has advanced, publish the existing tag manually or let the next release proceed. See [the workflow](.github/workflows/release.yml) and [release helper](release.py).
 
