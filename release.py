@@ -12,6 +12,9 @@ import urllib.request
 
 VERSION = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)')
 CATALOG = '.omp-plugin/marketplace.json'
+CLAUDE_MANIFEST = '.claude-plugin/plugin.json'
+CLAUDE_CATALOG = '.claude-plugin/marketplace.json'
+PLUGIN_NAME = 'harness-usage-dashboard'
 
 
 def release_catalog(repo, source, current_version, version):
@@ -26,6 +29,37 @@ def release_catalog(repo, source, current_version, version):
     plugin['version'] = version
     plugin['source']['ref'] = f'v{version}'
     return catalog
+
+
+def release_metadata(repo, source, package, version):
+    """Validate both native distributions before preparing any mutation."""
+    current = package['version']
+    manifest = json.loads(git(repo, 'show', f'{source}:{CLAUDE_MANIFEST}'))
+    if manifest.get('name') != PLUGIN_NAME or manifest.get('version') != current:
+        raise ValueError('Claude plugin version and name must match package.json')
+    manifest['version'] = version
+    catalog = json.loads(git(repo, 'show', f'{source}:{CLAUDE_CATALOG}'))
+    plugins = [plugin for plugin in catalog['plugins'] if plugin['name'] == PLUGIN_NAME]
+    if catalog.get('name') != PLUGIN_NAME or len(plugins) != 1 or plugins[0].get('source') != './':
+        raise ValueError('Claude marketplace must contain exactly one root-source dashboard plugin')
+    changed = {
+        'package.json': dict(package, version=version),
+        CATALOG: release_catalog(repo, source, current, version),
+        CLAUDE_MANIFEST: manifest,
+    }
+    # The native catalog normally inherits the manifest version. If explicitly
+    # versioned, it must agree and participate in the exact release retry diff.
+    if 'version' in plugins[0]:
+        if plugins[0]['version'] != current:
+            raise ValueError('Claude marketplace version must match package.json')
+        plugins[0]['version'] = version
+        changed[CLAUDE_CATALOG] = catalog
+    if 'version' in catalog.get('metadata', {}):
+        if catalog['metadata']['version'] != current:
+            raise ValueError('Claude marketplace metadata version must match package.json')
+        catalog['metadata']['version'] = version
+        changed[CLAUDE_CATALOG] = catalog
+    return changed
 
 
 def bump_version(version, bump):
@@ -68,7 +102,7 @@ def plan_release(repo, source, bump='patch', push=False):
     original = git(repo, 'show', f'{source}:package.json')
     metadata = json.loads(original)
     version = bump_version(metadata['version'], bump)
-    catalog = release_catalog(repo, source, metadata['version'], version)
+    changed = release_metadata(repo, source, metadata, version)
     tag = f'v{version}'
     message = f'chore(release): {tag}\n\nRelease-Source: {source}\nRelease-Bump: {bump}'
     tags = git(repo, 'tag', '--list', tag).splitlines()
@@ -77,15 +111,13 @@ def plan_release(repo, source, bump='patch', push=False):
         # Only a matching release-metadata commit can be reused after a failed
         # GitHub API call; an unrelated existing version is never overwritten.
         parents = git(repo, 'show', '-s', '--format=%P', commit)
-        released = json.loads(git(repo, 'show', f'{commit}:package.json'))
-        expected_metadata = dict(metadata, version=version)
         matching = (
             parents == source
             and git(repo, 'show', '-s', '--format=%B', commit) == message
             and git(repo, 'diff-tree', '--no-commit-id', '--name-only', '-r', commit).splitlines()
-            == [CATALOG, 'package.json']
-            and released == expected_metadata
-            and json.loads(git(repo, 'show', f'{commit}:{CATALOG}')) == catalog
+            == sorted(changed)
+            and all(json.loads(git(repo, 'show', f'{commit}:{path}')) == expected
+                    for path, expected in changed.items())
         )
         if not matching:
             raise ValueError(f'Tag {tag} already exists and is not this release')
@@ -111,8 +143,10 @@ def plan_release(repo, source, bump='patch', push=False):
     if count != 1:
         raise ValueError('package.json must contain exactly one version field')
     package.write_text(updated, encoding='utf-8')
-    (repo / CATALOG).write_text(json.dumps(catalog, indent=2) + '\n', encoding='utf-8')
-    git(repo, 'add', '--', 'package.json', CATALOG)
+    for path, content in changed.items():
+        if path != 'package.json':
+            (repo / path).write_text(json.dumps(content, indent=2) + '\n', encoding='utf-8')
+    git(repo, 'add', '--', *sorted(changed))
     git(repo, '-c', 'user.name=github-actions[bot]',
         '-c', 'user.email=41898282+github-actions[bot]@users.noreply.github.com',
         '-c', 'commit.gpgsign=false', 'commit', '-m', message)

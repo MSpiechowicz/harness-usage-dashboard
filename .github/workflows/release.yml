@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   check:
-    name: Python tests and JavaScript syntax
+    name: Python tests and native plugin validation
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -42,6 +42,53 @@ jobs:
         run: python -m unittest discover -v
       - name: Check OMP extension syntax
         run: node --check extension.js
+      - name: Check native JavaScript syntax
+        run: |
+          node --check hooks/register.js
+          node --check hooks/claude-view.js
+      - name: Verify pinned Claude runtime and validate native plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture="$(mktemp -d)"
+          trap 'rm -rf "$fixture"' EXIT
+          export HOME="$fixture/home"
+          export CLAUDE_CONFIG_DIR="$fixture/config"
+          export GNUPGHOME="$fixture/gpg"
+          export DISABLE_UPDATES=1
+          export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+          unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN
+          mkdir -p "$HOME" "$CLAUDE_CONFIG_DIR" "$GNUPGHOME"
+          chmod 700 "$GNUPGHOME"
+          version=2.1.287
+          base="https://downloads.claude.ai/claude-code-releases/$version"
+          curl --proto '=https' --tlsv1.2 -fsSL "$base/manifest.json" -o "$fixture/manifest.json"
+          curl --proto '=https' --tlsv1.2 -fsSL "$base/manifest.json.sig" -o "$fixture/manifest.json.sig"
+          curl --proto '=https' --tlsv1.2 -fsSL https://downloads.claude.ai/keys/claude-code.asc -o "$fixture/key.asc"
+          gpg --batch --import "$fixture/key.asc"
+          gpg --batch --status-fd=1 --verify "$fixture/manifest.json.sig" "$fixture/manifest.json" > "$fixture/signature.status"
+          python - "$fixture" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+          root = Path(sys.argv[1])
+          fingerprint = '31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE'
+          signatures = [line.split() for line in (root / 'signature.status').read_text().splitlines()
+                        if line.startswith('[GNUPG:] VALIDSIG ')]
+          if len(signatures) != 1 or fingerprint not in (signatures[0][2], signatures[0][-1]):
+              raise SystemExit('Manifest signature did not match the pinned Anthropic signing key')
+          manifest = json.loads((root / 'manifest.json').read_text())
+          checksum = '3920489a5109cff5786a1a392c25277408ff22bc796d5edb9c16a60e5a1718f0'
+          if manifest['version'] != '2.1.287' or manifest['platforms']['linux-x64']['checksum'] != checksum:
+              raise SystemExit('Signed manifest did not match the pinned runtime')
+          PY
+          curl --proto '=https' --tlsv1.2 -fsSL "$base/linux-x64/claude" -o "$fixture/claude"
+          printf '%s  %s\n' 3920489a5109cff5786a1a392c25277408ff22bc796d5edb9c16a60e5a1718f0 "$fixture/claude" | sha256sum --check --strict -
+          chmod 700 "$fixture/claude"
+          "$fixture/claude" --version
+          "$fixture/claude" plugin validate --strict --json "$GITHUB_WORKSPACE/.claude-plugin/plugin.json"
+          "$fixture/claude" plugin validate --strict --json "$GITHUB_WORKSPACE/.claude-plugin/marketplace.json"
+          "$fixture/claude" plugin test "$GITHUB_WORKSPACE"
 
   release:
     name: Bump, tag and publish

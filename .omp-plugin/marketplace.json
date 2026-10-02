@@ -4,12 +4,12 @@
     "name": "MSpiechowicz"
   },
   "metadata": {
-    "description": "Account-usage sidebar for OMP and Claude Code"
+    "description": "Usage dashboard for OMP and native Claude Code"
   },
   "plugins": [
     {
       "name": "harness-usage-dashboard",
-      "description": "Persistent usage sidebar with OMP and Claude Code shell hooks and a Claude personal skill",
+      "description": "Persistent OMP usage sidebar and native Claude Code usage pane",
       "version": "1.0.64",
       "source": {
         "source": "github",

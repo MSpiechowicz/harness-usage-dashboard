@@ -1,5 +1,5 @@
 """Durable accounting boundaries, without credentials or provider requests."""
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 import json
 import os
 from pathlib import Path
@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from dashboard import format_tokens, quota_samples, session_lines
+from dashboard_view import format_tokens, quota_samples, session_lines
 from session_usage import active_session, database, ingest, record_quota, summary
 
 
@@ -170,6 +170,83 @@ class SessionAccountingTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.save()
         self.assertFalse((target / 'usage-dashboard.sqlite3').exists())
+
+    def test_first_use_directory_race_cannot_redirect_native_records_into_omp(self):
+        for kind in ('symlink', 'writable'):
+            with self.subTest(kind=kind):
+                target = self.home / f'victim-{kind}'
+                storage = target / 'nested' / 'usage-dashboard'
+                with patch.dict(os.environ, {'PI_CODING_AGENT_DIR': str(storage)}):
+                    self.save(session='victim-session', entries=[self.entry()])
+                original = (storage / 'usage-dashboard.sqlite3').read_bytes()
+                directory = self.home / f'first-use-{kind}'
+                injected = False
+                mkdir = Path.mkdir
+
+                def inject(candidate, mode=0o777, parents=False, exist_ok=False):
+                    nonlocal injected
+                    if candidate == directory and not injected:
+                        injected = True
+                        if kind == 'symlink':
+                            directory.symlink_to(target, target_is_directory=True)
+                        else:
+                            target.rename(directory)
+                            directory.chmod(0o777)
+                    return mkdir(candidate, mode=mode, parents=parents, exist_ok=exist_ok)
+
+                with patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': str(directory / 'nested')}):
+                    with patch.object(Path, 'mkdir', inject):
+                        with self.assertRaises(PermissionError):
+                            ingest({'session': 'native-race-session', 'activation': 'race',
+                                    'action': 'start', 'entries': [self.entry('native-request')]},
+                                   host='claude', now=70)
+                observed = target if kind == 'symlink' else directory
+                ledger = observed / 'nested' / 'usage-dashboard' / 'usage-dashboard.sqlite3'
+                self.assertEqual(ledger.read_bytes(), original)
+                with closing(sqlite3.connect(f'file:{ledger}?mode=ro', uri=True)) as db:
+                    self.assertEqual(db.execute('SELECT id FROM sessions').fetchall(),
+                                     [('victim-session',)])
+                if kind == 'writable':
+                    self.assertEqual(directory.stat().st_mode & 0o777, 0o777)
+
+    def test_raced_directory_symlink_cannot_create_children_in_target(self):
+        directory = self.home / 'first-use'
+        target = self.home / 'untouched'
+        target.mkdir()
+        marker = target / 'marker'
+        marker.write_bytes(b'unchanged')
+        mkdir = Path.mkdir
+        injected = False
+
+        def inject(candidate, mode=0o777, parents=False, exist_ok=False):
+            nonlocal injected
+            if candidate == directory and not injected:
+                injected = True
+                directory.symlink_to(target, target_is_directory=True)
+            return mkdir(candidate, mode=mode, parents=parents, exist_ok=exist_ok)
+
+        with patch.dict(os.environ, {'PI_CODING_AGENT_DIR': str(directory / 'nested' / 'agent')}):
+            with patch.object(Path, 'mkdir', inject):
+                with self.assertRaises(PermissionError):
+                    self.save()
+        self.assertEqual(marker.read_bytes(), b'unchanged')
+        self.assertEqual(set(target.iterdir()), {marker})
+
+    def test_missing_ledger_directories_are_private_even_with_open_umask(self):
+        trusted = self.home / 'trusted'
+        trusted.mkdir(mode=0o750)
+        original_mode = trusted.stat().st_mode & 0o777
+        directory = trusted / 'missing' / 'nested' / 'agent'
+        previous_umask = os.umask(0)
+        try:
+            with patch.dict(os.environ, {'PI_CODING_AGENT_DIR': str(directory)}):
+                self.save(entries=[self.entry()])
+                self.assertEqual(summary(now=90)['current']['providers'][0]['total'], 160)
+        finally:
+            os.umask(previous_umask)
+        for component in (trusted / 'missing', directory.parent, directory):
+            self.assertEqual(component.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(trusted.stat().st_mode & 0o777, original_mode)
 
     def test_existing_ledger_migrates_thinking_level_without_losing_tokens(self):
         path = self.home / 'agent' / 'usage-dashboard.sqlite3'

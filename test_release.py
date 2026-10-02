@@ -24,7 +24,7 @@ class ReleaseTransactionTests(unittest.TestCase):
         git(self.root, 'init', '--bare', '--initial-branch=main', str(self.origin))
         git(self.root, 'clone', str(self.origin), str(self.checkout))
         (self.checkout / 'package.json').write_text(
-            '{\n  "name": "release-fixture",\n  "version": "1.0.0",\n  "private": true\n}\n',
+            '{\n  "name": "harness-usage-dashboard",\n  "version": "1.0.0",\n  "private": true\n}\n',
             encoding='utf-8',
         )
         (self.checkout / '.omp-plugin').mkdir()
@@ -36,6 +36,16 @@ class ReleaseTransactionTests(unittest.TestCase):
                            'ref': 'v1.0.0'},
                 'homepage': 'https://github.com/MSpiechowicz/harness-usage-dashboard',
             }],
+        }, indent=2) + '\n', encoding='utf-8')
+        (self.checkout / '.claude-plugin').mkdir()
+        (self.checkout / '.claude-plugin/plugin.json').write_text(json.dumps({
+            'name': 'harness-usage-dashboard', 'version': '1.0.0',
+            'description': 'Native dashboard fixture',
+        }, indent=2) + '\n', encoding='utf-8')
+        (self.checkout / '.claude-plugin/marketplace.json').write_text(json.dumps({
+            'name': 'harness-usage-dashboard',
+            'owner': {'name': 'Fixture'},
+            'plugins': [{'name': 'harness-usage-dashboard', 'source': './'}],
         }, indent=2) + '\n', encoding='utf-8')
         self.commit(self.checkout, 'Initial source')
         git(self.checkout, 'push', 'origin', 'main')
@@ -61,6 +71,12 @@ class ReleaseTransactionTests(unittest.TestCase):
         catalog = json.loads(git(self.origin, 'show', f'{commit}:.omp-plugin/marketplace.json'))
         self.assertEqual(catalog['plugins'][0]['version'], '1.0.1')
         self.assertEqual(catalog['plugins'][0]['source']['ref'], 'v1.0.1')
+        manifest = json.loads(git(self.origin, 'show', f'{commit}:.claude-plugin/plugin.json'))
+        self.assertEqual(manifest['version'], '1.0.1')
+        self.assertEqual(git(self.origin, 'show', f'{commit}:.claude-plugin/marketplace.json'),
+                         git(self.origin, 'show', f'{self.source}:.claude-plugin/marketplace.json'))
+        self.assertEqual(git(self.origin, 'diff-tree', '--no-commit-id', '--name-only', '-r', commit).splitlines(),
+                         ['.claude-plugin/plugin.json', '.omp-plugin/marketplace.json', 'package.json'])
         retry = plan_release(self.fresh_checkout('retry'), self.source, push=True)
         self.assertEqual(retry['commit'], result['commit'])
         self.assertEqual(git(self.origin, 'tag', '--list'), 'v1.0.1')
@@ -108,6 +124,85 @@ class ReleaseTransactionTests(unittest.TestCase):
             bump_version('3.9.8-rc.1', 'patch')
         with self.assertRaises(ValueError):
             bump_version('03.9.8', 'patch')
+
+    def test_all_explicit_native_catalog_versions_are_synchronized_and_retry_is_exact(self):
+        path = self.checkout / '.claude-plugin/marketplace.json'
+        catalog = json.loads(path.read_text(encoding='utf-8'))
+        catalog['plugins'][0]['version'] = '1.0.0'
+        catalog['metadata'] = {'version': '1.0.0'}
+        path.write_text(json.dumps(catalog, indent=2) + '\n', encoding='utf-8')
+        self.commit(self.checkout, 'Explicit native catalog versions')
+        git(self.checkout, 'push', 'origin', 'main')
+        self.source = git(self.checkout, 'rev-parse', 'HEAD')
+        result = plan_release(self.checkout, self.source, push=True)
+        released = json.loads(git(self.origin, 'show', f'{result["commit"]}:.claude-plugin/marketplace.json'))
+        self.assertEqual(released['plugins'][0]['version'], '1.0.1')
+        self.assertEqual(released['metadata']['version'], '1.0.1')
+        self.assertEqual(git(self.origin, 'diff-tree', '--no-commit-id', '--name-only', '-r',
+                             result['commit']).splitlines(),
+                         ['.claude-plugin/marketplace.json', '.claude-plugin/plugin.json',
+                          '.omp-plugin/marketplace.json', 'package.json'])
+        self.assertEqual(plan_release(self.fresh_checkout('explicit-retry'), self.source, push=True)['commit'],
+                         result['commit'])
+
+    def test_metadata_mismatch_refuses_before_any_release_mutation(self):
+        cases = (
+            ('.omp-plugin/marketplace.json', 'version'),
+            ('.omp-plugin/marketplace.json', 'ref'),
+            ('.claude-plugin/plugin.json', 'version'),
+            ('.claude-plugin/marketplace.json', 'version'),
+            ('.claude-plugin/marketplace.json', 'metadata-version'),
+            ('.claude-plugin/marketplace.json', 'source'),
+        )
+        for index, (filename, field) in enumerate(cases):
+            with self.subTest(filename=filename, field=field):
+                checkout = self.fresh_checkout(f'mismatch-{index}')
+                path = checkout / filename
+                metadata = json.loads(path.read_text(encoding='utf-8'))
+                if field == 'ref':
+                    metadata['plugins'][0]['source']['ref'] = 'v9.0.0'
+                elif field == 'metadata-version':
+                    metadata['metadata'] = {'version': '9.0.0'}
+                elif field == 'source':
+                    metadata['plugins'][0]['source'] = '../foreign'
+                elif 'plugins' in metadata:
+                    metadata['plugins'][0]['version'] = '9.0.0'
+                else:
+                    metadata['version'] = '9.0.0'
+                path.write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
+                self.commit(checkout, 'Mismatched metadata')
+                source = git(checkout, 'rev-parse', 'HEAD')
+                # Main need not be moved: validation must refuse even a stale source.
+                before = path.read_bytes()
+                with self.assertRaises(ValueError):
+                    plan_release(checkout, source, push=True)
+                self.assertEqual(path.read_bytes(), before)
+                self.assertEqual(git(checkout, 'status', '--porcelain'), '')
+                self.assertEqual(git(self.origin, 'rev-parse', 'refs/heads/main'), self.source)
+                self.assertEqual(git(self.origin, 'tag', '--list'), '')
+
+    def test_retry_refuses_matching_message_with_unrelated_change(self):
+        package = self.checkout / 'package.json'
+        metadata = json.loads(package.read_text(encoding='utf-8'))
+        metadata['version'] = '1.0.1'
+        package.write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
+        path = self.checkout / '.omp-plugin/marketplace.json'
+        catalog = json.loads(path.read_text(encoding='utf-8'))
+        catalog['plugins'][0]['version'] = '1.0.1'
+        catalog['plugins'][0]['source']['ref'] = 'v1.0.1'
+        path.write_text(json.dumps(catalog, indent=2) + '\n', encoding='utf-8')
+        path = self.checkout / '.claude-plugin/plugin.json'
+        manifest = json.loads(path.read_text(encoding='utf-8'))
+        manifest['version'] = '1.0.1'
+        path.write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+        (self.checkout / 'unrelated.txt').write_text('Not release metadata\n', encoding='utf-8')
+        self.commit(self.checkout, f'chore(release): v1.0.1\n\nRelease-Source: {self.source}\nRelease-Bump: patch')
+        git(self.checkout, '-c', 'tag.gpgsign=false', 'tag', 'v1.0.1')
+        git(self.checkout, 'push', '--atomic', 'origin', 'main', 'refs/tags/v1.0.1')
+        head = git(self.origin, 'rev-parse', 'refs/heads/main')
+        with self.assertRaisesRegex(ValueError, 'not this release'):
+            plan_release(self.fresh_checkout('counterfeit-retry'), self.source, push=True)
+        self.assertEqual(git(self.origin, 'rev-parse', 'refs/heads/main'), head)
 
 
 if __name__ == '__main__':

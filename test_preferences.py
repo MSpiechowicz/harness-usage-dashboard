@@ -5,6 +5,8 @@ from pathlib import Path
 import stat
 import tempfile
 import unittest
+import subprocess
+import sys
 from unittest.mock import patch
 
 from preferences import (CHART_TYPES, DEFAULTS, agent_dir, load_preferences,
@@ -65,6 +67,125 @@ class PreferencesTests(unittest.TestCase):
         self.assertEqual(result['windows'], {'openai-codex': ['weekly']})
         self.assertEqual(result['interval'], 120)
         self.assertEqual(result['side'], 'left')
+
+    def test_concurrent_transforms_preserve_each_window_filter(self):
+        update_preferences(None, {'providers': ['anthropic']})
+        code = (
+            'import sys; from preferences import transform_preferences; '
+            'print(\"ready\", flush=True); '
+            'transform_preferences(None, lambda config: '
+            '{**config, \"windows\": {**config[\"windows\"], \"anthropic\": '
+            'config[\"windows\"].get(\"anthropic\", []) + [sys.argv[1]]}})'
+        )
+        processes = []
+        # Hold the real lock until every worker has reached its mutation.
+        from preferences import _locked
+        with _locked(preferences_path()):
+            for index in range(8):
+                process = subprocess.Popen(
+                    [sys.executable, '-c', code, f'window-{index}'],
+                    cwd=Path(__file__).resolve().parent, env=dict(os.environ),
+                    text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                processes.append(process)
+            for process in processes:
+                self.assertEqual(process.stdout.readline().strip(), 'ready')
+        for process in processes:
+            output, errors = process.communicate(timeout=10)
+            self.assertEqual(process.returncode, 0, output + errors)
+        saved = load_preferences(None)
+        self.assertEqual(set(saved['windows']['anthropic']), {f'window-{index}' for index in range(8)})
+        self.assertEqual(saved['providers'], ['anthropic'])
+
+    def test_symlinked_preferences_or_lock_never_modify_target(self):
+        path = preferences_path()
+        path.parent.mkdir(parents=True)
+        target = self.home / 'foreign.json'
+        target.write_text('unchanged')
+        for alias in (path, path.with_suffix('.lock')):
+            with self.subTest(alias=alias):
+                if alias.exists():
+                    alias.unlink()
+                alias.symlink_to(target)
+                try:
+                    with self.assertRaises(OSError):
+                        update_preferences(None, {'theme': 'blue'})
+                    self.assertEqual(target.read_text(), 'unchanged')
+                finally:
+                    alias.unlink()
+
+    def test_first_use_directory_race_cannot_change_another_hosts_preferences(self):
+        for kind in ('symlink', 'writable'):
+            with self.subTest(kind=kind):
+                target = self.home / f'victim-{kind}'
+                storage = target / 'nested' / 'usage-dashboard'
+                with patch.dict(os.environ, {'PI_CODING_AGENT_DIR': str(storage)}):
+                    update_preferences(None, {'theme': 'blue', 'providers': ['openai-codex']})
+                original = (storage / 'usage-dashboard.json').read_bytes()
+                original_lock = (storage / 'usage-dashboard.lock').read_bytes()
+                directory = self.home / f'first-use-{kind}'
+                injected = False
+                mkdir = Path.mkdir
+
+                def inject(candidate, mode=0o777, parents=False, exist_ok=False):
+                    nonlocal injected
+                    if candidate == directory and not injected:
+                        injected = True
+                        if kind == 'symlink':
+                            directory.symlink_to(target, target_is_directory=True)
+                        else:
+                            target.rename(directory)
+                            directory.chmod(0o777)
+                    return mkdir(candidate, mode=mode, parents=parents, exist_ok=exist_ok)
+
+                with patch.dict(os.environ, {'CLAUDE_CONFIG_DIR': str(directory / 'nested')}):
+                    with patch.object(Path, 'mkdir', inject):
+                        with self.assertRaises(PermissionError):
+                            update_preferences(None, {'theme': 'red'}, host='claude')
+                observed = target if kind == 'symlink' else directory
+                saved = observed / 'nested' / 'usage-dashboard' / 'usage-dashboard.json'
+                self.assertEqual(saved.read_bytes(), original)
+                self.assertEqual(saved.with_suffix('.lock').read_bytes(), original_lock)
+                if kind == 'writable':
+                    self.assertEqual(directory.stat().st_mode & 0o777, 0o777)
+
+    def test_raced_directory_symlink_cannot_create_preference_children_in_target(self):
+        directory = self.home / 'first-use'
+        target = self.home / 'untouched'
+        target.mkdir()
+        marker = target / 'marker'
+        marker.write_bytes(b'unchanged')
+        mkdir = Path.mkdir
+        injected = False
+
+        def inject(candidate, mode=0o777, parents=False, exist_ok=False):
+            nonlocal injected
+            if candidate == directory and not injected:
+                injected = True
+                directory.symlink_to(target, target_is_directory=True)
+            return mkdir(candidate, mode=mode, parents=parents, exist_ok=exist_ok)
+
+        with patch.dict(os.environ, {'PI_CODING_AGENT_DIR': str(directory / 'nested' / 'agent')}):
+            with patch.object(Path, 'mkdir', inject):
+                with self.assertRaises(PermissionError):
+                    update_preferences(None, {'theme': 'blue'})
+        self.assertEqual(marker.read_bytes(), b'unchanged')
+        self.assertEqual(set(target.iterdir()), {marker})
+
+    def test_missing_preference_directories_are_private_even_with_open_umask(self):
+        trusted = self.home / 'trusted'
+        trusted.mkdir(mode=0o750)
+        original_mode = stat.S_IMODE(trusted.stat().st_mode)
+        directory = trusted / 'missing' / 'nested' / 'agent'
+        previous_umask = os.umask(0)
+        try:
+            with patch.dict(os.environ, {'PI_CODING_AGENT_DIR': str(directory)}):
+                update_preferences(None, {'theme': 'blue'})
+                self.assertEqual(load_preferences(None)['theme'], 'blue')
+        finally:
+            os.umask(previous_umask)
+        for component in (trusted / 'missing', directory.parent, directory):
+            self.assertEqual(stat.S_IMODE(component.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(trusted.stat().st_mode), original_mode)
 
     def test_retired_images_request_is_ignored_without_rewriting_other_preferences(self):
         path = preferences_path('work')

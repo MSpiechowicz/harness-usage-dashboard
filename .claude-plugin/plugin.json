@@ -1,0 +1,12 @@
+{
+  "name": "harness-usage-dashboard",
+  "version": "1.0.64",
+  "description": "Persistent native Claude Code usage pane with local token history and dashboard controls",
+  "author": {
+    "name": "MSpiechowicz"
+  },
+  "homepage": "https://github.com/MSpiechowicz/harness-usage-dashboard",
+  "repository": "https://github.com/MSpiechowicz/harness-usage-dashboard",
+  "license": "GPL-3.0",
+  "types": "./types/index.d.ts"
+}

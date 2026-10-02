@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import tempfile
 from host_adapters import get_host
 
@@ -152,10 +153,42 @@ def _validated(data, host='omp'):
     return result
 
 
+def _safe_directory(directory, *, create=False):
+    for ancestor in reversed((directory, *directory.parents)):
+        try:
+            details = os.lstat(ancestor)
+        except FileNotFoundError:
+            if not create:
+                continue
+            try:
+                ancestor.mkdir(mode=0o700)
+            except FileExistsError:
+                # Never adopt an unchecked component filled by another actor.
+                pass
+            details = os.lstat(ancestor)
+        if not stat.S_ISDIR(details.st_mode) or details.st_uid not in (os.geteuid(), 0):
+            raise PermissionError('Unsafe dashboard preference storage.')
+        if details.st_mode & 0o022 and (
+                ancestor == directory or details.st_uid != 0 or not details.st_mode & stat.S_ISVTX):
+            raise PermissionError('Unsafe dashboard preference storage.')
+
+
+def _safe_file(descriptor):
+    details = os.fstat(descriptor)
+    if not stat.S_ISREG(details.st_mode) or details.st_uid != os.geteuid():
+        raise PermissionError('Unsafe dashboard preference storage.')
+
+
 @contextmanager
 def _locked(path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(path.with_suffix('.lock'), os.O_CREAT | os.O_RDWR, 0o600)
+    _safe_directory(path.parent.absolute())
+    _safe_directory(path.parent.absolute(), create=True)
+    descriptor = os.open(path.with_suffix('.lock'), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        _safe_file(descriptor)
+    except BaseException:
+        os.close(descriptor)
+        raise
     with os.fdopen(descriptor, 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
@@ -166,7 +199,10 @@ def _locked(path):
 
 def _load(path, host='omp'):
     try:
-        content = path.read_text(encoding='utf-8')
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(descriptor, 'r', encoding='utf-8') as stream:
+            _safe_file(stream.fileno())
+            content = stream.read()
     except FileNotFoundError:
         return _defaults(host)
     except UnicodeError as error:
@@ -185,13 +221,18 @@ def load_preferences(profile: str | None = None, *, host: str = 'omp') -> dict:
 
 
 def update_preferences(profile: str | None, changes: dict, *, host: str = 'omp') -> dict:
-    """Patch current preferences under a stable lock; never replace stale snapshots."""
+    """Patch the current preferences under the shared mutation lock."""
     if not isinstance(changes, dict):
         raise ValueError('Dashboard preference changes must be an object.')
+    return transform_preferences(profile, lambda current: {**current, **changes}, host=host)
+
+
+def transform_preferences(profile, transform, *, host='omp'):
+    """Read, transform and replace once while holding the stable preferences lock."""
     path = preferences_path(profile, host=host)
     with _locked(path):
         current = _load(path, host)
-        patched = _validated({**current, **changes}, host)
+        patched = _validated(transform(deepcopy(current)), host)
         if patched == current:
             return current
         current = patched

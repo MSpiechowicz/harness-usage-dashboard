@@ -1,0 +1,17 @@
+{
+  "name": "harness-usage-dashboard",
+  "owner": {
+    "name": "MSpiechowicz"
+  },
+  "metadata": {
+    "description": "Native Claude Code usage dashboard"
+  },
+  "plugins": [
+    {
+      "name": "harness-usage-dashboard",
+      "source": "./",
+      "description": "Persistent usage pane with local token history and dashboard controls",
+      "homepage": "https://github.com/MSpiechowicz/harness-usage-dashboard"
+    }
+  ]
+}

@@ -3,7 +3,7 @@
   "version": "1.0.64",
   "private": true,
   "type": "module",
-  "description": "Persistent tmux usage sidebar for OMP and Claude Code, with shell hooks and a Claude personal skill",
+  "description": "Persistent usage dashboard with an OMP sidebar and a native Claude Code pane",
   "omp": {
     "extensions": ["./extension.js"]
   }
