@@ -220,16 +220,17 @@ def snapshot(request, now):
                               preferences['history_total_visible'], host='claude',
                               chart_type=preferences['chart_type'])
     data = {'reports': reports, 'dashboardNote': note}
-    rows.insert(0, ('Tokens: observed reports, not billing', 'dim'))
-    for provider in preferences['providers']:
-        if provider in preferences['hidden']:
-            continue
-        rows.append(view.section_heading(view.NAMES.get(provider, provider.upper()), width))
-        rows.extend(view.provider_lines(data, provider, {**preferences, 'interval': ALLOWANCE_MAX_AGE},
-                                        now, width, host='claude'))
+    allowance_visible = ('anthropic' in preferences['providers']
+                         and 'anthropic' not in preferences['hidden'])
+    capture_warning = health['state'] != 'available'
+    if allowance_visible or capture_warning:
+        rows.append(view.section_heading(view.NAMES['anthropic'], width))
+        if allowance_visible:
+            rows.extend(view.provider_lines(data, 'anthropic', {**preferences, 'interval': ALLOWANCE_MAX_AGE},
+                                            now, width, host='claude'))
+        if capture_warning:
+            rows.extend([('Token capture ' + health['state'], 'warn'), (health['reason'], 'dim')])
         rows.append(('', 'dim'))
-    if health['state'] != 'available':
-        rows.extend([('Token capture ' + health['state'], 'warn'), (health['reason'], 'dim')])
     if preferences['commands_visible']:
         rows.extend([view.section_heading('COMMANDS', width),
                      ('/usage-dashboard window on|off|focus|refresh', 'dim'),

@@ -594,12 +594,14 @@ def session_lines(history, now, width, compact=True, previous_visible=True,
                   chart_type='bars'):
     rows = []
     current = history['current']
-    if current and (host != 'claude' or current['providers']):
+    if current:
         if chart_type == 'trace' and width == 20:
             rows.append(('TOKEN TRACE tok/min', ('secondary', 0, 11, 'title')))
         else:
             rows.append(section_heading('TOKEN TRACE' if chart_type == 'trace' else 'TOKEN RATE',
                                         width, 'tok/min'))
+        if host == 'claude' and not current['providers']:
+            rows.append(('Awaiting native usage', 'warn'))
         rows.extend(token_chart(history['chart'], width, chart_type))
         rows.append(('', 'dim'))
     elif not current and not history['previous']:

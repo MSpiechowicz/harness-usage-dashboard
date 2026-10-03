@@ -46,6 +46,40 @@ class NativeHelperTests(unittest.TestCase):
         return handle_request({**self.context, 'op': 'snapshot', 'width': 80,
                                'allowance': None, **changes}, now=now)
 
+    def assert_chart_frame(self, result, chart_type, awaiting=False, plotted=False):
+        rows = result['rows']
+        heading = 'TOKEN TRACE' if chart_type == 'trace' else 'TOKEN RATE'
+        headings = [index for index, row in enumerate(rows) if row['text'].startswith(heading)]
+        self.assertEqual(len(headings), 1)
+        start = headings[0] + 1
+        notes = [row for row in rows if 'awaiting' in row['text'].lower()]
+        self.assertEqual(len(notes), int(awaiting))
+        if awaiting:
+            self.assertIs(rows[start], notes[0])
+            self.assertIn('native', notes[0]['text'].lower())
+            self.assertEqual(notes[0]['token'], 'warn')
+            start += 1
+
+        frame = rows[start:start + 9]
+        self.assertEqual(len(frame), 9)
+        self.assertEqual(frame[0]['text'], '')
+        plot = frame[1:7]
+        self.assertTrue(all(row['text'][5] in '│|' for row in plot))
+        marks = ''.join(row['text'][6:] for row in plot).strip(' \u2800')
+        self.assertEqual(bool(marks), plotted)
+        for row in plot:
+            self.assertEqual(bool(row['emphasis']), plotted)
+            if plotted:
+                self.assertEqual(row['emphasis']['token'], 'chart')
+        self.assertEqual(frame[7]['text'][:5].strip(), '0')
+        self.assertIn(frame[7]['text'][5], '└+')
+        self.assertTrue(set(frame[7]['text'][6:]) <= set('─-'))
+        self.assertTrue(frame[8]['text'].strip().startswith('-'))
+        self.assertTrue(frame[8]['text'].endswith('now'))
+        self.assertEqual(rows[start + 9]['text'], '')
+        self.assertTrue(rows[start + 10]['text'].startswith('CURRENT SESSION'))
+        return rows[start + 11]
+
     def invoke(self, request):
         # Exercise the real JSON subprocess with curses deliberately unavailable.
         command = [sys.executable, '-c',
@@ -72,18 +106,45 @@ class NativeHelperTests(unittest.TestCase):
         self.assertEqual(isolated['total_history'], [])
         self.assertEqual(summary(owner='native-one', cwd=self.cwd)['current']['id'], 'old-omp')
 
-    def test_unknown_usage_is_not_zero_but_reported_zero_and_thinking_survive(self):
+    def test_unknown_chart_becomes_reported_zero_then_positive_and_thinking_survives(self):
         self.capture()
-        first = self.snapshot()
-        self.assertEqual(first['capture']['state'], 'unknown')
-        self.assertEqual(first['history']['current']['providers'], [])
-        self.assertFalse(any('0 tokens' in row['text'] for row in first['rows']))
+        for chart_type in ('bars', 'dots', 'trace'):
+            with self.subTest(chart_type=chart_type, state='unknown'):
+                update_preferences(None, {'chart_type': chart_type}, host='claude')
+                first = self.snapshot()
+                self.assertEqual(first['capture']['state'], 'unknown')
+                self.assertEqual(first['history']['current']['providers'], [])
+                self.assertFalse(any(first['history']['chart']))
+                current = self.assert_chart_frame(first, chart_type, awaiting=True)
+                self.assertIn('unknown', current['text'].lower())
+                self.assertEqual(current['token'], 'warn')
+                self.assertFalse(any('0 tokens' in row['text'] for row in first['rows']))
+
         zero = self.entry(input=0, output=0, cacheRead=0, cacheWrite=0, total=0)
         self.capture('record', [zero], now=102)
-        result = self.snapshot()
-        self.assertEqual(result['capture']['state'], 'available')
-        self.assertEqual(result['history']['current']['providers'][0]['total'], 0)
-        self.assertEqual(result['history']['current']['models'][0]['thinking_level'], 'high')
+        for chart_type in ('bars', 'dots', 'trace'):
+            with self.subTest(chart_type=chart_type, state='zero'):
+                update_preferences(None, {'chart_type': chart_type}, host='claude')
+                result = self.snapshot()
+                self.assertEqual(result['capture']['state'], 'available')
+                self.assertEqual(result['history']['current']['providers'][0]['total'], 0)
+                self.assertEqual(result['history']['current']['models'][0]['thinking_level'], 'high')
+                self.assertFalse(any(result['history']['chart']))
+                current = self.assert_chart_frame(result, chart_type)
+                self.assertIn('tokens', current['text'].lower())
+                self.assertEqual(current['text'].split()[-1], '0')
+                self.assertEqual(current['token'], 'text')
+
+        self.capture('record', [self.entry('positive')], now=103)
+        for chart_type in ('bars', 'dots', 'trace'):
+            with self.subTest(chart_type=chart_type, state='positive'):
+                update_preferences(None, {'chart_type': chart_type}, host='claude')
+                result = self.snapshot()
+                self.assertEqual(result['history']['current']['providers'][0]['total'], 25)
+                self.assertEqual(sum(result['history']['chart']), 25)
+                current = self.assert_chart_frame(result, chart_type, plotted=True)
+                self.assertEqual(current['text'].split()[-1], '25')
+
         handle_request({'version': 1, 'op': 'preferences', 'words': ['view', 'details']})
         self.assertTrue(any('High tokens' in row['text'] for row in self.snapshot()['rows']))
 
@@ -95,10 +156,27 @@ class NativeHelperTests(unittest.TestCase):
             self.capture('record', [incomplete])
         self.assertEqual(self.snapshot()['history']['total_history'], [])
         self.capture('record', incomplete=True)
+        for chart_type in ('bars', 'dots', 'trace'):
+            with self.subTest(chart_type=chart_type, observed=False):
+                update_preferences(None, {'chart_type': chart_type}, host='claude')
+                result = self.snapshot()
+                self.assertEqual(result['capture']['state'], 'incomplete')
+                current = self.assert_chart_frame(result, chart_type, awaiting=True)
+                self.assertIn('unknown', current['text'].lower())
+                self.assertTrue(any('capture incomplete' in row['text'].lower()
+                                    and row['token'] == 'warn' for row in result['rows']))
         self.capture('record', [self.entry()], now=103)
-        result = self.snapshot()
-        self.assertEqual(result['capture']['state'], 'incomplete')
-        self.assertEqual(result['history']['current']['providers'][0]['total'], 25)
+        for chart_type in ('bars', 'dots', 'trace'):
+            with self.subTest(chart_type=chart_type, observed=True):
+                update_preferences(None, {'chart_type': chart_type}, host='claude')
+                result = self.snapshot()
+                self.assertEqual(result['capture']['state'], 'incomplete')
+                self.assertEqual(result['history']['current']['providers'][0]['total'], 25)
+                self.assertEqual(sum(result['history']['chart']), 25)
+                current = self.assert_chart_frame(result, chart_type, plotted=True)
+                self.assertEqual(current['text'].split()[-1], '25')
+                self.assertTrue(any('capture incomplete' in row['text'].lower()
+                                    and row['token'] == 'warn' for row in result['rows']))
 
     def test_replay_and_late_stop_never_rebind_current_or_change_first_report(self):
         self.capture(entries=[self.entry()])
@@ -124,6 +202,15 @@ class NativeHelperTests(unittest.TestCase):
         self.assertEqual(result['capture']['state'], 'unknown')
         self.assertEqual(result['history']['current']['providers'], [])
         self.assertEqual(result['history']['previous']['providers'][0]['total'], 25)
+        self.assertEqual(sum(row['total'] for row in result['history']['history']), 25)
+        self.assertFalse(any(result['history']['chart']))
+        for chart_type in ('bars', 'dots', 'trace'):
+            with self.subTest(chart_type=chart_type):
+                update_preferences(None, {'chart_type': chart_type}, host='claude')
+                current = self.assert_chart_frame(
+                    self.snapshot(session='branch', activation='branch-activation'),
+                    chart_type, awaiting=True)
+                self.assertIn('unknown', current['text'].lower())
 
     def test_invalid_batch_never_commits_its_valid_prefix(self):
         self.capture()
@@ -193,6 +280,94 @@ class NativeHelperTests(unittest.TestCase):
             self.assertNotIn('five-hour', '\n'.join(db.iterdump()))
         self.capture('stop')
         self.assertEqual(self.snapshot(allowance=allowance)['reports'], [])
+
+    @staticmethod
+    def is_claude_heading(row):
+        emphasis = row['emphasis']
+        return (row['text'].startswith('CLAUDE ') and emphasis
+                and emphasis['start'] == 0 and emphasis['token'] == 'accent')
+
+    def claude_section(self, result):
+        rows = result['rows']
+        headings = [index for index, row in enumerate(rows) if self.is_claude_heading(row)]
+        self.assertEqual(len(headings), 1)
+        start = headings[0] + 1
+        # A separator ends the displayed section, even before the next heading.
+        end = next((index for index in range(start, len(rows))
+                    if not rows[index]['text'] or (rows[index]['emphasis']
+                    and rows[index]['emphasis']['start'] == 0
+                    and rows[index]['emphasis']['token'] == 'accent')), len(rows))
+        return rows[start:end]
+
+    def test_allowance_and_capture_share_one_section_but_keep_independent_states(self):
+        self.capture()
+        allowance = {'session': 'session-one', 'activation': 'activation-one', 'observedAt': 101,
+                     'windows': [{'id': 'five-hour', 'label': '5 hour', 'usedFraction': 0, 'resetsAt': 200}]}
+        unknown = self.snapshot(allowance=allowance, width=160)
+        section = self.claude_section(unknown)
+        self.assertEqual(unknown['capture']['state'], 'unknown')
+        self.assertEqual(unknown['reports'][0]['limits'][0]['amount']['usedFraction'], 0)
+        self.assertTrue(any('100% left' in row['text'] for row in section))
+        self.assertTrue(any(row['text'] == unknown['capture']['reason'] for row in section))
+        self.assertTrue(any(row['token'] == 'warn' and 'capture unknown' in row['text'].lower()
+                            for row in section))
+
+        zero = self.entry(input=0, output=0, cacheRead=0, cacheWrite=0, total=0)
+        self.capture('record', [zero], now=102)
+        available = self.snapshot(width=160)
+        section = self.claude_section(available)
+        self.assertEqual(available['capture']['state'], 'available')
+        self.assertEqual(available['reports'], [])
+        self.assertEqual(available['history']['current']['providers'][0]['total'], 0)
+        self.assertTrue(any(row['token'] == 'warn' for row in section))
+        self.assertFalse(any('Token capture' in row['text'] for row in available['rows']))
+
+        self.capture('record', [self.entry('positive', at=103)], now=103, incomplete=True)
+        incomplete = self.snapshot(allowance=allowance, width=160)
+        section = self.claude_section(incomplete)
+        self.assertEqual(incomplete['capture']['state'], 'incomplete')
+        self.assertEqual(incomplete['history']['current']['providers'][0]['total'], 25)
+        self.assertEqual(sum(incomplete['history']['chart']), 25)
+        self.assertTrue(any('100% left' in row['text'] for row in section))
+        self.assertTrue(any(row['text'] == incomplete['capture']['reason'] for row in section))
+        self.assertTrue(any(row['token'] == 'warn' and 'capture incomplete' in row['text'].lower()
+                            for row in section))
+
+    def test_hidden_or_removed_allowance_keeps_warning_only_section_independent_of_commands(self):
+        self.capture()
+        allowance = {'session': 'session-one', 'activation': 'activation-one', 'observedAt': 101,
+                     'windows': [{'id': 'five-hour', 'label': 'Hidden allowance label',
+                                  'usedFraction': 0, 'resetsAt': 200}]}
+        provider_states = ({'providers': ['anthropic'], 'hidden': ['anthropic']},
+                           {'providers': [], 'hidden': []})
+        for incomplete in (False, True):
+            if incomplete:
+                self.capture('record', incomplete=True, now=102)
+            for provider_state in provider_states:
+                for commands_visible in (False, True):
+                    with self.subTest(incomplete=incomplete, providers=provider_state,
+                                      commands_visible=commands_visible):
+                        update_preferences(None, {**provider_state, 'commands_visible': commands_visible},
+                                           host='claude')
+                        result = self.snapshot(allowance=allowance, width=160)
+                        section = self.claude_section(result)
+                        self.assertEqual(result['capture']['state'], 'incomplete' if incomplete else 'unknown')
+                        self.assertTrue(result['reports'])
+                        self.assertTrue(any(row['token'] == 'warn' and 'Token capture' in row['text']
+                                            for row in section))
+                        self.assertTrue(any(row['text'] == result['capture']['reason'] for row in section))
+                        self.assertFalse(any('Hidden allowance label' in row['text']
+                                             or '100% left' in row['text'] for row in result['rows']))
+                        self.assertFalse(any(row['text'].startswith('COMMANDS ') for row in section))
+
+        self.capture(entries=[self.entry('new', at=120)], now=120,
+                     session='session-two', activation='activation-two')
+        for provider_state in provider_states:
+            update_preferences(None, provider_state, host='claude')
+            result = self.snapshot(session='session-two', activation='activation-two', now=130)
+            self.assertEqual(result['capture']['state'], 'available')
+            self.assertFalse(any(self.is_claude_heading(row) for row in result['rows']))
+            self.assertFalse(any('Token capture' in row['text'] for row in result['rows']))
 
     def test_refresh_never_mixes_history_with_another_activation_allowance(self):
         self.capture(entries=[self.entry()])
@@ -265,20 +440,30 @@ class NativeHelperTests(unittest.TestCase):
         self.assertEqual(list(target.iterdir()), [])
 
     def test_native_rows_are_terminal_safe_and_styled_at_narrow_widths(self):
-        self.capture(entries=[self.entry()])
+        self.capture()
         handle_request({'version': 1, 'op': 'preferences',
                         'words': ['theme', 'custom', 'accent', '#123456']})
-        for width in (1, 10, 20, 48):
-            result = self.snapshot(width=width)
-            self.assertEqual(result['tokens']['accent'], '#123456')
-            for row in result['rows']:
-                self.assertLessEqual(len(row['text']), width)
-                self.assertFalse(any(ord(char) < 32 or ord(char) == 127 for char in row['text']))
-                self.assertIn(row['token'], result['tokens'])
-                if row['emphasis']:
-                    self.assertLess(row['emphasis']['start'], row['emphasis']['end'])
-                    self.assertLessEqual(row['emphasis']['end'], len(row['text']))
-                    self.assertIn(row['emphasis']['token'], result['tokens'])
+        for observed in (False, True):
+            if observed:
+                self.capture('record', [self.entry()], now=102)
+            for chart_type in ('bars', 'dots', 'trace'):
+                update_preferences(None, {'chart_type': chart_type}, host='claude')
+                for width in (1, 10, 20, 48):
+                    with self.subTest(observed=observed, chart_type=chart_type, width=width):
+                        result = self.snapshot(width=width)
+                        self.assertEqual(result['tokens']['accent'], '#123456')
+                        if width >= 20:
+                            self.assert_chart_frame(result, chart_type,
+                                                    awaiting=not observed, plotted=observed)
+                        for row in result['rows']:
+                            self.assertLessEqual(len(row['text']), width)
+                            self.assertFalse(any(ord(char) < 32 or ord(char) == 127
+                                                 for char in row['text']))
+                            self.assertIn(row['token'], result['tokens'])
+                            if row['emphasis']:
+                                self.assertLess(row['emphasis']['start'], row['emphasis']['end'])
+                                self.assertLessEqual(row['emphasis']['end'], len(row['text']))
+                                self.assertIn(row['emphasis']['token'], result['tokens'])
 
 
 if __name__ == '__main__':
