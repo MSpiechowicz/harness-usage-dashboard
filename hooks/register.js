@@ -1,4 +1,4 @@
-import { HELP, PANE, renderDashboard, snapshotText } from "./claude-view.js";
+import { HELP, PANE, renderDashboard, renderSettings, snapshotText } from "./claude-view.js";
 
 const INSTANCE = { plugin: "harness-usage-dashboard", key: "instance" };
 const SNAPSHOT = { plugin: "harness-usage-dashboard", key: "snapshot" };
@@ -59,7 +59,7 @@ function validPreference(words) {
       && ["text", "muted", "secondary", "accent", "chart", "good", "warn", "error"].includes(target)
       && /^(?:#[0-9a-fA-F]{6}|default|black|red|green|yellow|blue|magenta|cyan|white|gray|brown|orange)$/.test(filter);
   }
-  if (["commands", "previous", "history-other", "history-total"].includes(section)) return words.length === 2 && ["hide", "show"].includes(action);
+  if (["commands", "token-rate", "current", "previous", "history-other", "history-total"].includes(section)) return words.length === 2 && ["hide", "show"].includes(action);
   if (section === "providers") return words.length === 3 && ["add", "remove", "hide", "show"].includes(action) && label(target);
   if (section === "window") {
     if (words.length === 2) return ["on", "off", "focus", "refresh"].includes(action);
@@ -69,90 +69,7 @@ function validPreference(words) {
 }
 
 const MENU_STALE = "Usage Dashboard: the session changed or the command ended; no settings changed. Run /usage-dashboard again.";
-const MENU_UNAVAILABLE = "Usage Dashboard: no settings changed. The settings menu was dismissed or is unavailable; use a direct command.";
-const MENU_CANCELLED = "Usage Dashboard: no settings changed.";
-
-function choices(question, header, options) {
-  return { question, header, options };
-}
-
-const MENUS = {
-  root: choices("What would you like to manage?", "Dashboard", {
-    Chart: "chart", Help: "help", Providers: "providers", "Section Visibility": "visibility",
-    Theme: "theme", View: "view", Window: "window",
-  }),
-  chart: choices("Which chart style?", "Chart", {
-    Bars: ["chart", "bars"], Dots: ["chart", "dots"], Trace: ["chart", "trace"],
-  }),
-  providers: choices("What should happen to the Anthropic provider view?", "Providers", {
-    Add: ["providers", "add", "anthropic"], Hide: ["providers", "hide", "anthropic"],
-    Remove: ["providers", "remove", "anthropic"], Show: ["providers", "show", "anthropic"],
-  }),
-  visibility: choices("Which section visibility?", "Visibility", {
-    Commands: { visibility: "commands" }, "History Other Sessions": { visibility: "history-other" },
-    "History Total": { visibility: "history-total" }, Previous: { visibility: "previous" },
-  }),
-  theme: choices("Which theme?", "Theme", {
-    Blue: ["theme", "blue"], Brown: ["theme", "brown"], Claude: ["theme", "claude"],
-    Custom: "tokens", Cyan: ["theme", "cyan"], Green: ["theme", "green"],
-    Magenta: ["theme", "magenta"], Orange: ["theme", "orange"], Red: ["theme", "red"],
-    Reset: ["theme", "reset"], Yellow: ["theme", "yellow"],
-  }),
-  tokens: choices("Which custom color token?", "Color token", {
-    Accent: { color: "accent" }, Chart: { color: "chart" }, Error: { color: "error" },
-    Good: { color: "good" }, Muted: { color: "muted" }, Secondary: { color: "secondary" },
-    Text: { color: "text" }, Warn: { color: "warn" },
-  }),
-  view: choices("Which usage view?", "View", {
-    Compact: ["view", "compact"], Details: ["view", "details"],
-  }),
-  window: choices("Manage the usage Pane or matching Anthropic allowance windows?", "Window", {
-    Focus: ["window", "focus"], Hide: { filter: "hide" }, Off: ["window", "off"],
-    On: ["window", "on"], Refresh: ["window", "refresh"], Show: { filter: "show" },
-  }),
-  help: choices("Which dashboard help?", "Help", {
-    Commands: "commands", "Current settings": "current",
-  }),
-};
-
-function settingMenu(action) {
-  if (action.color) {
-    const menu = choices(`What color for ${action.color}? Choose default or use Other for #RRGGBB or a supported color name?`, "Color", {
-      default: ["theme", "custom", action.color, "default"], Cancel: "cancel",
-    });
-    menu.input = value => ["theme", "custom", action.color, value.trim()];
-    return menu;
-  }
-  if (action.filter) {
-    const menu = choices(`Which Anthropic allowance windows should ${action.filter}? Choose a filter or type a matching label under Other?`, "Filter", {
-      five_hour: ["window", action.filter, "anthropic", "five_hour"],
-      seven_day: ["window", action.filter, "anthropic", "seven_day"], Cancel: "cancel",
-    });
-    menu.input = value => ["window", action.filter, "anthropic", value.trim()];
-    return menu;
-  }
-  return choices(`Should ${action.visibility} be shown or hidden?`, "Visibility", {
-    Hide: [action.visibility, "hide"], Show: [action.visibility, "show"],
-  });
-}
-
-function currentSettingsText(snapshot) {
-  const config = snapshot?.preferences ?? {};
-  const shown = value => value === true ? "shown" : value === false ? "hidden" : "unknown";
-  const lines = [
-    `Window: ${config.enabled === true ? "on" : config.enabled === false ? "off" : "unknown"}`,
-    `View: ${config.compact === true ? "compact" : config.compact === false ? "details" : "unknown"}`,
-    `Chart: ${config.chart_type ?? "unknown"}; theme: ${config.theme ?? "unknown"}`,
-    ...["commands", "previous", "history-other", "history-total"].map(section =>
-      `${section}: ${shown(config[`${section.replaceAll("-", "_")}_visible`])}`),
-    `Providers: ${config.providers?.join(", ") || "none"}`,
-    `Hidden providers: ${config.hidden?.join(", ") || "none"}`,
-    ...Object.entries(config.windows ?? {}).map(([provider, filters]) =>
-      `Hidden ${provider} windows matching: ${filters.join(", ") || "none"}`),
-    ...Object.entries(config.tokens ?? {}).map(([token, color]) => `Custom ${token}: ${color}`),
-  ];
-  return ["Usage Dashboard settings", ...lines].join("\n");
-}
+const SETTINGS = "usage-dashboard-settings";
 
 async function menuContext($, state, context, signal) {
   if (signal?.aborted || state.active !== context) return false;
@@ -164,68 +81,36 @@ async function menuContext($, state, context, signal) {
   }
 }
 
-async function nativeMenu($, state, context, signal) {
-  if (!await menuContext($, state, context, signal)) {
-    return commandReply($, state, MENU_STALE, false, context);
+// A pick goes through the same validation and storage as a typed command.
+async function choose($, state, words) {
+  const context = state.active;
+  if (!context || !validPreference(words)) return;
+  try {
+    await serial(state, async () => {
+      if (state.active !== context) return;
+      await helper($, { op: "preferences", words });
+      await refresh($, state, context);
+    });
+    if (words[0] === "window" && words[1] === "off") await $.ui.close({ id: PANE });
+    if (words[0] === "window" && words[1] === "on") await $.ui.open({ id: PANE, title: "Usage Dashboard" });
+  } catch (error) {
+    $.ui.toast(`Usage Dashboard: ${error?.message ?? "setting not saved"}`);
   }
+}
+
+async function openSettings($, state, context) {
   let surfaces;
   try { surfaces = await $.session.surfaces(); }
-  catch { return commandReply($, state, `${MENU_UNAVAILABLE}\n${HELP}`, false, context); }
+  catch { return commandReply($, state, HELP, false, context); }
   if (!surfaces.length) {
     await serial(state, () => refresh($, state, context));
-    if (!await menuContext($, state, context, signal)) {
-      return commandReply($, state, MENU_STALE, false, context);
-    }
-    return `${snapshotText(state.snapshot)}\nSettings menu requires an interactive surface. ${HELP}`;
+    return `${snapshotText(state.snapshot)}\nSettings need an interactive surface. ${HELP}`;
   }
-  let menu = MENUS.root;
-  let page = 0;
-  const parents = [];
-  while (await menuContext($, state, context, signal)) {
-    const entries = Object.entries(menu.options);
-    const paged = entries.length > 3;
-    const displayed = Object.fromEntries(paged ? entries.slice(page * 2, page * 2 + 2) : entries);
-    if (paged && (page + 1) * 2 < entries.length) displayed.Next = "next";
-    if (menu === MENUS.root && page === 0) displayed.Cancel = "cancel";
-    else displayed.Back = "back";
-    let answer;
-    try {
-      // Wait outside the capture queue; only the final validated action writes.
-      answer = await $.ui.ask(menu.question, { options: Object.keys(displayed), header: menu.header });
-    } catch {
-      return commandReply($, state, `${MENU_UNAVAILABLE}\n${HELP}`, false, context);
-    }
-    if (!await menuContext($, state, context, signal)) return commandReply($, state, MENU_STALE, false, context);
-    if (typeof answer !== "string") return commandReply($, state, MENU_CANCELLED, false, context);
-    const action = Object.hasOwn(displayed, answer) ? displayed[answer] : menu.input?.(answer);
-    if (!action) return commandReply($, state, "Usage Dashboard: no settings changed. Select a listed option.", false, context);
-    if (action === "cancel") return commandReply($, state, MENU_CANCELLED, false, context);
-    if (action === "next") {
-      page += 1;
-      continue;
-    }
-    if (action === "back") {
-      if (page > 0) page -= 1;
-      else ({ menu, page } = parents.pop() ?? { menu: MENUS.root, page: 0 });
-      continue;
-    }
-    if (action === "commands") return commandReply($, state, HELP, false, context);
-    if (action === "current") {
-      await serial(state, () => refresh($, state, context));
-      if (!await menuContext($, state, context, signal)) return commandReply($, state, MENU_STALE, false, context);
-      return commandReply($, state, currentSettingsText(state.snapshot), false, context);
-    }
-    if (Array.isArray(action)) {
-      if (!validPreference(action)) {
-        return commandReply($, state, "Usage Dashboard: invalid color or window filter; no settings changed.\n" + HELP, false, context);
-      }
-      return control($, state, action, context, signal);
-    }
-    parents.push({ menu, page });
-    menu = typeof action === "string" ? MENUS[action] : settingMenu(action);
-    page = 0;
-  }
-  return commandReply($, state, MENU_STALE, false, context);
+  await serial(state, () => refresh($, state, context));
+  const opened = await $.ui.open({ id: SETTINGS, title: "Dashboard Settings", focus: true, closeOnEscape: true });
+  return commandReply($, state, opened.isPlaced
+    ? "Usage Dashboard: settings open. Arrows move, Enter picks, Esc closes."
+    : "Usage Dashboard: this surface cannot place the settings pane yet; use a direct command.\n" + HELP, false, context);
 }
 
 // Functions receiving $ must be top-level: the runtime inventories literal APIs.
@@ -577,7 +462,7 @@ export const register = on => {
     }
     return { text: words.length
       ? await control($, state, words, context, next.signal)
-      : await nativeMenu($, state, context, next.signal) };
+      : await openSettings($, state, context) };
   });
 
   on("ui.close", { id: PANE }, async ($, e, next) => {
@@ -590,6 +475,11 @@ export const register = on => {
       } catch (error) { await failed($, state, state.active, error, true); }
     }
     return result;
+  });
+
+  on("ui.render", { component: "Pane", requestId: SETTINGS }, async ($, e) => {
+    const held = await $.state.get(SNAPSHOT);
+    return renderSettings($.ui.resolve(e), held.value, words => void choose($, state, words));
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {

@@ -46,6 +46,8 @@ COMMANDS = {
     'view': ('list', 'compact', 'details'),
     'commands': ('hide', 'show'),
     'chart': CHART_TYPES,
+    'token-rate': ('hide', 'show'),
+    'current': ('hide', 'show'),
     'previous': ('hide', 'show'),
     'history-other': ('hide', 'show'),
     'history-total': ('hide', 'show'),
@@ -61,12 +63,13 @@ HELP = (f'/usage-dashboard: view list|compact|details; chart {CHART_OPTIONS}; '
         f'theme {THEME_OPTIONS} (claude: Anthropic brand-inspired); '
         'theme custom TOKEN COLOR; theme reset; window on|off|focus|refresh; '
         'window interval SECONDS; window hide|show PROVIDER FILTER; commands hide|show; '
+        'token-rate hide|show; current hide|show; '
         'previous hide|show; history-other hide|show; history-total hide|show')
 NATIVE_HELP = (f'/usage-dashboard: view list|compact|details; chart {CHART_OPTIONS}; '
                'providers add|remove|hide|show anthropic; '
                f'theme {THEME_OPTIONS}; theme custom TOKEN COLOR; theme reset; '
                'window on|off|focus|refresh; window hide|show anthropic FILTER; '
-               'commands hide|show; previous hide|show; '
+               'commands hide|show; token-rate hide|show; current hide|show; previous hide|show; '
                'history-other hide|show; history-total hide|show')
 
 
@@ -136,6 +139,10 @@ def change_config(config, words, host='omp'):
             config['windows'][provider] = [p for p in patterns if p != pattern]
     elif section in ('commands', 'previous', 'history-other', 'history-total'):
         config[f'{section.replace("-", "_")}_visible'] = action == 'show'
+    elif section == 'token-rate':
+        config['rate_visible'] = action == 'show'
+    elif section == 'current':
+        config['current_visible'] = action == 'show'
     elif section == 'theme':
         _theme_config(config, action, params)
     elif section == 'chart':
@@ -169,6 +176,8 @@ def describe(config, *, native=False):
              f"{'compact' if config['compact'] else 'details'}{interval} / "
              f"theme {theme}{token_note} / chart {config['chart_type']} / "
              f"commands {'shown' if config['commands_visible'] else 'hidden'} / "
+             f"token rate {'shown' if config.get('rate_visible', True) else 'hidden'} / "
+             f"current {'shown' if config.get('current_visible', True) else 'hidden'} / "
              f"previous {'shown' if config['previous_visible'] else 'hidden'} / "
              f"history other sessions {'shown' if config['history_other_visible'] else 'hidden'} / "
              f"history total {'shown' if config['history_total_visible'] else 'hidden'}"]
@@ -591,10 +600,10 @@ def detailed_model_rows(entries, width, include_provider=False):
 
 def session_lines(history, now, width, compact=True, previous_visible=True,
                   history_other_visible=True, history_total_visible=True, host='omp',
-                  chart_type='bars'):
+                  chart_type='bars', rate_visible=True, current_visible=True):
     rows = []
     current = history['current']
-    if current:
+    if current and rate_visible:
         if chart_type == 'trace' and width == 20:
             rows.append(('TOKEN TRACE tok/min', ('secondary', 0, 11, 'title')))
         else:
@@ -609,7 +618,8 @@ def session_lines(history, now, width, compact=True, previous_visible=True,
         rows.append(('', 'dim'))
     for name, title in (('current', 'CURRENT SESSION'), ('previous', 'PREVIOUS SESSION')):
         session = history[name]
-        if not session or (name == 'previous' and not previous_visible):
+        if not session or (name == 'previous' and not previous_visible) or (
+                name == 'current' and not current_visible):
             continue
         rows.append(section_heading(title, width, session['id'][:8] if not compact else ''))
         providers = session['providers']

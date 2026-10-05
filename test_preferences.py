@@ -43,6 +43,8 @@ class PreferencesTests(unittest.TestCase):
             'side': 'left',
             'compact': False,
             'commands_visible': False,
+            'rate_visible': False,
+            'current_visible': False,
             'previous_visible': False,
             'history_other_visible': False,
             'history_total_visible': True,

@@ -23,6 +23,8 @@ declare module "claude-code" {
     side: "left" | "right";
     compact: boolean;
     commands_visible: boolean;
+    rate_visible: boolean;
+    current_visible: boolean;
     previous_visible: boolean;
     history_other_visible: boolean;
     history_total_visible: boolean;

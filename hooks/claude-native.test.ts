@@ -1,4 +1,4 @@
-import type { Args, On, TurnStepChunk, TurnStepResult, UsageDashboardSnapshot } from "claude-code";
+import type { On, TurnStepChunk, TurnStepResult, UsageDashboardSnapshot } from "claude-code";
 import type { Engine } from "claude-code/testing";
 import { expect, mock, test } from "claude-code/testing";
 import { normalizedAllowance, normalizedUsage } from "./register.js";
@@ -236,7 +236,7 @@ function menuFixture(on: On) {
     placed: true, shown: false, paneOpen: false, enabled: false,
     snapshotFailure: false, preferenceFailure: "", surfacesUnavailable: false,
     captureState: "unknown" as "unknown" | "incomplete", captureReason: "No native report",
-    writes: [] as string[][], captured: [] as HelperPayload[], snapshots,
+    writes: [] as string[][], captured: [] as HelperPayload[], snapshots, openedIds: [] as string[],
   };
   on("session.id", () => ({ value: fixture.session }));
   on("session.cwd", () => ({ value: "/native-fixture" }));
@@ -247,7 +247,9 @@ function menuFixture(on: On) {
     id: "usage-dashboard", title: "Usage Dashboard", isPlaced: fixture.placed,
     isShown: fixture.shown, isFocused: false,
   }] : [] }));
-  on("ui.open", () => {
+  on("ui.open", (_$, event) => {
+    fixture.openedIds.push(event.id);
+    if (event.id === "usage-dashboard-settings") return { value: { isPlaced: true } };
     fixture.opens += 1;
     fixture.paneOpen = true;
     return { value: { isPlaced: fixture.placed } };
@@ -290,134 +292,97 @@ function menuFixture(on: On) {
   return fixture;
 }
 
-function questionAnswer(event: Args<"tool.call">, answer: string) {
-  const questions = event.questions as readonly { question: string }[];
-  return { result: { answers: { [questions[0].question]: answer } } };
+function mountSettings($: Engine) {
+  return $.ui.mount({
+    plugin: "harness-usage-dashboard", surface: "terminal", component: "Pane",
+    requestId: "usage-dashboard-settings",
+    props: {
+      title: "Dashboard Settings", isFocused: true, bodyColumns: 64, placement: "inline",
+      scroll: { offset: 0, bodyRows: 30 }, view: {},
+    },
+  });
 }
 
-test("native menu cancellation, unknown selections and unavailability leave a disabled Pane untouched", async ($, on) => {
+test("bare command opens the settings pane without enabling or changing the dashboard", async ($, on) => {
   const fixture = menuFixture(on);
-  const answers = ["Cancel", "window on", "Chart", "Back", "Cancel"];
-  on("tool.call", (_$, event) => {
-    if (event.tool !== "AskUserQuestion") return { deny: "Unexpected tool" };
-    if (answers.length) return questionAnswer(event, answers.shift()!);
-    return { deny: "Question dismissed or unavailable" };
-  });
   await $.classic.SessionStart({ source: "startup", session_id: fixture.session, cwd: "/native-fixture", transcript_path: "/unused" });
-  for (let index = 0; index < 4; index += 1) {
-    await $.command.run({ command: "usage-dashboard", args: "" });
-  }
+  const reply = await $.command.run({ command: "usage-dashboard", args: "" });
+  expect(reply.text).toMatch(/settings open/i);
+  expect(reply.text).toMatch(/capture unknown/i);
+  expect(reply.text).not.toMatch(/^TOKEN RATE/m);
+  expect(fixture.openedIds).toEqual(["usage-dashboard-settings"]);
   expect(fixture.writes).toEqual([]);
-  expect(fixture.opens).toBe(0);
   expect(latestSnapshot(fixture.snapshots).preferences.enabled).toBe(false);
-  expect(latestSnapshot(fixture.snapshots).preferences.tokens).toEqual({ accent: "#d97757" });
-  expect(latestSnapshot(fixture.snapshots).failure).toBe("");
   const ui = await mountDashboard($);
   try {
-    expect(await ui.find({ type: "Text", text: /capture unknown/i })).toBeDefined();
-    expect(await ui.find({ type: "Text", text: /capture or history may be incomplete/i })).toBeUndefined();
-    expect(await ui.find({ type: "Button" })).toBeUndefined();
     expect(await ui.find({ type: "Select" })).toBeUndefined();
-    expect(await ui.find({ type: "Input" })).toBeUndefined();
+    expect(await ui.find({ type: "Button" })).toBeUndefined();
   } finally {
     await ui.unmount();
   }
 });
 
-test("closed-Pane help, cancellation and menu errors retain capture and storage diagnostics without side effects", async ($, on) => {
+test("settings pane lists every dashboard section in order and each pick saves its command", async ($, on) => {
   const fixture = menuFixture(on);
-  let answers: string[] = [];
-  let unavailable = false;
-  on("tool.call", (_$, event) => {
-    if (event.tool !== "AskUserQuestion") return { deny: "Unexpected tool" };
-    if (unavailable) return { deny: "Question dismissed or unavailable" };
-    return questionAnswer(event, answers.shift()!);
-  });
+  await $.classic.SessionStart({ source: "startup", session_id: fixture.session, cwd: "/native-fixture", transcript_path: "/unused" });
+  await $.command.run({ command: "usage-dashboard", args: "" });
+  const ui = await mountSettings($);
+  try {
+    const selects = await ui.findAll({ type: "Select" });
+    expect(selects.map(select => select.key)).toEqual([
+      "dashboard", "view", "theme", "token-rate", "chart", "current", "previous",
+      "history-other", "history-total", "claude", "five_hour", "seven_day", "commands",
+    ]);
+    for (const [key, value, words] of [
+      ["history-total", "hide", ["history-total", "hide"]],
+      ["current", "hide", ["current", "hide"]],
+      ["token-rate", "hide", ["token-rate", "hide"]],
+      ["chart", "dots", ["chart", "dots"]],
+      ["five_hour", "hide", ["window", "hide", "anthropic", "five_hour"]],
+      ["claude", "show", ["providers", "show", "anthropic"]],
+      ["theme", "blue", ["theme", "blue"]],
+    ] as const) {
+      await ui.select({ key, value });
+      expect(fixture.writes.at(-1)).toEqual([...words]);
+    }
+    const before = fixture.writes.length;
+    await ui.select({ key: "view", value: "compact" });
+    expect(fixture.writes.length).toBe(before);
+    await ui.select({ key: "dashboard", value: "on" });
+    expect(fixture.writes.at(-1)).toEqual(["window", "on"]);
+    expect(fixture.openedIds.at(-1)).toBe("usage-dashboard");
+  } finally {
+    await ui.unmount();
+  }
+});
+
+test("settings stay unavailable without surfaces and direct help keeps diagnostics", async ($, on) => {
+  const fixture = menuFixture(on);
   for (const captureState of ["unknown", "incomplete"] as const) {
     fixture.captureState = captureState;
     fixture.captureReason = captureState === "unknown" ? "No native report" : "One request has no usage report";
     fixture.snapshotFailure = false;
-    fixture.preferenceFailure = "";
     await $.command.run({ command: "usage-dashboard", args: "window refresh" });
-    fixture.preferenceFailure = "storage_unavailable";
-    await $.command.run({ command: "usage-dashboard", args: "theme blue" });
     fixture.snapshotFailure = true;
-
-    for (const path of [
-      ["Cancel"],
-      ["window on"],
-      ["Help", "Commands"],
-      ["Help", "Current settings"],
-      ["Next", "Next", "Theme", "Next", "Custom", "Accent", "window on"],
-      ["Next", "Next", "Next", "Window", "Hide", "bad\nfilter"],
-    ]) {
-      answers = [...path];
-      const reply = await $.command.run({ command: "usage-dashboard", args: "" });
-      expect(answers).toEqual([]);
-      expect(reply.text).toMatch(new RegExp(`capture ${captureState}`, "i"));
-      expect(reply.text).toContain(fixture.captureReason);
-      expect(reply.text).toMatch(/capture or history may be incomplete/i);
-      expect(reply.text).not.toMatch(/^TOKEN RATE/m);
-      if (path.at(-1) === "Current settings") expect(reply.text).toMatch(/Window: off/);
-    }
-
-    unavailable = true;
-    const dismissed = await $.command.run({ command: "usage-dashboard", args: "" });
-    unavailable = false;
-    expect(dismissed.text).toMatch(/dismissed|unavailable/i);
-    expect(dismissed.text).toMatch(new RegExp(`capture ${captureState}`, "i"));
-    expect(dismissed.text).toContain(fixture.captureReason);
-    expect(dismissed.text).toMatch(/capture or history may be incomplete/i);
-    expect(dismissed.text).not.toMatch(/^TOKEN RATE/m);
-
     fixture.surfacesUnavailable = true;
     const noSurfaces = await $.command.run({ command: "usage-dashboard", args: "" });
-    expect(noSurfaces.text).toMatch(/dismissed|unavailable/i);
     expect(noSurfaces.text).toMatch(/presentation unavailable/i);
     expect(noSurfaces.text).toMatch(new RegExp(`capture ${captureState}`, "i"));
     expect(noSurfaces.text).toContain(fixture.captureReason);
-    expect(noSurfaces.text).toMatch(/capture or history may be incomplete/i);
     expect(noSurfaces.text).not.toMatch(/^TOKEN RATE/m);
     fixture.surfacesUnavailable = false;
-
     fixture.preferenceFailure = "unsupported_command";
-    for (const surfaces of [["terminal"], []]) {
-      fixture.surfaces = surfaces;
-      for (const args of ["help", "unknown-command", "providers add unsupported-provider"]) {
-        const reply = await $.command.run({ command: "usage-dashboard", args });
-        expect(reply.text).toMatch(/Direct commands:/);
-        expect(reply.text).toMatch(new RegExp(`capture ${captureState}`, "i"));
-        expect(reply.text).toContain(fixture.captureReason);
-        expect(reply.text).toMatch(/capture or history may be incomplete/i);
-        expect(reply.text).not.toMatch(/^TOKEN RATE/m);
-      }
+    for (const args of ["help", "unknown-command", "providers add unsupported-provider", "theme custom accent window"]) {
+      const reply = await $.command.run({ command: "usage-dashboard", args });
+      expect(reply.text).toMatch(/Direct commands:/);
+      expect(reply.text).toMatch(new RegExp(`capture ${captureState}`, "i"));
+      expect(reply.text).toContain(fixture.captureReason);
+      expect(reply.text).not.toMatch(/^TOKEN RATE/m);
     }
-    fixture.surfaces = ["terminal"];
-    expect(fixture.writes).toEqual([]);
-    expect(fixture.opens).toBe(0);
-    expect(fixture.closes).toBe(0);
-    expect(fixture.paneOpen).toBe(false);
-    expect(latestSnapshot(fixture.snapshots).preferences.enabled).toBe(false);
+    fixture.preferenceFailure = "";
   }
-});
-
-test("invalid custom color and filter inputs cannot reach preference storage", async ($, on) => {
-  const fixture = menuFixture(on);
-  const answers = [
-    "Next", "Next", "Theme", "Next", "Custom", "Accent", "window on",
-    "Next", "Next", "Next", "Window", "Hide", "bad\nfilter",
-  ];
-  on("tool.call", (_$, event) => {
-    if (event.tool !== "AskUserQuestion") return { deny: "Unexpected tool" };
-    return questionAnswer(event, answers.shift() ?? "Cancel");
-  });
-  await $.classic.SessionStart({ source: "startup", session_id: fixture.session, cwd: "/native-fixture", transcript_path: "/unused" });
-  await $.command.run({ command: "usage-dashboard", args: "" });
-  await $.command.run({ command: "usage-dashboard", args: "" });
-  expect(answers).toEqual([]);
   expect(fixture.writes).toEqual([]);
-  expect(fixture.opens).toBe(0);
-  expect(latestSnapshot(fixture.snapshots).failure).toBe("");
+  expect(fixture.openedIds).toEqual([]);
 });
 
 test("headless bare command returns usage and direct help without opening or mutating", async ($, on) => {
@@ -436,81 +401,6 @@ test("headless bare command returns usage and direct help without opening or mut
   expect(latestSnapshot(fixture.snapshots).failure).toBe("");
 });
 
-test("a waiting settings question permits capture and refuses an answer from an old activation", async ($, on) => {
-  const fixture = menuFixture(on);
-  let release!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  let asked!: () => void;
-  const waiting = new Promise<void>(resolve => { asked = resolve; });
-  on("tool.call", async (_$, event) => {
-    if (event.tool !== "AskUserQuestion") return { deny: "Unexpected tool" };
-    asked();
-    await gate;
-    return questionAnswer(event, "Chart");
-  });
-  on("turn.step", async function* (_$, event) {
-    return { turnId: event.turnId, index: event.index, answer: "", toolUses: [],
-      stopReason: "end_turn" as const, usage: { ...zero, input_tokens: 7, model: "claude-model" } };
-  });
-  await $.classic.SessionStart({ source: "startup", session_id: fixture.session, cwd: "/native-fixture", transcript_path: "/unused" });
-  fixture.captureReason = "PRIVATE-old-session-report";
-  const command = $.command.run({ command: "usage-dashboard", args: "" });
-  await waiting;
-  try {
-    await drain($.turn.step({ turnId: "during-menu", index: 0, model: "claude-model", messageCount: 1 }));
-    expect(fixture.captured.some(payload =>
-      payload.action === "record" && payload.session === "menu-session" && payload.entries?.[0]?.total === 7)).toBe(true);
-    fixture.session = "replacement-session";
-    fixture.captureReason = "PRIVATE-replacement-session-report";
-    await $.classic.SessionStart({ source: "clear", session_id: fixture.session, cwd: "/native-fixture", transcript_path: "/unused" });
-  } finally {
-    release();
-    const reply = await command;
-    expect(reply.text).toMatch(/session changed|command ended/i);
-    expect(reply.text).not.toContain("PRIVATE-");
-    expect(reply.text).not.toMatch(/^TOKEN RATE/m);
-  }
-  expect(fixture.writes).toEqual([]);
-  expect(fixture.opens).toBe(0);
-  expect(latestSnapshot(fixture.snapshots).session).toBe("replacement-session");
-  expect(latestSnapshot(fixture.snapshots).preferences.enabled).toBe(false);
-  expect(latestSnapshot(fixture.snapshots).failure).toBe("");
-});
-
-test("paging and Back restore parent pages before cancellation without side effects", async ($, on) => {
-  const fixture = menuFixture(on);
-  const answers = [
-    "Next", "Next", "Theme", "Next", "Custom", "Next", "Back", "Back",
-    "Back", "Back", "Next", "Back", "Theme",
-    "Next", "Next", "Next", "Next", "Next", "Back", "Next",
-    "Back", "Back", "Back", "Back", "Back", "Back", "Back", "Back", "Cancel",
-  ];
-  let question = 0;
-  on("tool.call", (_$, event) => {
-    if (event.tool !== "AskUserQuestion") return { deny: "Unexpected tool" };
-    const questions = event.questions as readonly { options: readonly { label: string }[] }[];
-    const labels = questions[0].options.map(option => option.label);
-    expect(labels.length).toBeGreaterThanOrEqual(2);
-    expect(labels.length).toBeLessThanOrEqual(4);
-    expect(fixture.writes).toEqual([]);
-    expect(fixture.opens).toBe(0);
-    if (question === 8) expect(labels).toContain("Custom");
-    if (question === 10 || question === 12) expect(labels).toContain("Theme");
-    if (question === 18 || question === 20) {
-      expect(labels).toContain("Yellow");
-      expect(labels.length).toBe(2);
-    }
-    const answer = answers[question++];
-    expect(labels).toContain(answer);
-    return questionAnswer(event, answer);
-  });
-  const reply = await $.command.run({ command: "usage-dashboard", args: "" });
-  expect(question).toBe(answers.length);
-  expect(fixture.writes).toEqual([]);
-  expect(fixture.opens).toBe(0);
-  expect(reply.text).not.toMatch(/^TOKEN RATE/m);
-});
-
 test("refresh seeds the allowance from the session's last reported rate limits", async ($, on) => {
   const fixture = menuFixture(on);
   const resetsAt = new Date(1_700_000_000_000 + 3_600_000).toISOString();
@@ -521,51 +411,6 @@ test("refresh seeds the allowance from the session's last reported rate limits",
     HelperPayload & { allowance: { windows: { label: string; usedFraction: number }[] } | null };
   expect(snapshot.allowance?.windows.map(window => [window.label, window.usedFraction]))
     .toEqual([["5h limit", 0.03], ["7d limit", 0]]);
-});
-
-test("section visibility menu writes the chosen hide or show", async ($, on) => {
-  const fixture = menuFixture(on);
-  let answers: string[] = [];
-  on("tool.call", (_$, event) => {
-    if (event.tool !== "AskUserQuestion") return { deny: "Unexpected tool" };
-    return questionAnswer(event, answers.shift()!);
-  });
-  for (const [path, words] of [
-    [["Next", "Section Visibility", "Next", "History Total", "Hide"], ["history-total", "hide"]],
-    [["Next", "Section Visibility", "History Other Sessions", "Show"], ["history-other", "show"]],
-  ] as const) {
-    answers = [...path];
-    await $.command.run({ command: "usage-dashboard", args: "" });
-    expect(answers).toEqual([]);
-    expect(fixture.writes.at(-1)).toEqual([...words]);
-  }
-});
-
-test("fixed pages reject off-page, obsolete, prototype and Other answers without side effects", async ($, on) => {
-  const fixture = menuFixture(on);
-  const paths = [
-    ["Theme"],
-    ["Next", "Next", "Theme", "Yellow"],
-    ["Settings"],
-    ["Appearance"],
-    ["Other"],
-    ["constructor"],
-    ["__proto__"],
-    ["Next", "Next", "Next", "Window", "On"],
-    ["Back"],
-  ];
-  let answers: string[] = [];
-  on("tool.call", (_$, event) => {
-    if (event.tool !== "AskUserQuestion") return { deny: "Unexpected tool" };
-    return questionAnswer(event, answers.shift()!);
-  });
-  for (const path of paths) {
-    answers = [...path];
-    await $.command.run({ command: "usage-dashboard", args: "" });
-    expect(answers).toEqual([]);
-    expect(fixture.writes).toEqual([]);
-    expect(fixture.opens).toBe(0);
-  }
 });
 
 test("routine rendering-surface replies omit the chart even for hidden, closed, disabled or unplaced Panes", async ($, on) => {

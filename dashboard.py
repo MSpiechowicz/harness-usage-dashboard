@@ -486,7 +486,9 @@ def watch(screen, args):
                     rows = view.session_lines(history, now, width - 2, config['compact'],
                                          config['previous_visible'], config['history_other_visible'],
                                          config['history_total_visible'], host=host,
-                                         chart_type=config['chart_type'])
+                                         chart_type=config['chart_type'],
+                                         rate_visible=config['rate_visible'],
+                                         current_visible=config['current_visible'])
                 except (OSError, sqlite3.Error):
                     rows = [('Session history unavailable', 'warn')]
                 if history_error:
@@ -720,7 +722,8 @@ def main():
                 session_summary(config['profile'], args.owner, host=args.host), time.time(), 32,
                 config['compact'], config['previous_visible'], config['history_other_visible'],
                 config['history_total_visible'], host=args.host,
-                chart_type=config['chart_type'])))
+                chart_type=config['chart_type'], rate_visible=config['rate_visible'],
+                current_visible=config['current_visible'])))
             if not config['providers']:
                 print(view.describe(config))
             adapter = get_host(args.host)

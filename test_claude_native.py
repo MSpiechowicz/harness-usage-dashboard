@@ -347,6 +347,17 @@ class NativeHelperTests(unittest.TestCase):
         self.assertTrue(any(row['text'].startswith('5h limit') and '97% left' in row['text'] for row in idle))
         self.assertTrue(any(row['text'] == 'Last updated 20m ago' for row in idle))
 
+    def test_token_rate_and_current_session_follow_their_toggles(self):
+        self.capture(entries=[self.entry()])
+        texts = lambda: [row['text'] for row in self.snapshot()['rows']]
+        self.assertTrue(any(text.startswith('TOKEN RATE') for text in texts()))
+        self.assertTrue(any(text.startswith('CURRENT SESSION') for text in texts()))
+        for words in (['token-rate', 'hide'], ['current', 'hide']):
+            handle_request({'version': 1, 'op': 'preferences', 'words': words}, now=110)
+        self.assertFalse(any(text.startswith(('TOKEN RATE', 'CURRENT SESSION')) for text in texts()))
+        handle_request({'version': 1, 'op': 'preferences', 'words': ['current', 'show']}, now=110)
+        self.assertTrue(any(text.startswith('CURRENT SESSION') for text in texts()))
+
     def test_unknown_capture_stays_quiet_once_project_usage_is_registered(self):
         self.capture(entries=[self.entry()])
         self.capture(now=120, session='session-two', activation='activation-two')

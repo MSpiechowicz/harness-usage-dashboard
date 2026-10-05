@@ -27,6 +27,8 @@ DEFAULTS = {
     'side': 'right',
     'compact': True,
     'commands_visible': True,
+    'rate_visible': True,
+    'current_visible': True,
     'previous_visible': True,
     'history_other_visible': True,
     'history_total_visible': True,
@@ -144,7 +146,7 @@ def _validated(data, host='omp'):
             raise ValueError(f'Unknown dashboard token: {name}.')
         normalized_tokens[name] = normalize_color(color)
     result['tokens'] = normalized_tokens
-    for field in ('compact', 'enabled', 'commands_visible', 'previous_visible',
+    for field in ('compact', 'enabled', 'commands_visible', 'rate_visible', 'current_visible', 'previous_visible',
                   'history_other_visible', 'history_total_visible'):
         if type(result[field]) is not bool:
             raise ValueError(f'Dashboard {field} must be a boolean.')

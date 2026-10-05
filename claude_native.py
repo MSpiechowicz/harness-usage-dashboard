@@ -226,7 +226,9 @@ def snapshot(request, now):
     rows = view.session_lines(history, now, width, preferences['compact'],
                               preferences['previous_visible'], preferences['history_other_visible'],
                               preferences['history_total_visible'], host='claude',
-                              chart_type=preferences['chart_type'])
+                              chart_type=preferences['chart_type'],
+                              rate_visible=preferences['rate_visible'],
+                              current_visible=preferences['current_visible'])
     data = {'reports': reports, 'dashboardNote': note}
     allowance_visible = ('anthropic' in preferences['providers']
                          and 'anthropic' not in preferences['hidden'])
