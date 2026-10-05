@@ -511,6 +511,24 @@ test("paging and Back restore parent pages before cancellation without side effe
   expect(reply.text).not.toMatch(/^TOKEN RATE/m);
 });
 
+test("section visibility menu writes the chosen hide or show", async ($, on) => {
+  const fixture = menuFixture(on);
+  let answers: string[] = [];
+  on("tool.call", (_$, event) => {
+    if (event.tool !== "AskUserQuestion") return { deny: "Unexpected tool" };
+    return questionAnswer(event, answers.shift()!);
+  });
+  for (const [path, words] of [
+    [["Next", "Section Visibility", "Next", "History Total", "Hide"], ["history-total", "hide"]],
+    [["Next", "Section Visibility", "History Other Sessions", "Show"], ["history-other", "show"]],
+  ] as const) {
+    answers = [...path];
+    await $.command.run({ command: "usage-dashboard", args: "" });
+    expect(answers).toEqual([]);
+    expect(fixture.writes.at(-1)).toEqual([...words]);
+  }
+});
+
 test("fixed pages reject off-page, obsolete, prototype and Other answers without side effects", async ($, on) => {
   const fixture = menuFixture(on);
   const paths = [

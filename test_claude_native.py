@@ -117,7 +117,9 @@ class NativeHelperTests(unittest.TestCase):
                 self.assertFalse(any(first['history']['chart']))
                 current = self.assert_chart_frame(first, chart_type, awaiting=True)
                 self.assertIn('unknown', current['text'].lower())
-                self.assertEqual(current['token'], 'muted')
+                self.assertEqual(current['text'].split(), ['CLAUDE', 'unknown'])
+                self.assertEqual(current['token'], 'text')
+                self.assertEqual(current['emphasis']['token'], 'muted')
                 self.assertFalse(any('0 tokens' in row['text'] for row in first['rows']))
 
         zero = self.entry(input=0, output=0, cacheRead=0, cacheWrite=0, total=0)
@@ -131,8 +133,7 @@ class NativeHelperTests(unittest.TestCase):
                 self.assertEqual(result['history']['current']['models'][0]['thinking_level'], 'high')
                 self.assertFalse(any(result['history']['chart']))
                 current = self.assert_chart_frame(result, chart_type)
-                self.assertIn('tokens', current['text'].lower())
-                self.assertEqual(current['text'].split()[-1], '0')
+                self.assertEqual(current['text'].split(), ['CLAUDE', '0'])
                 self.assertEqual(current['token'], 'text')
 
         self.capture('record', [self.entry('positive')], now=103)

@@ -615,10 +615,11 @@ def session_lines(history, now, width, compact=True, previous_visible=True,
         providers = session['providers']
         total = sum(item['total'] for item in providers)
         single = compact and len(providers) == 1
-        label = NAMES.get(providers[0]['provider'], providers[0]['provider']) + ' tokens' if single else 'Tokens'
+        label = NAMES.get(providers[0]['provider'], providers[0]['provider']) if single else 'Tokens'
         if host == 'claude' and not providers:
-            # The chart already flags the wait; keep this row as quiet data.
-            rows.append((allowance_row(NAMES['anthropic'] + ' tokens', 'unknown', '', width, 'dim')[0], 'dim'))
+            # The chart already flags the wait; only the value stays quiet.
+            text = allowance_row(NAMES['anthropic'], 'unknown', '', width, 'normal')[0]
+            rows.append((text, ('normal', len(text) - len('unknown'), len(text), 'dim')))
         else:
             rows.append(allowance_row(label, format_tokens(total), '', width, 'normal'))
         if not compact or name == 'previous':
