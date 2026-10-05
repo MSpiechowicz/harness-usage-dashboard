@@ -19,6 +19,12 @@ export function normalizedUsage(usage, model, thinkingLevel) {
     ...(LEVELS.includes(thinkingLevel) ? { thinkingLevel } : {}) };
 }
 
+// Known windows read as compact limits: five_hour -> "5h limit", seven_day_opus -> "7d opus limit".
+export function windowLabel(kind) {
+  const short = kind.replace(/^five_hour/, "5h").replace(/^seven_day/, "7d");
+  return short === kind ? kind.replace(/_/g, " ") : `${short.replace(/_/g, " ")} limit`;
+}
+
 export function normalizedAllowance(limits, context, observedAt) {
   if (!Array.isArray(limits)) return null;
   const windows = [];
@@ -31,7 +37,7 @@ export function normalizedAllowance(limits, context, observedAt) {
       resetsAt = Date.parse(limit.resetsAt) / 1000;
       if (!Number.isFinite(resetsAt) || resetsAt <= observedAt) continue;
     }
-    windows.push({ id: limit.kind, label: limit.kind.replace(/_/g, " "),
+    windows.push({ id: limit.kind, label: windowLabel(limit.kind),
       usedFraction: limit.percentUsed / 100, resetsAt });
   }
   return windows.length ? { session: context.session, activation: context.activation,

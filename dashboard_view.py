@@ -617,7 +617,8 @@ def session_lines(history, now, width, compact=True, previous_visible=True,
         single = compact and len(providers) == 1
         label = NAMES.get(providers[0]['provider'], providers[0]['provider']) + ' tokens' if single else 'Tokens'
         if host == 'claude' and not providers:
-            rows.append(('Token usage unknown', 'warn'))
+            # The chart already flags the wait; keep this row as quiet data.
+            rows.append((allowance_row(NAMES['anthropic'] + ' tokens', 'unknown', '', width, 'dim')[0], 'dim'))
         else:
             rows.append(allowance_row(label, format_tokens(total), '', width, 'normal'))
         if not compact or name == 'previous':

@@ -94,6 +94,8 @@ test("allowance rejects missing, invalid and expired reports without inventing z
   expect(normalizedAllowance([{ kind: "five_hour", percentUsed: 42, resetsAt: new Date(now * 1000).toISOString() }], context, now)).toBe(null);
   expect(normalizedAllowance([{ kind: "five_hour", percentUsed: NaN }], context, now)).toBe(null);
   expect(normalizedAllowance([{ kind: "five_hour", percentUsed: 0 }, { kind: "spend_limit", percentUsed: 125 }], context, now)?.windows.map(window => window.usedFraction)).toEqual([0, 1.25]);
+  expect(normalizedAllowance(["five_hour", "seven_day", "seven_day_opus", "spend_limit"].map(kind => ({ kind, percentUsed: 0 })), context, now)
+    ?.windows.map(window => window.label)).toEqual(["5h limit", "7d limit", "7d opus limit", "spend limit"]);
 });
 
 test("late request stays historical across clear and private content never reaches helper", async ($, on) => {

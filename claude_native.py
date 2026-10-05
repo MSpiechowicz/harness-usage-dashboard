@@ -222,13 +222,18 @@ def snapshot(request, now):
     data = {'reports': reports, 'dashboardNote': note}
     allowance_visible = ('anthropic' in preferences['providers']
                          and 'anthropic' not in preferences['hidden'])
-    capture_warning = health['state'] != 'available'
+    # Registered project usage already shows capture works; only a real gap stays a warning.
+    registered = any(history.get(key) for key in ('previous', 'history', 'total_history')) or bool(
+        (history.get('current') or {}).get('providers'))
+    capture_warning = health['state'] == 'incomplete' or (health['state'] == 'unknown' and not registered)
     if allowance_visible or capture_warning:
         rows.append(view.section_heading(view.NAMES['anthropic'], width))
         if allowance_visible:
             rows.extend(view.provider_lines(data, 'anthropic', {**preferences, 'interval': ALLOWANCE_MAX_AGE},
                                             now, width, host='claude'))
         if capture_warning:
+            if allowance_visible:
+                rows.append(('', 'dim'))
             rows.extend([('Token capture ' + health['state'], 'warn'), (health['reason'], 'dim')])
         rows.append(('', 'dim'))
     if preferences['commands_visible']:

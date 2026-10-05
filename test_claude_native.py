@@ -117,7 +117,7 @@ class NativeHelperTests(unittest.TestCase):
                 self.assertFalse(any(first['history']['chart']))
                 current = self.assert_chart_frame(first, chart_type, awaiting=True)
                 self.assertIn('unknown', current['text'].lower())
-                self.assertEqual(current['token'], 'warn')
+                self.assertEqual(current['token'], 'muted')
                 self.assertFalse(any('0 tokens' in row['text'] for row in first['rows']))
 
         zero = self.entry(input=0, output=0, cacheRead=0, cacheWrite=0, total=0)
@@ -292,11 +292,12 @@ class NativeHelperTests(unittest.TestCase):
         headings = [index for index, row in enumerate(rows) if self.is_claude_heading(row)]
         self.assertEqual(len(headings), 1)
         start = headings[0] + 1
-        # A separator ends the displayed section, even before the next heading.
+        # The next heading ends the section; inner separators only space its groups.
         end = next((index for index in range(start, len(rows))
-                    if not rows[index]['text'] or (rows[index]['emphasis']
-                    and rows[index]['emphasis']['start'] == 0
-                    and rows[index]['emphasis']['token'] == 'accent')), len(rows))
+                    if rows[index]['emphasis'] and rows[index]['emphasis']['start'] == 0
+                    and rows[index]['emphasis']['token'] == 'accent'), len(rows))
+        while end > start and not rows[end - 1]['text']:
+            end -= 1
         return rows[start:end]
 
     def test_allowance_and_capture_share_one_section_but_keep_independent_states(self):
@@ -332,6 +333,14 @@ class NativeHelperTests(unittest.TestCase):
         self.assertTrue(any(row['text'] == incomplete['capture']['reason'] for row in section))
         self.assertTrue(any(row['token'] == 'warn' and 'capture incomplete' in row['text'].lower()
                             for row in section))
+
+    def test_unknown_capture_stays_quiet_once_project_usage_is_registered(self):
+        self.capture(entries=[self.entry()])
+        self.capture(now=120, session='session-two', activation='activation-two')
+        result = self.snapshot(session='session-two', activation='activation-two', now=130)
+        self.assertEqual(result['capture']['state'], 'unknown')
+        self.assertFalse(any('Token capture' in row['text'] for row in result['rows']))
+        self.assertFalse(any(row['text'] == result['capture']['reason'] for row in result['rows']))
 
     def test_hidden_or_removed_allowance_keeps_warning_only_section_independent_of_commands(self):
         self.capture()
