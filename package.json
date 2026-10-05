@@ -1,6 +1,6 @@
 {
   "name": "harness-usage-dashboard",
-  "version": "1.0.69",
+  "version": "1.0.70",
   "private": true,
   "type": "module",
   "description": "Persistent usage dashboard with an OMP sidebar and a native Claude Code pane",
