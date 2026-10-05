@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Private JSON accounting and presentation boundary for the native Claude mod."""
+import math
 import json
 import os
 import re
@@ -147,6 +148,13 @@ def _health(db, cwd, owner, session, activation):
     return {'state': state, 'reason': reason, 'lastEventAt': row['last_event']}
 
 
+def _age(seconds):
+    minutes = int(seconds // 60)
+    hours, minutes = divmod(minutes, 60)
+    days, hours = divmod(hours, 24)
+    return f'{days}d {hours}h' if days else f'{hours}h {minutes}m' if hours else f'{minutes}m'
+
+
 def _allowance(value, session, activation, active, now):
     if value is None:
         return [], 'No native allowance reported yet.'
@@ -159,7 +167,7 @@ def _allowance(value, session, activation, active, now):
     observed = value.get('observedAt')
     if not finite(observed) or observed < 0:
         raise RequestError('Invalid allowance observation timestamp.')
-    if observed < active['since'] or observed > now or now - observed > ALLOWANCE_MAX_AGE:
+    if observed < active['since'] or observed > now:
         return [], 'Native allowance observation is stale.'
     windows = value.get('windows')
     if not isinstance(windows, list) or len(windows) > 100:
@@ -229,8 +237,12 @@ def snapshot(request, now):
     if allowance_visible or capture_warning:
         rows.append(view.section_heading(view.NAMES['anthropic'], width))
         if allowance_visible:
-            rows.extend(view.provider_lines(data, 'anthropic', {**preferences, 'interval': ALLOWANCE_MAX_AGE},
+            # An idle session keeps its last reading; say how old it is instead of hiding it.
+            rows.extend(view.provider_lines(data, 'anthropic', {**preferences, 'interval': math.inf},
                                             now, width, host='claude'))
+            age = now - reports[0]['fetchedAt'] / 1000 if reports else 0
+            if age > ALLOWANCE_MAX_AGE:
+                rows.append((f'Last updated {_age(age)} ago', 'dim'))
         if capture_warning:
             if allowance_visible:
                 rows.append(('', 'dim'))

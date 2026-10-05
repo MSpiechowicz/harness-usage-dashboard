@@ -511,6 +511,18 @@ test("paging and Back restore parent pages before cancellation without side effe
   expect(reply.text).not.toMatch(/^TOKEN RATE/m);
 });
 
+test("refresh seeds the allowance from the session's last reported rate limits", async ($, on) => {
+  const fixture = menuFixture(on);
+  const resetsAt = new Date(1_700_000_000_000 + 3_600_000).toISOString();
+  on("session.usage", () => ({ value: { startedAt: 0, context: { windowSize: 200_000 },
+    rateLimits: [{ kind: "five_hour", percentUsed: 3, resetsAt }, { kind: "seven_day", percentUsed: 0 }] } }));
+  await $.command.run({ command: "usage-dashboard", args: "window refresh" });
+  const snapshot = fixture.captured.filter(payload => payload.op === "snapshot").at(-1) as
+    HelperPayload & { allowance: { windows: { label: string; usedFraction: number }[] } | null };
+  expect(snapshot.allowance?.windows.map(window => [window.label, window.usedFraction]))
+    .toEqual([["5h limit", 0.03], ["7d limit", 0]]);
+});
+
 test("section visibility menu writes the chosen hide or show", async ($, on) => {
   const fixture = menuFixture(on);
   let answers: string[] = [];

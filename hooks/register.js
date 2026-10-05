@@ -342,6 +342,10 @@ async function refresh($, state, context) {
   state.cachedWidth = width;
   state.refreshAt = presentationDeadline(state, await $.clock.now());
   try {
+    // A new activation or reload has no measurement yet; seed it from the last response.
+    if (!state.allowance) await observeLimits($, state, context, (await $.session.usage()).rateLimits);
+  } catch { /* Allowance stays unknown; history still refreshes. */ }
+  try {
     const nextSnapshot = await helper($, { op: "snapshot", cwd: context.cwd,
       owner: context.owner, session: context.session, activation: context.activation,
       width, allowance: state.allowance });
@@ -555,8 +559,8 @@ export const register = on => {
     try {
       const context = await origin($, state);
       await serial(state, async () => {
-        // Cached session.usage(), commands and resize never freshen observations.
-        if (e.changed.includes("rateLimits")) await observeLimits($, state, context, e.rateLimits);
+        // Each measurement follows a response, so its windows are current even when unchanged.
+        if (e.rateLimits?.length) await observeLimits($, state, context, e.rateLimits);
         await refresh($, state, context);
       });
     } catch (error) { await failed($, state, state.active, error); }

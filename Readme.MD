@@ -319,7 +319,7 @@ Compaction's responding model is **unknown** when the host does not expose it. A
 
 These totals count **observed reports**, not exact subscription billing. Successful live native main/subagent/retry/compaction accounting has not been verified here; the latest live request returned **401, expired OAuth access token**. Missing reports mean unknown coverage, not measured zero. Offline tests and seeded local reports prove local accounting behavior, not service-side completeness.
 
-Allowance windows come only from fresh native rate-limit observations for the current session activation. Cached snapshots, Refresh, resize, and reopen do not renew them; stale or wrong-session observations become unknown. Claude exposes no stable account identity for this integration, so there is **no Claude account-quota-change history**. OMP's `claude` provider view cannot fill missing Claude Code session usage.
+Allowance windows come from Claude's native rate-limit readings for the current session activation: the last reported reading seeds a new activation or plugin reload, and each turn's measurement renews it. An idle session keeps its last reading and notes its age (**Last updated 20m ago**) once it is older than five minutes; wrong-session observations become unknown. Claude exposes no stable account identity for this integration, so there is **no Claude account-quota-change history**. OMP's `claude` provider view cannot fill missing Claude Code session usage.
 
 
 ### OMP usage

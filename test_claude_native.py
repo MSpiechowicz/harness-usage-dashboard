@@ -335,6 +335,18 @@ class NativeHelperTests(unittest.TestCase):
         self.assertTrue(any(row['token'] == 'warn' and 'capture incomplete' in row['text'].lower()
                             for row in section))
 
+    def test_idle_allowance_keeps_last_reading_with_its_age(self):
+        self.capture()
+        allowance = {'session': 'session-one', 'activation': 'activation-one', 'observedAt': 101,
+                     'windows': [{'id': 'five_hour', 'label': '5h limit', 'usedFraction': .03,
+                                  'resetsAt': 20000}]}
+        fresh = self.claude_section(self.snapshot(allowance=allowance, now=110))
+        self.assertTrue(any(row['text'].startswith('5h limit') for row in fresh))
+        self.assertFalse(any(row['text'].startswith('Last updated') for row in fresh))
+        idle = self.claude_section(self.snapshot(allowance=allowance, now=101 + 20 * 60))
+        self.assertTrue(any(row['text'].startswith('5h limit') and '97% left' in row['text'] for row in idle))
+        self.assertTrue(any(row['text'] == 'Last updated 20m ago' for row in idle))
+
     def test_unknown_capture_stays_quiet_once_project_usage_is_registered(self):
         self.capture(entries=[self.entry()])
         self.capture(now=120, session='session-two', activation='activation-two')
