@@ -10,11 +10,11 @@
     {
       "name": "harness-usage-dashboard",
       "description": "Persistent OMP usage sidebar and native Claude Code usage pane",
-      "version": "1.0.67",
+      "version": "1.0.68",
       "source": {
         "source": "github",
         "repo": "MSpiechowicz/harness-usage-dashboard",
-        "ref": "v1.0.67"
+        "ref": "v1.0.68"
       },
       "homepage": "https://github.com/MSpiechowicz/harness-usage-dashboard"
     }
