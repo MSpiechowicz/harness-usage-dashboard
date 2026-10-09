@@ -1,6 +1,6 @@
 {
   "name": "harness-useful-sidebar",
-  "version": "1.0.70",
+  "version": "1.0.71",
   "private": true,
   "type": "module",
   "description": "Persistent useful sidebar for OMP and a native Claude Code pane",
