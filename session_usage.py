@@ -120,7 +120,7 @@ def _check_ledger_directory(directory, *, create=False):
 
 @contextmanager
 def database(profile=None, cwd=None, *, host='omp'):
-    path = agent_dir(profile, host=host) / 'usage-dashboard.sqlite3'
+    path = agent_dir(profile, host=host) / 'useful-sidebar.sqlite3'
     _check_ledger_directory(path.parent.absolute())
     _check_ledger_directory(path.parent.absolute(), create=True)
     try:

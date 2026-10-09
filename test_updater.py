@@ -43,7 +43,7 @@ class UpdaterTests(unittest.TestCase):
 
     def package(self, root, version):
         root.mkdir(parents=True, exist_ok=True)
-        (root / 'package.json').write_text(json.dumps({'name': 'harness-usage-dashboard', 'version': version}), encoding='utf-8')
+        (root / 'package.json').write_text(json.dumps({'name': 'harness-useful-sidebar', 'version': version}), encoding='utf-8')
 
     def summary(self, root=None, scope='user', version='1.0.0'):
         return {'id': updater.PLUGIN_ID, 'scope': scope, 'entries': [
@@ -64,7 +64,7 @@ class UpdaterTests(unittest.TestCase):
             self.assertEqual(fetch.call_count, 3)
 
     def test_prior_repository_cache_refreshes_release_and_absence(self):
-        canonical_url = 'https://github.com/MSpiechowicz/harness-usage-dashboard/releases/tag/v1.0.1'
+        canonical_url = 'https://github.com/MSpiechowicz/harness-useful-sidebar/releases/tag/v1.0.1'
         for stale_release in (self.old_release, None):
             with self.subTest(stale_release=stale_release):
                 self.seed_cache('MSpiechowicz/previous-dashboard', stale_release)
@@ -76,17 +76,17 @@ class UpdaterTests(unittest.TestCase):
                 self.assertEqual(first['releaseUrl'], canonical_url)
                 self.assertEqual(second, first)
                 self.assertEqual(json.loads(updater.cache_path('work').read_text(encoding='utf-8')), {
-                    'repository': 'MSpiechowicz/harness-usage-dashboard',
+                    'repository': 'MSpiechowicz/harness-useful-sidebar',
                     'checkedAt': self.clock,
                     'release': self.release,
                 })
 
     def test_old_release_link_under_canonical_repository_is_not_reused(self):
-        self.seed_cache('MSpiechowicz/harness-usage-dashboard', self.old_release)
+        self.seed_cache('MSpiechowicz/harness-useful-sidebar', self.old_release)
         with patch.object(updater, 'latest_release', return_value=self.release) as fetch:
             response = updater.check('work', cached=True, root=self.root)
         self.assertEqual(fetch.call_count, 1)
-        self.assertEqual(response['releaseUrl'], 'https://github.com/MSpiechowicz/harness-usage-dashboard/releases/tag/v1.0.1')
+        self.assertEqual(response['releaseUrl'], 'https://github.com/MSpiechowicz/harness-useful-sidebar/releases/tag/v1.0.1')
 
     def test_failed_prior_repository_refresh_cannot_use_old_cache(self):
         self.seed_cache('MSpiechowicz/previous-dashboard', self.old_release)
@@ -96,7 +96,7 @@ class UpdaterTests(unittest.TestCase):
         with patch.object(updater, 'latest_release', return_value=self.release) as fetch:
             response = updater.check('work', cached=True, root=self.root)
         self.assertEqual(fetch.call_count, 1)
-        self.assertEqual(response['releaseUrl'], 'https://github.com/MSpiechowicz/harness-usage-dashboard/releases/tag/v1.0.1')
+        self.assertEqual(response['releaseUrl'], 'https://github.com/MSpiechowicz/harness-useful-sidebar/releases/tag/v1.0.1')
 
     def test_failed_refresh_never_hides_update_for_24_hours(self):
         with patch.object(updater, 'latest_release', side_effect=[updater.UpdateError('offline'), self.release]):
@@ -143,8 +143,8 @@ class UpdaterTests(unittest.TestCase):
             build.return_value.open.return_value = io.BytesIO(json.dumps(payload).encode('utf-8'))
             release = updater.latest_release()
             request = build.return_value.open.call_args.args[0]
-        self.assertEqual(request.full_url, 'https://api.github.com/repos/MSpiechowicz/harness-usage-dashboard/releases/latest')
-        self.assertEqual(release['url'], 'https://github.com/MSpiechowicz/harness-usage-dashboard/releases/tag/v1.0.1')
+        self.assertEqual(request.full_url, 'https://api.github.com/repos/MSpiechowicz/harness-useful-sidebar/releases/latest')
+        self.assertEqual(release['url'], 'https://github.com/MSpiechowicz/harness-useful-sidebar/releases/tag/v1.0.1')
 
     def test_source_checkout_check_does_not_offer_native_install(self):
         with patch.object(updater, 'installed_plugins', return_value=[]), \
@@ -232,9 +232,9 @@ class UpdaterTests(unittest.TestCase):
             if args == ('list', '--json'):
                 return json.dumps({'npm': [], 'marketplace': self.registry})
             calls.append(args)
-            if args == ('marketplace', 'update', 'harness-usage-dashboard'):
+            if args == ('marketplace', 'update', 'harness-useful-sidebar'):
                 return ''
-            if args == ('upgrade', 'harness-usage-dashboard@harness-usage-dashboard',
+            if args == ('upgrade', 'harness-useful-sidebar@harness-useful-sidebar',
                         '--scope', 'project'):
                 self.registry[0] = self.summary(self.upgraded, scope='project', version='1.0.1')
                 return ''
@@ -245,8 +245,8 @@ class UpdaterTests(unittest.TestCase):
             response = updater.install_update('work', self.root)
         self.assertTrue(response['updated'])
         self.assertEqual(calls, [
-            ('marketplace', 'update', 'harness-usage-dashboard'),
-            ('upgrade', 'harness-usage-dashboard@harness-usage-dashboard', '--scope', 'project'),
+            ('marketplace', 'update', 'harness-useful-sidebar'),
+            ('upgrade', 'harness-useful-sidebar@harness-useful-sidebar', '--scope', 'project'),
         ])
 
     def test_successful_native_exit_without_new_version_is_not_success(self):

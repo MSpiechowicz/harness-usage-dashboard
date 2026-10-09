@@ -40,7 +40,7 @@ def _omp_root(profile: str | None) -> Path:
 def _claude_root(profile: str | None) -> Path:
     configured = os.environ.get('CLAUDE_CONFIG_DIR')
     root = Path(configured).expanduser() if configured else Path.home() / '.claude'
-    return root / 'usage-dashboard'
+    return root / 'useful-sidebar'
 
 
 def _omp_fetch(provider: str, profile: str | None, owner: str | None) -> list[str]:
@@ -72,7 +72,7 @@ def _omp_launch(omp_args: list[str], profile: str | None, native: bool,
 def _native_launch(omp_args: list[str], profile: str | None, native: bool,
                    extension: str | Path | None, binary: str | None,
                    status_path: str | Path | None) -> list[str]:
-    raise ValueError('Run Claude directly with the native usage-dashboard mod.')
+    raise ValueError('Run Claude directly with the native useful-sidebar mod.')
 
 
 @dataclass(frozen=True, slots=True)

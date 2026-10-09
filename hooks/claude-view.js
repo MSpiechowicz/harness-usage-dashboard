@@ -1,12 +1,12 @@
-export const PANE = "usage-dashboard";
+export const PANE = "useful-sidebar";
 
-export const HELP = "Usage Dashboard: /usage-dashboard opens the settings pane (arrows move, Enter picks, Esc closes). Direct commands: view compact|details|list; chart bars|dots|trace; theme green|blue|brown|yellow|cyan|magenta|orange|red|claude|custom TOKEN COLOR|reset; token-rate|current|previous|history-other|history-total|commands hide|show; providers add|remove|hide|show anthropic; window on|off|focus|refresh; window hide|show anthropic FILTER. Native Claude supports only Anthropic. Pane placement is managed by Claude; position and polling interval controls are not supported. Updates use Claude's plugin manager.";
+export const HELP = "Useful Sidebar: /useful-sidebar opens the settings pane (arrows move, Enter picks, Esc closes). Direct commands: view compact|details|list; chart bars|dots|trace; theme green|blue|brown|yellow|cyan|magenta|orange|red|claude|custom TOKEN COLOR|reset; token-rate|current|previous|history-other|history-total|commands hide|show; providers add|remove|hide|show anthropic; window on|off|focus|refresh; window hide|show anthropic FILTER. Native Claude supports only Anthropic. Pane placement is managed by Claude; position and polling interval controls are not supported. Updates use Claude's plugin manager.";
 
 export function snapshotText(snapshot) {
-  if (!snapshot) return "Usage Dashboard: capture unknown; no local snapshot is available.";
+  if (!snapshot) return "Useful Sidebar: capture unknown; no local snapshot is available.";
   const lines = snapshot.rows?.map(row => row.text) ?? [];
-  if (snapshot.failure) lines.unshift(`Usage Dashboard: ${snapshot.failure}`);
-  return lines.join("\n") || "Usage Dashboard: capture unknown; no reported usage.";
+  if (snapshot.failure) lines.unshift(`Useful Sidebar: ${snapshot.failure}`);
+  return lines.join("\n") || "Useful Sidebar: capture unknown; no reported usage.";
 }
 
 export function renderDashboard(elements, snapshot) {
@@ -78,6 +78,6 @@ export function renderSettings(elements, snapshot, choose) {
       : Select({ key: row.key, label: row.label.padEnd(width), options: row.options, value: row.value,
         ...(row.key === "dashboard" ? { autoFocus: true } : {}),
         onSelect: value => { if (value !== row.value) choose(row.words(value)); } })),
-    Text({ color: tokens.muted, children: ["\nArrows move, Enter picks, Esc closes. Custom colors: /usage-dashboard theme custom TOKEN COLOR"] }),
+    Text({ color: tokens.muted, children: ["\nArrows move, Enter picks, Esc closes. Custom colors: /useful-sidebar theme custom TOKEN COLOR"] }),
   ] });
 }

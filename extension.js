@@ -79,7 +79,7 @@ function capitalizeLabel(label) {
 function notify(ctx, message, level = "info") {
   const theme = ctx.ui.theme;
   const color = level === "info" ? "accent" : level;
-  const label = level === "info" ? "Usage Dashboard" : `Usage Dashboard · ${capitalizeLabel(level)}`;
+  const label = level === "info" ? "Useful Sidebar" : `Useful Sidebar · ${capitalizeLabel(level)}`;
   const heading = theme.bold(theme.fg(color, label));
   const body = message.split("\n").map(line => theme.fg("text", line)).join("\n");
   ctx.ui.notify(`${heading}\n${body}`, level);
@@ -106,11 +106,11 @@ async function menuSelect(ctx, title, options, { nested = false } = {}) {
 
 async function visibilityMenu(ctx) {
   while (true) {
-    const section = await menuSelect(ctx, "Usage Dashboard / Section Visibility",
+    const section = await menuSelect(ctx, "Useful Sidebar / Section Visibility",
       visibilitySections.map(value => ({ value, label: visibilityLabels[value] ?? value })), { nested: true });
     if (!section || section === MENU_BACK) return section;
     const action = await menuSelect(ctx,
-      `Usage Dashboard / Section Visibility / ${visibilityLabels[section] ?? capitalizeLabel(section)}`,
+      `Useful Sidebar / Section Visibility / ${visibilityLabels[section] ?? capitalizeLabel(section)}`,
       sections[section], { nested: true });
     if (!action) return;
     if (action === MENU_BACK) continue;
@@ -118,8 +118,8 @@ async function visibilityMenu(ctx) {
   }
 }
 
-export default function usageDashboard(pi) {
-  pi.setLabel("Usage Dashboard");
+export default function usefulSidebar(pi) {
+  pi.setLabel("Useful Sidebar");
   let recording;
   let pending = Promise.resolve();
   const writes = new Set();
@@ -341,11 +341,11 @@ export default function usageDashboard(pi) {
     try {
       const result = await pi.exec("python3", command, { timeout: 15000, cwd: ctx.cwd });
       if (!quiet || result.code !== 0) {
-        notify(ctx, result.code === 0 ? result.stdout.trim() : (result.stderr.trim() || "Could not update usage dashboard"),
+        notify(ctx, result.code === 0 ? result.stdout.trim() : (result.stderr.trim() || "Could not update useful sidebar"),
           result.code === 0 ? "info" : "error");
       }
     } catch (error) {
-      notify(ctx, `Usage Dashboard: ${error.message}`, "error");
+      notify(ctx, `Useful Sidebar: ${error.message}`, "error");
     }
   }
 
@@ -367,12 +367,12 @@ export default function usageDashboard(pi) {
       if (report.updated) {
         ctx.ui.notify(report.message || `Dashboard updated to ${report.currentVersion}. Restart OMP to load it.`, "info");
       } else if (report.updateAvailable) {
-        ctx.ui.notify(`Usage Dashboard update available: ${report.currentVersion} → ${report.latestVersion}. Run \`/usage-dashboard update install\` to update it.`, "warning");
+        ctx.ui.notify(`Useful Sidebar update available: ${report.currentVersion} → ${report.latestVersion}. Run \`/useful-sidebar update install\` to update it.`, "warning");
       } else if (!quiet) {
-        ctx.ui.notify(`Usage Dashboard ${report.currentVersion}: ${report.message || "No newer release available."}`, "info");
+        ctx.ui.notify(`Useful Sidebar ${report.currentVersion}: ${report.message || "No newer release available."}`, "info");
       }
     } catch (error) {
-      if (!quiet) ctx.ui.notify(`Usage Dashboard update: ${error.message}`, "error");
+      if (!quiet) ctx.ui.notify(`Useful Sidebar update: ${error.message}`, "error");
     }
   }
 
@@ -413,15 +413,15 @@ export default function usageDashboard(pi) {
   for (const event of ["session_switch", "session_branch"]) {
     pi.on(event, async (_event, ctx) => { await record(ctx, "start"); });
   }
-  pi.registerCommand("usage-dashboard", {
-    description: "Manage usage dashboard: view, chart (bars default, dots, trace), commands, previous, history-other, history-total, position, providers, theme, window, and updates",
+  pi.registerCommand("useful-sidebar", {
+    description: "Manage useful sidebar: view, chart (bars default, dots, trace), commands, previous, history-other, history-total, position, providers, theme, window, and updates",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const words = args.trim().split(/\s+/).filter(Boolean);
       while (true) {
         while (words.length < 2) {
           if (words.length === 0) {
-            const section = await menuSelect(ctx, "Usage Dashboard", rootMenuSections);
+            const section = await menuSelect(ctx, "Useful Sidebar", rootMenuSections);
             if (!section || section === MENU_BACK) return;
             if (section === "visibility") {
               const selected = await visibilityMenu(ctx);
@@ -438,7 +438,7 @@ export default function usageDashboard(pi) {
           }
           const options = words[0] === "theme" ? themeOptions
             : words[0] === "chart" ? chartOptions : menuSections[words[0]];
-          const action = await menuSelect(ctx, `Usage Dashboard / ${capitalizeLabel(words[0])}`, options, { nested: true });
+          const action = await menuSelect(ctx, `Useful Sidebar / ${capitalizeLabel(words[0])}`, options, { nested: true });
           if (!action) return;
           if (action === MENU_BACK) {
             words.length = 0;
@@ -457,7 +457,7 @@ export default function usageDashboard(pi) {
         }
         if (section === "update") {
           if (words.length !== 2) {
-            ctx.ui.notify("Usage: /usage-dashboard update check|install", "info");
+            ctx.ui.notify("Usage: /useful-sidebar update check|install", "info");
             return;
           }
           await update(action, ctx);
@@ -469,7 +469,7 @@ export default function usageDashboard(pi) {
           if (!value?.trim()) return;
           const custom = value.trim().split(/\s+/);
           if (custom.length !== 2) {
-            notify(ctx, "Usage: /usage-dashboard theme custom TOKEN COLOR");
+            notify(ctx, "Usage: /useful-sidebar theme custom TOKEN COLOR");
             return;
           }
           words.push(...custom);

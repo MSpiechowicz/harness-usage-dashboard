@@ -24,28 +24,28 @@ class ReleaseTransactionTests(unittest.TestCase):
         git(self.root, 'init', '--bare', '--initial-branch=main', str(self.origin))
         git(self.root, 'clone', str(self.origin), str(self.checkout))
         (self.checkout / 'package.json').write_text(
-            '{\n  "name": "harness-usage-dashboard",\n  "version": "1.0.0",\n  "private": true\n}\n',
+            '{\n  "name": "harness-useful-sidebar",\n  "version": "1.0.0",\n  "private": true\n}\n',
             encoding='utf-8',
         )
         (self.checkout / '.omp-plugin').mkdir()
         (self.checkout / '.omp-plugin/marketplace.json').write_text(json.dumps({
-            'name': 'harness-usage-dashboard',
+            'name': 'harness-useful-sidebar',
             'plugins': [{
-                'name': 'harness-usage-dashboard', 'version': '1.0.0',
-                'source': {'source': 'github', 'repo': 'MSpiechowicz/harness-usage-dashboard',
+                'name': 'harness-useful-sidebar', 'version': '1.0.0',
+                'source': {'source': 'github', 'repo': 'MSpiechowicz/harness-useful-sidebar',
                            'ref': 'v1.0.0'},
-                'homepage': 'https://github.com/MSpiechowicz/harness-usage-dashboard',
+                'homepage': 'https://github.com/MSpiechowicz/harness-useful-sidebar',
             }],
         }, indent=2) + '\n', encoding='utf-8')
         (self.checkout / '.claude-plugin').mkdir()
         (self.checkout / '.claude-plugin/plugin.json').write_text(json.dumps({
-            'name': 'harness-usage-dashboard', 'version': '1.0.0',
+            'name': 'harness-useful-sidebar', 'version': '1.0.0',
             'description': 'Native dashboard fixture',
         }, indent=2) + '\n', encoding='utf-8')
         (self.checkout / '.claude-plugin/marketplace.json').write_text(json.dumps({
-            'name': 'harness-usage-dashboard',
+            'name': 'harness-useful-sidebar',
             'owner': {'name': 'Fixture'},
-            'plugins': [{'name': 'harness-usage-dashboard', 'source': './'}],
+            'plugins': [{'name': 'harness-useful-sidebar', 'source': './'}],
         }, indent=2) + '\n', encoding='utf-8')
         self.commit(self.checkout, 'Initial source')
         git(self.checkout, 'push', 'origin', 'main')

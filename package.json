@@ -1,9 +1,9 @@
 {
-  "name": "harness-usage-dashboard",
+  "name": "harness-useful-sidebar",
   "version": "1.0.70",
   "private": true,
   "type": "module",
-  "description": "Persistent usage dashboard with an OMP sidebar and a native Claude Code pane",
+  "description": "Persistent useful sidebar for OMP and a native Claude Code pane",
   "omp": {
     "extensions": ["./extension.js"]
   }

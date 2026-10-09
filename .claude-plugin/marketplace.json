@@ -1,17 +1,17 @@
 {
-  "name": "harness-usage-dashboard",
+  "name": "harness-useful-sidebar",
   "owner": {
     "name": "MSpiechowicz"
   },
   "metadata": {
-    "description": "Native Claude Code usage dashboard"
+    "description": "Useful sidebar for native Claude Code"
   },
   "plugins": [
     {
-      "name": "harness-usage-dashboard",
+      "name": "harness-useful-sidebar",
       "source": "./",
-      "description": "Persistent usage pane with local token history and dashboard controls",
-      "homepage": "https://github.com/MSpiechowicz/harness-usage-dashboard"
+      "description": "Persistent usage pane with local token history and sidebar controls",
+      "homepage": "https://github.com/MSpiechowicz/harness-useful-sidebar"
     }
   ]
 }

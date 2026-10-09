@@ -1,22 +1,22 @@
 {
-  "name": "harness-usage-dashboard",
+  "name": "harness-useful-sidebar",
   "owner": {
     "name": "MSpiechowicz"
   },
   "metadata": {
-    "description": "Usage dashboard for OMP and native Claude Code"
+    "description": "Useful sidebar for OMP and native Claude Code"
   },
   "plugins": [
     {
-      "name": "harness-usage-dashboard",
+      "name": "harness-useful-sidebar",
       "description": "Persistent OMP usage sidebar and native Claude Code usage pane",
       "version": "1.0.70",
       "source": {
         "source": "github",
-        "repo": "MSpiechowicz/harness-usage-dashboard",
+        "repo": "MSpiechowicz/harness-useful-sidebar",
         "ref": "v1.0.70"
       },
-      "homepage": "https://github.com/MSpiechowicz/harness-usage-dashboard"
+      "homepage": "https://github.com/MSpiechowicz/harness-useful-sidebar"
     }
   ]
 }

@@ -119,11 +119,11 @@ class PreferencesTests(unittest.TestCase):
         for kind in ('symlink', 'writable'):
             with self.subTest(kind=kind):
                 target = self.home / f'victim-{kind}'
-                storage = target / 'nested' / 'usage-dashboard'
+                storage = target / 'nested' / 'useful-sidebar'
                 with patch.dict(os.environ, {'PI_CODING_AGENT_DIR': str(storage)}):
                     update_preferences(None, {'theme': 'blue', 'providers': ['openai-codex']})
-                original = (storage / 'usage-dashboard.json').read_bytes()
-                original_lock = (storage / 'usage-dashboard.lock').read_bytes()
+                original = (storage / 'useful-sidebar.json').read_bytes()
+                original_lock = (storage / 'useful-sidebar.lock').read_bytes()
                 directory = self.home / f'first-use-{kind}'
                 injected = False
                 mkdir = Path.mkdir
@@ -144,7 +144,7 @@ class PreferencesTests(unittest.TestCase):
                         with self.assertRaises(PermissionError):
                             update_preferences(None, {'theme': 'red'}, host='claude')
                 observed = target if kind == 'symlink' else directory
-                saved = observed / 'nested' / 'usage-dashboard' / 'usage-dashboard.json'
+                saved = observed / 'nested' / 'useful-sidebar' / 'useful-sidebar.json'
                 self.assertEqual(saved.read_bytes(), original)
                 self.assertEqual(saved.with_suffix('.lock').read_bytes(), original_lock)
                 if kind == 'writable':
@@ -395,7 +395,7 @@ class PreferencesTests(unittest.TestCase):
             'CLAUDE_CONFIG_DIR': str(claude_root), 'OMP_PROFILE': 'work',
             'PI_PROFILE': 'personal', 'PI_CODING_AGENT_DIR': str(omp_root),
         }):
-            expected = claude_root / 'usage-dashboard' / 'usage-dashboard.json'
+            expected = claude_root / 'useful-sidebar' / 'useful-sidebar.json'
             self.assertEqual(agent_dir('../ignored', host='claude'), expected.parent)
             self.assertEqual(preferences_path('work', host='claude'), expected)
             self.assertEqual(load_preferences(None, host='claude')['providers'], ['anthropic'])
@@ -408,9 +408,9 @@ class PreferencesTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(expected.stat().st_mode), 0o600)
 
         with patch.dict(os.environ, {'OMP_PROFILE': 'work', 'PI_CODING_AGENT_DIR': str(omp_root)}):
-            self.assertEqual(agent_dir(None, host='claude'), self.home / '.claude/usage-dashboard')
+            self.assertEqual(agent_dir(None, host='claude'), self.home / '.claude/useful-sidebar')
             self.assertEqual(load_preferences(None, host='claude')['providers'], ['anthropic'])
-            self.assertFalse((self.home / '.claude/usage-dashboard/usage-dashboard.json').exists())
+            self.assertFalse((self.home / '.claude/useful-sidebar/useful-sidebar.json').exists())
 
     def test_claude_named_theme_round_trips_independently_per_host(self):
         omp_path = preferences_path(None)

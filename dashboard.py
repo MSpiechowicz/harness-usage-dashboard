@@ -144,7 +144,7 @@ def initialize_colors(config):
 def tmux_binary():
     global TMUX
     if TMUX is None:
-        candidates = [shutil.which('tmux'), str(Path.home() / '.local/share/omp-usage-dashboard/vendor/usr/bin/tmux')]
+        candidates = [shutil.which('tmux'), str(Path.home() / '.local/share/harness-useful-sidebar/vendor/usr/bin/tmux')]
         for candidate in dict.fromkeys(path for path in candidates if path):
             try:
                 output = subprocess.check_output([candidate, '-V'], text=True, stderr=subprocess.DEVNULL, timeout=10)
@@ -249,7 +249,7 @@ def restore_owner_passthrough(owner, host):
 def control(args, words):
     host = host_of(args)
     if get_host(host).launch_policy == 'native-mod':
-        raise ValueError('Use the native /usage-dashboard command in Claude.')
+        raise ValueError('Use the native /useful-sidebar command in Claude.')
     owner = args.owner or os.environ.get('TMUX_PANE')
     if owner and not re.fullmatch(r'%\d+', owner):
         raise ValueError('Invalid dashboard pane identity.')
@@ -289,7 +289,7 @@ def control(args, words):
     if host != 'omp':
         disable_passthrough(owner)
     if words == ['window', 'focus'] and not config['enabled']:
-        raise ValueError('Dashboard is off; use /usage-dashboard window on first.')
+        raise ValueError('Dashboard is off; use /useful-sidebar window on first.')
     panes = owned_panes(owner, host=host)
     recreate = config['enabled'] and (not panes or old['side'] != config['side'])
     if recreate:
@@ -388,7 +388,7 @@ def watch(screen, args):
     host = host_of(args)
     adapter = get_host(host)
     if adapter.launch_policy == 'native-mod':
-        raise ValueError('Use the native /usage-dashboard command in Claude.')
+        raise ValueError('Use the native /useful-sidebar command in Claude.')
     try:
         curses.curs_set(0)
     except curses.error:
@@ -514,7 +514,7 @@ def watch(screen, args):
                         rows.append(('', 'dim'))
                 if not visible:
                     rows += [('No visible providers' if config['providers'] else 'Add at least one provider.', 'dim'),
-                            ('/usage-dashboard providers', 'dim'),
+                            ('/useful-sidebar providers', 'dim'),
                             ('Choose Add to select a provider.', 'dim')]
                 if width < 22:
                     rows = [('Widen terminal', 'warn')]
@@ -590,7 +590,7 @@ def watch(screen, args):
 
 
 def extension_path(profile):
-    installed = agent_dir(profile) / 'extensions/usage-dashboard.js'
+    installed = agent_dir(profile) / 'extensions/useful-sidebar.js'
     return installed if installed.is_symlink() and installed.resolve() == ROOT / 'extension.js' else ROOT / 'extension.js'
 
 
@@ -598,7 +598,7 @@ def launch(args, omp_args):
     host = host_of(args)
     adapter = get_host(host)
     if adapter.launch_policy == 'native-mod':
-        raise ValueError('Run Claude directly with the native usage-dashboard mod.')
+        raise ValueError('Run Claude directly with the native useful-sidebar mod.')
     if os.environ.get('TMUX'):
         if adapter.launch_policy == 'exit-status':
             raise ValueError(f'Run {host} directly in this tmux pane; use control to attach the dashboard.')
@@ -704,7 +704,7 @@ def main():
         parser.error('--interval must be at least 15 seconds')
     try:
         if get_host(args.host).launch_policy == 'native-mod':
-            raise ValueError('Use the native /usage-dashboard command in Claude.')
+            raise ValueError('Use the native /useful-sidebar command in Claude.')
         config = defaults(args)
         if args.action == 'launch':
             if get_host(args.host).launch_policy == 'omp-extension' and any(

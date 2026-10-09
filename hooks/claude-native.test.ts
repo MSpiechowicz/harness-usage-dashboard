@@ -1,4 +1,4 @@
-import type { On, TurnStepChunk, TurnStepResult, UsageDashboardSnapshot } from "claude-code";
+import type { On, TurnStepChunk, TurnStepResult, UsefulSidebarSnapshot } from "claude-code";
 import type { Engine } from "claude-code/testing";
 import { expect, mock, test } from "claude-code/testing";
 import { normalizedAllowance, normalizedUsage } from "./register.js";
@@ -28,14 +28,14 @@ function helperPayload(text: string | undefined): HelperPayload {
   return payload as HelperPayload;
 }
 
-function helperSuccess(snapshot: UsageDashboardSnapshot | undefined = undefined) {
+function helperSuccess(snapshot: UsefulSidebarSnapshot | undefined = undefined) {
   return { value: { exitCode: 0, stderr: "", isStdoutTruncated: false, isStderrTruncated: false,
     stdout: JSON.stringify({ version: 1, ok: true, ...snapshot }) } };
 }
 
-function observeSnapshots(on: On): UsageDashboardSnapshot[] {
-  const snapshots: UsageDashboardSnapshot[] = [];
-  on("state.set", { plugin: "harness-usage-dashboard", key: "snapshot" }, async (_$, event, next) => {
+function observeSnapshots(on: On): UsefulSidebarSnapshot[] {
+  const snapshots: UsefulSidebarSnapshot[] = [];
+  on("state.set", { plugin: "harness-useful-sidebar", key: "snapshot" }, async (_$, event, next) => {
     const result = await next(event);
     if (result.value !== undefined && result.value.isSet) snapshots.push(event.value);
     return result;
@@ -43,7 +43,7 @@ function observeSnapshots(on: On): UsageDashboardSnapshot[] {
   return snapshots;
 }
 
-function latestSnapshot(snapshots: UsageDashboardSnapshot[]): UsageDashboardSnapshot {
+function latestSnapshot(snapshots: UsefulSidebarSnapshot[]): UsefulSidebarSnapshot {
   const snapshot = snapshots.at(-1);
   if (!snapshot) throw new Error("No accepted snapshot write");
   return snapshot;
@@ -51,10 +51,10 @@ function latestSnapshot(snapshots: UsageDashboardSnapshot[]): UsageDashboardSnap
 
 function mountDashboard($: Engine) {
   return $.ui.mount({
-    plugin: "harness-usage-dashboard", surface: "terminal", component: "Pane",
-    requestId: "usage-dashboard",
+    plugin: "harness-useful-sidebar", surface: "terminal", component: "Pane",
+    requestId: "useful-sidebar",
     props: {
-      title: "Usage Dashboard", isFocused: false, bodyColumns: 64, placement: "inline",
+      title: "Useful Sidebar", isFocused: false, bodyColumns: 64, placement: "inline",
       scroll: { offset: 0, bodyRows: 20 }, view: {},
     },
   });
@@ -178,7 +178,7 @@ test("helper failure cannot replace the original request error or imply zero cap
   on("session.id", () => ({ value: "error-session" }));
   on("session.cwd", () => ({ value: "/native-fixture" }));
   on("classic.SessionStart", () => ({}));
-  const knownSnapshot: UsageDashboardSnapshot = {
+  const knownSnapshot: UsefulSidebarSnapshot = {
     rows: [{ text: "Observed tokens: 17", token: "text", emphasis: null }],
     preferences: {}, tokens: {},
     capture: { state: "available", reason: "Observed report", lastEventAt: 1_699_999_999 },
@@ -244,12 +244,12 @@ function menuFixture(on: On) {
     ? { deny: "Session surfaces unavailable" } : { value: fixture.surfaces });
   on("classic.SessionStart", () => ({}));
   on("ui.panes", () => ({ value: fixture.paneOpen ? [{
-    id: "usage-dashboard", title: "Usage Dashboard", isPlaced: fixture.placed,
+    id: "useful-sidebar", title: "Useful Sidebar", isPlaced: fixture.placed,
     isShown: fixture.shown, isFocused: false,
   }] : [] }));
   on("ui.open", (_$, event) => {
     fixture.openedIds.push(event.id);
-    if (event.id === "usage-dashboard-settings") return { value: { isPlaced: true } };
+    if (event.id === "useful-sidebar-settings") return { value: { isPlaced: true } };
     fixture.opens += 1;
     fixture.paneOpen = true;
     return { value: { isPlaced: fixture.placed } };
@@ -268,7 +268,7 @@ function menuFixture(on: On) {
       }
       fixture.writes.push(request.words!);
       return { value: { exitCode: 0, stderr: "", isStdoutTruncated: false, isStderrTruncated: false,
-        stdout: JSON.stringify({ version: 1, ok: true, text: "Usage Dashboard settings saved." }) } };
+        stdout: JSON.stringify({ version: 1, ok: true, text: "Useful Sidebar settings saved." }) } };
     }
     const payload = helperPayload(event.init?.stdin);
     fixture.captured.push(payload);
@@ -294,8 +294,8 @@ function menuFixture(on: On) {
 
 function mountSettings($: Engine) {
   return $.ui.mount({
-    plugin: "harness-usage-dashboard", surface: "terminal", component: "Pane",
-    requestId: "usage-dashboard-settings",
+    plugin: "harness-useful-sidebar", surface: "terminal", component: "Pane",
+    requestId: "useful-sidebar-settings",
     props: {
       title: "Dashboard Settings", isFocused: true, bodyColumns: 64, placement: "inline",
       scroll: { offset: 0, bodyRows: 30 }, view: {},
@@ -306,11 +306,11 @@ function mountSettings($: Engine) {
 test("bare command opens the settings pane without enabling or changing the dashboard", async ($, on) => {
   const fixture = menuFixture(on);
   await $.classic.SessionStart({ source: "startup", session_id: fixture.session, cwd: "/native-fixture", transcript_path: "/unused" });
-  const reply = await $.command.run({ command: "usage-dashboard", args: "" });
+  const reply = await $.command.run({ command: "useful-sidebar", args: "" });
   expect(reply.text).toMatch(/settings open/i);
   expect(reply.text).toMatch(/capture unknown/i);
   expect(reply.text).not.toMatch(/^TOKEN RATE/m);
-  expect(fixture.openedIds).toEqual(["usage-dashboard-settings"]);
+  expect(fixture.openedIds).toEqual(["useful-sidebar-settings"]);
   expect(fixture.writes).toEqual([]);
   expect(latestSnapshot(fixture.snapshots).preferences.enabled).toBe(false);
   const ui = await mountDashboard($);
@@ -325,7 +325,7 @@ test("bare command opens the settings pane without enabling or changing the dash
 test("settings pane lists every dashboard section in order and each pick saves its command", async ($, on) => {
   const fixture = menuFixture(on);
   await $.classic.SessionStart({ source: "startup", session_id: fixture.session, cwd: "/native-fixture", transcript_path: "/unused" });
-  await $.command.run({ command: "usage-dashboard", args: "" });
+  await $.command.run({ command: "useful-sidebar", args: "" });
   const ui = await mountSettings($);
   try {
     const selects = await ui.findAll({ type: "Select" });
@@ -350,7 +350,7 @@ test("settings pane lists every dashboard section in order and each pick saves i
     expect(fixture.writes.length).toBe(before);
     await ui.select({ key: "dashboard", value: "on" });
     expect(fixture.writes.at(-1)).toEqual(["window", "on"]);
-    expect(fixture.openedIds.at(-1)).toBe("usage-dashboard");
+    expect(fixture.openedIds.at(-1)).toBe("useful-sidebar");
   } finally {
     await ui.unmount();
   }
@@ -362,10 +362,10 @@ test("settings stay unavailable without surfaces and direct help keeps diagnosti
     fixture.captureState = captureState;
     fixture.captureReason = captureState === "unknown" ? "No native report" : "One request has no usage report";
     fixture.snapshotFailure = false;
-    await $.command.run({ command: "usage-dashboard", args: "window refresh" });
+    await $.command.run({ command: "useful-sidebar", args: "window refresh" });
     fixture.snapshotFailure = true;
     fixture.surfacesUnavailable = true;
-    const noSurfaces = await $.command.run({ command: "usage-dashboard", args: "" });
+    const noSurfaces = await $.command.run({ command: "useful-sidebar", args: "" });
     expect(noSurfaces.text).toMatch(/presentation unavailable/i);
     expect(noSurfaces.text).toMatch(new RegExp(`capture ${captureState}`, "i"));
     expect(noSurfaces.text).toContain(fixture.captureReason);
@@ -373,7 +373,7 @@ test("settings stay unavailable without surfaces and direct help keeps diagnosti
     fixture.surfacesUnavailable = false;
     fixture.preferenceFailure = "unsupported_command";
     for (const args of ["help", "unknown-command", "providers add unsupported-provider", "theme custom accent window"]) {
-      const reply = await $.command.run({ command: "usage-dashboard", args });
+      const reply = await $.command.run({ command: "useful-sidebar", args });
       expect(reply.text).toMatch(/Direct commands:/);
       expect(reply.text).toMatch(new RegExp(`capture ${captureState}`, "i"));
       expect(reply.text).toContain(fixture.captureReason);
@@ -393,7 +393,7 @@ test("headless bare command returns usage and direct help without opening or mut
     questions += 1;
     return { deny: "No question should be asked" };
   });
-  const answer = await $.command.run({ command: "usage-dashboard", args: "" });
+  const answer = await $.command.run({ command: "useful-sidebar", args: "" });
   expect(answer.text).toMatch(/^TOKEN RATE/m);
   expect(questions).toBe(0);
   expect(fixture.writes).toEqual([]);
@@ -406,7 +406,7 @@ test("refresh seeds the allowance from the session's last reported rate limits",
   const resetsAt = new Date(1_700_000_000_000 + 3_600_000).toISOString();
   on("session.usage", () => ({ value: { startedAt: 0, context: { windowSize: 200_000 },
     rateLimits: [{ kind: "five_hour", percentUsed: 3, resetsAt }, { kind: "seven_day", percentUsed: 0 }] } }));
-  await $.command.run({ command: "usage-dashboard", args: "window refresh" });
+  await $.command.run({ command: "useful-sidebar", args: "window refresh" });
   const snapshot = fixture.captured.filter(payload => payload.op === "snapshot").at(-1) as
     HelperPayload & { allowance: { windows: { label: string; usedFraction: number }[] } | null };
   expect(snapshot.allowance?.windows.map(window => [window.label, window.usedFraction]))
@@ -424,7 +424,7 @@ test("routine rendering-surface replies omit the chart even for hidden, closed, 
   ]) {
     Object.assign(fixture, pane);
     for (const args of ["chart dots", "view list", "window refresh"]) {
-      const reply = await $.command.run({ command: "usage-dashboard", args });
+      const reply = await $.command.run({ command: "useful-sidebar", args });
       expect(reply.text).not.toMatch(/^TOKEN RATE/m);
       expect(reply.text).toMatch(/capture unknown/i);
       expect(latestSnapshot(fixture.snapshots).preferences.enabled).toBe(pane.enabled);
@@ -436,22 +436,22 @@ test("routine rendering-surface replies omit the chart even for hidden, closed, 
 test("only headless or explicitly unplaced opens return chart fallbacks and off stays concise", async ($, on) => {
   const fixture = menuFixture(on);
   fixture.surfaces = [];
-  const headless = await $.command.run({ command: "usage-dashboard", args: "window refresh" });
+  const headless = await $.command.run({ command: "useful-sidebar", args: "window refresh" });
   expect(headless.text).toMatch(/^TOKEN RATE/m);
   expect(fixture.opens).toBe(0);
   fixture.surfaces = ["terminal"];
   fixture.placed = false;
   for (const args of ["window on", "window focus"]) {
-    const reply = await $.command.run({ command: "usage-dashboard", args });
+    const reply = await $.command.run({ command: "useful-sidebar", args });
     expect(reply.text).toMatch(/^TOKEN RATE/m);
     expect(reply.text).toMatch(/cannot place/i);
   }
   fixture.placed = true;
-  const placed = await $.command.run({ command: "usage-dashboard", args: "window focus" });
+  const placed = await $.command.run({ command: "useful-sidebar", args: "window focus" });
   expect(placed.text).not.toMatch(/^TOKEN RATE/m);
   for (const surfaces of [["terminal"], []]) {
     fixture.surfaces = surfaces;
-    const off = await $.command.run({ command: "usage-dashboard", args: "window off" });
+    const off = await $.command.run({ command: "useful-sidebar", args: "window off" });
     expect(off.text).not.toMatch(/^TOKEN RATE/m);
     expect(off.text).toMatch(/window off/i);
     expect(fixture.paneOpen).toBe(false);
@@ -459,37 +459,33 @@ test("only headless or explicitly unplaced opens return chart fallbacks and off 
   expect(fixture.closes).toBe(2);
 });
 
-test("concise replies preserve read, storage and migration diagnostics without transcript charts", async ($, on) => {
+test("concise replies preserve read and storage diagnostics without transcript charts", async ($, on) => {
   const fixture = menuFixture(on);
-  await $.command.run({ command: "usage-dashboard", args: "window refresh" });
+  await $.command.run({ command: "useful-sidebar", args: "window refresh" });
   fixture.snapshotFailure = true;
-  const readFailure = await $.command.run({ command: "usage-dashboard", args: "window refresh" });
+  const readFailure = await $.command.run({ command: "useful-sidebar", args: "window refresh" });
   expect(readFailure.text).toMatch(/capture or history may be incomplete/i);
   expect(readFailure.text).not.toMatch(/^TOKEN RATE/m);
   fixture.snapshotFailure = false;
-  const recovered = await $.command.run({ command: "usage-dashboard", args: "window refresh" });
+  const recovered = await $.command.run({ command: "useful-sidebar", args: "window refresh" });
   expect(latestSnapshot(fixture.snapshots).failure).toBe("");
   expect(recovered.text).not.toMatch(/capture or history may be incomplete/i);
   fixture.preferenceFailure = "storage_unavailable";
-  const storageFailure = await $.command.run({ command: "usage-dashboard", args: "theme blue" });
+  const storageFailure = await $.command.run({ command: "useful-sidebar", args: "theme blue" });
   expect(storageFailure.text).toMatch(/capture or history may be incomplete/i);
   expect(storageFailure.text).not.toMatch(/^TOKEN RATE/m);
-  fixture.preferenceFailure = "migration_required";
-  const migrationFailure = await $.command.run({ command: "usage-dashboard", args: "theme blue" });
-  expect(migrationFailure.text).toMatch(/explicitly migrate/i);
-  expect(migrationFailure.text).not.toMatch(/^TOKEN RATE/m);
   expect(fixture.writes).toEqual([]);
   expect(fixture.opens).toBe(0);
 });
 
 test("unknown session surfaces report presentation failure without changing capture or storage health", async ($, on) => {
   const fixture = menuFixture(on);
-  await $.command.run({ command: "usage-dashboard", args: "window refresh" });
+  await $.command.run({ command: "useful-sidebar", args: "window refresh" });
   const before = latestSnapshot(fixture.snapshots);
   fixture.surfacesUnavailable = true;
   for (const snapshotFailure of [false, true]) {
     fixture.snapshotFailure = snapshotFailure;
-    const reply = await $.command.run({ command: "usage-dashboard", args: "window refresh" });
+    const reply = await $.command.run({ command: "useful-sidebar", args: "window refresh" });
     expect(reply.text).toMatch(/presentation unavailable/i);
     expect(reply.text).not.toMatch(/^TOKEN RATE/m);
     expect(reply.text).toMatch(/capture unknown/i);
@@ -504,7 +500,7 @@ test("unknown session surfaces report presentation failure without changing capt
   }
   fixture.surfacesUnavailable = false;
   fixture.snapshotFailure = false;
-  const recovered = await $.command.run({ command: "usage-dashboard", args: "window refresh" });
+  const recovered = await $.command.run({ command: "useful-sidebar", args: "window refresh" });
   expect(recovered.text).not.toMatch(/presentation unavailable/i);
   expect(latestSnapshot(fixture.snapshots).failure).toBe("");
   expect(fixture.writes).toEqual([]);

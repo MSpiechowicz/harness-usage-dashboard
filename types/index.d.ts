@@ -1,22 +1,21 @@
 declare module "claude-code" {
-  export type UsageDashboardContext = {
+  export type UsefulSidebarContext = {
     owner: string;
     session: string;
     activation: string;
     cwd: string;
   };
 
-  export type UsageDashboardInstance = {
+  export type UsefulSidebarInstance = {
     owner: string;
-    context: UsageDashboardContext | null;
+    context: UsefulSidebarContext | null;
     failure?: string;
-    blocked?: boolean;
   };
 
-  export type UsageDashboardToken = "text" | "muted" | "secondary" | "accent" | "chart" | "good" | "warn" | "error";
-  export type UsageDashboardPalette = Partial<Record<UsageDashboardToken, string>>;
+  export type UsefulSidebarToken = "text" | "muted" | "secondary" | "accent" | "chart" | "good" | "warn" | "error";
+  export type UsefulSidebarPalette = Partial<Record<UsefulSidebarToken, string>>;
 
-  export type UsageDashboardPreferences = {
+  export type UsefulSidebarPreferences = {
     providers: string[];
     hidden: string[];
     windows: Record<string, string[]>;
@@ -32,22 +31,22 @@ declare module "claude-code" {
     enabled: boolean;
     theme: "green" | "blue" | "brown" | "yellow" | "cyan" | "magenta" | "orange" | "red" | "claude";
     chart_type: "bars" | "dots" | "trace";
-    tokens: UsageDashboardPalette;
+    tokens: UsefulSidebarPalette;
   };
 
-  export type UsageDashboardRow = {
+  export type UsefulSidebarRow = {
     text: string;
-    token: UsageDashboardToken;
-    emphasis: { start: number; end: number; token: UsageDashboardToken } | null;
+    token: UsefulSidebarToken;
+    emphasis: { start: number; end: number; token: UsefulSidebarToken } | null;
   };
 
-  export type UsageDashboardCapture = {
+  export type UsefulSidebarCapture = {
     state: "available" | "unknown" | "incomplete";
     reason: string;
     lastEventAt: number | null;
   };
 
-  export type UsageDashboardProviderTotals = {
+  export type UsefulSidebarProviderTotals = {
     provider: string;
     input: number;
     output: number;
@@ -56,17 +55,17 @@ declare module "claude-code" {
     total: number;
   };
 
-  export type UsageDashboardModelTotals = UsageDashboardProviderTotals & { model: string };
-  export type UsageDashboardEffortTotals = UsageDashboardModelTotals & { thinking_level: string };
+  export type UsefulSidebarModelTotals = UsefulSidebarProviderTotals & { model: string };
+  export type UsefulSidebarEffortTotals = UsefulSidebarModelTotals & { thinking_level: string };
 
-  export type UsageDashboardSessionHistory = {
+  export type UsefulSidebarSessionHistory = {
     project: string;
     id: string;
     started: number;
     updated: number;
-    providers: UsageDashboardProviderTotals[];
-    models: UsageDashboardEffortTotals[];
-    model_summaries: UsageDashboardModelTotals[];
+    providers: UsefulSidebarProviderTotals[];
+    models: UsefulSidebarEffortTotals[];
+    model_summaries: UsefulSidebarModelTotals[];
     quota: {
       provider: string;
       label: string;
@@ -78,17 +77,17 @@ declare module "claude-code" {
     }[];
   };
 
-  export type UsageDashboardHistory = {
-    current: UsageDashboardSessionHistory | null;
-    previous: UsageDashboardSessionHistory | null;
-    history: UsageDashboardEffortTotals[];
-    history_summaries: UsageDashboardModelTotals[];
-    total_history: UsageDashboardEffortTotals[];
-    total_history_summaries: UsageDashboardModelTotals[];
+  export type UsefulSidebarHistory = {
+    current: UsefulSidebarSessionHistory | null;
+    previous: UsefulSidebarSessionHistory | null;
+    history: UsefulSidebarEffortTotals[];
+    history_summaries: UsefulSidebarModelTotals[];
+    total_history: UsefulSidebarEffortTotals[];
+    total_history_summaries: UsefulSidebarModelTotals[];
     chart: number[];
   };
 
-  export type UsageDashboardAllowanceReport = {
+  export type UsefulSidebarAllowanceReport = {
     provider: "anthropic";
     fetchedAt: number;
     limits: {
@@ -102,24 +101,24 @@ declare module "claude-code" {
 
   // Initial and helper-failure snapshots have rows, palette and preferences but
   // no accounting report. Missing capture/history never means measured zero.
-  export type UsageDashboardSnapshot = {
-    rows: UsageDashboardRow[];
-    tokens: UsageDashboardPalette;
-    preferences: Partial<UsageDashboardPreferences>;
+  export type UsefulSidebarSnapshot = {
+    rows: UsefulSidebarRow[];
+    tokens: UsefulSidebarPalette;
+    preferences: Partial<UsefulSidebarPreferences>;
     session?: string;
     activation?: string;
     failure?: string;
-    capture?: UsageDashboardCapture;
-    history?: UsageDashboardHistory;
-    reports?: UsageDashboardAllowanceReport[];
+    capture?: UsefulSidebarCapture;
+    history?: UsefulSidebarHistory;
+    reports?: UsefulSidebarAllowanceReport[];
     version?: 1;
     ok?: true;
   };
 
   interface PluginState {
-    "harness-usage-dashboard": {
-      instance: UsageDashboardInstance;
-      snapshot: UsageDashboardSnapshot;
+    "harness-useful-sidebar": {
+      instance: UsefulSidebarInstance;
+      snapshot: UsefulSidebarSnapshot;
     };
   }
 }
