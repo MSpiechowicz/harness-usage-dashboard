@@ -1,4 +1,4 @@
-# Harness Usage Dashboard
+# Harness Useful Sidebar
 
 Live token charts and persistent session history for [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi) in a tmux sidebar and for Claude Code in a native Pane.
 
@@ -8,7 +8,7 @@ For OMP, see how quickly your current session is using tokens, what your previou
 
 [Install](#installation) · [Use](#usage) · [Themes](#theme-preview) · [Update](#updating) · [Uninstall](#uninstalling) · [Troubleshoot](#troubleshooting)
 
-Inside either host, use `/usage-dashboard view compact` for the overview or `/usage-dashboard view details` for per-model token accounting. OMP's command and Claude's immediate native command are separate integrations; only OMP records observed account-specific session quota changes.
+Inside either host, use `/useful-sidebar view compact` for the overview or `/useful-sidebar view details` for per-model token accounting. OMP's command and Claude's immediate native command are separate integrations; only OMP records observed account-specific session quota changes.
 
 ## What it does
 
@@ -51,7 +51,7 @@ Inside either host, use `/usage-dashboard view compact` for the overview or `/us
 
 **Terminal-agnostic OMP dashboard; pane-managed OMP images.** Use your preferred terminal application for the OMP sidebar. It uses tmux and curses rather than a terminal-specific API or plugin. tmux is required for OMP, but you do not need to start it manually: OMP's installed shell hook starts a session or attaches the dashboard inside an existing one. Neither host's binary nor renderer is patched. When the tmux build reports `sixel_support=1` and every client attached to the OMP pane's session advertises SIXEL, the launcher sets process-local defaults `PI_FORCE_IMAGE_PROTOCOL=sixel` and `PI_ALLOW_SIXEL_PASSTHROUGH=1`. Explicit shell values remain unchanged. Fresh panes wait briefly for a client before capability selection. Unsupported or unknown capabilities leave OMP's protocol selection unchanged; inline previews are not guaranteed in that case.
 
-The old `/usage-dashboard images on|off` setting from release 1.0.61 remains retired. A saved `images_enabled` value is ignored without rewriting the preferences file and is removed on the next settings save. While OMP is dashboard-managed, its pane has tmux `allow-passthrough=off`, including when the sidebar is hidden. Window and sidebar settings are left alone. On detach, the OMP pane's prior explicit setting is restored unless it was changed outside the dashboard. Records from both earlier containment and passthrough-enabling releases retain their original pre-dashboard value.
+While OMP is dashboard-managed, its pane has tmux `allow-passthrough=off`, including when the sidebar is hidden. Window and sidebar settings are left alone. On detach, the OMP pane's prior explicit setting is restored unless it was changed outside the dashboard.
 
 **Pane size and image ownership.** tmux exposes the OMP pane's own dimensions and resize events. Image-width limits alone do not prevent misplaced graphics: raw passthrough bypasses tmux's pane grid, so direct image placements can cover unrelated text or sibling panes after redraw or resize. Native SIXEL instead passes through tmux's parser and image lifecycle. OMP's `PI_ALLOW_SIXEL_PASSTHROUGH` permits SIXEL bytes in its renderer; it does **not** enable tmux's raw DCS passthrough. The dashboard does not force terminal dimensions or enable raw passthrough as a fallback.
 
@@ -71,7 +71,7 @@ sudo apt install python3 tmux git
 brew install python tmux git
 ```
 
-The OMP installer validates Python, curses, OMP, and tmux. It recognizes an already-installed compatible tmux at `~/.local/share/omp-usage-dashboard/vendor/usr/bin/tmux` and does not download or bundle tmux. Claude's native plugin uses `python3` to invoke its packaged helper and leaves the globally installed CLI unchanged.
+The OMP installer validates Python, curses, OMP, and tmux. It recognizes an already-installed compatible tmux at `~/.local/share/harness-useful-sidebar/vendor/usr/bin/tmux` and does not download or bundle tmux. Claude's native plugin uses `python3` to invoke its packaged helper and leaves the globally installed CLI unchanged.
 
 </details>
 
@@ -80,24 +80,22 @@ Choose **one or both** independent host integrations. OMP installation uses its 
 
 ### Recommended for OMP: marketplace
 
-Marketplace installation requires a published [catalog](https://github.com/MSpiechowicz/harness-usage-dashboard/blob/main/.omp-plugin/marketplace.json) and its referenced [release tag](https://github.com/MSpiechowicz/harness-usage-dashboard/releases) containing the renamed plugin. Until both are available, use the [source-checkout method](#alternative-source-checkout). If a previous extension is installed, [remove it first](#remove-the-previous-extension).
+Marketplace installation requires a published [catalog](https://github.com/MSpiechowicz/harness-useful-sidebar/blob/main/.omp-plugin/marketplace.json) and its referenced [release tag](https://github.com/MSpiechowicz/harness-useful-sidebar/releases) containing the plugin. Until both are available, use the [source-checkout method](#alternative-source-checkout).
 
 **1. Register the marketplace and install the plugin.** Run these commands in your shell:
 
 ```sh
-omp plugin marketplace add MSpiechowicz/harness-usage-dashboard
-omp plugin install harness-usage-dashboard@harness-usage-dashboard --scope user
+omp plugin marketplace add MSpiechowicz/harness-useful-sidebar
+omp plugin install harness-useful-sidebar@harness-useful-sidebar --scope user
 ```
 
 **2. Enable automatic sidebar launch with ordinary `omp`.**
 
 ```sh
-python3 ~/.omp/plugins/node_modules/harness-usage-dashboard/install.py --native
+python3 ~/.omp/plugins/node_modules/harness-useful-sidebar/install.py --native
 ```
 
 Use the stable **`node_modules` path**, not a versioned cache directory. Native upgrades change its target, so the shell hook continues to launch the installed version. OMP remains responsible for extension discovery, enablement, and project-over-user precedence; native setup does not create a duplicate agent extension.
-
-OMP-specific shell-hook and local-data paths retain their existing names so removal and reinstallation preserve recorded usage and preferences; they are not the marketplace or plugin ID.
 
 **3. Start OMP.**
 
@@ -111,19 +109,19 @@ For other installation layouts, use the matching stable package path:
 
 | Layout | Installer path |
 | --- | --- |
-| Default user installation | `~/.omp/plugins/node_modules/harness-usage-dashboard/install.py` |
-| Active XDG data layout | `$XDG_DATA_HOME/omp/plugins/node_modules/harness-usage-dashboard/install.py` |
-| Project installation | `<project>/.omp/plugins/node_modules/harness-usage-dashboard/install.py` |
+| Default user installation | `~/.omp/plugins/node_modules/harness-useful-sidebar/install.py` |
+| Active XDG data layout | `$XDG_DATA_HOME/omp/plugins/node_modules/harness-useful-sidebar/install.py` |
+| Project installation | `<project>/.omp/plugins/node_modules/harness-useful-sidebar/install.py` |
 
-For project scope, run `omp plugin install harness-usage-dashboard@harness-usage-dashboard --scope project` from the project root, then configure its stable installer path with `--native`.
+For project scope, run `omp plugin install harness-useful-sidebar@harness-useful-sidebar --scope project` from the project root, then configure its stable installer path with `--native`.
 
 ### Alternative: source checkout
 
 Use this for development or until the catalog and release described above are published:
 
 ```sh
-git clone https://github.com/MSpiechowicz/harness-usage-dashboard.git
-cd harness-usage-dashboard
+git clone https://github.com/MSpiechowicz/harness-useful-sidebar.git
+cd harness-useful-sidebar
 python3 install.py
 ```
 
@@ -131,25 +129,25 @@ Then run `omp`, using the shell-activation guidance above. **Keep the checkout i
 
 ### Claude Code: native plugin
 
-Install Claude CLI **2.1.287 or later** and Python **3.10+** first. The runtime is not bundled with this dashboard. Check the actual CLI, bypassing any old shell function:
+Install Claude CLI **2.1.287 or later** and Python **3.10+** first. The runtime is not bundled with this dashboard. Check the actual CLI:
 
 ```sh
 command claude --version
 ```
 
-The commands below use `command claude` so a leftover dashboard shell function cannot intercept installation. If you see `python3: can't open file '.../claude_launcher.py'`, the shell is still invoking the removed legacy launcher; it has not reached Claude's plugin manager. Complete [legacy migration](#migrating-the-legacy-claude-integration), then open a new shell before using native capture. Bypassing the function alone does not remove the old ownership record or unblock capture.
+The commands below use `command claude` so a shell function or alias cannot intercept installation.
 
 **Current checkout / local development:** use the checkout containing these native files, not an installed version cache:
 
 ```sh
-command claude --plugin-dir /absolute/path/to/harness-usage-dashboard
+command claude --plugin-dir /absolute/path/to/harness-useful-sidebar
 ```
 
 From this checkout root, `command claude --plugin-dir .` also works. Claude watches development modules for reloads. Keep the checkout in place, and avoid loading a marketplace copy of the same plugin simultaneously. For a local catalog installation instead, replace the example path with your checkout's actual absolute path:
 
 ```sh
-command claude plugin marketplace add /absolute/path/to/harness-usage-dashboard
-command claude plugin install harness-usage-dashboard@harness-usage-dashboard --scope user
+command claude plugin marketplace add /absolute/path/to/harness-useful-sidebar
+command claude plugin install harness-useful-sidebar@harness-useful-sidebar --scope user
 ```
 
 The catalog is `.claude-plugin/marketplace.json`, whose plugin source is the repository root (`./`). Use `--plugin-dir` for active edits: version-cached installed copies do not necessarily reflect checkout changes.
@@ -157,33 +155,13 @@ The catalog is `.claude-plugin/marketplace.json`, whose plugin source is the rep
 **Future published GitHub versions:** once the native manifest, catalog, and corresponding code are published, users can install them with:
 
 ```sh
-command claude plugin marketplace add MSpiechowicz/harness-usage-dashboard
-command claude plugin install harness-usage-dashboard@harness-usage-dashboard --scope user
+command claude plugin marketplace add MSpiechowicz/harness-useful-sidebar
+command claude plugin install harness-useful-sidebar@harness-useful-sidebar --scope user
 ```
 
 These GitHub commands fetch published repository content, **not uncommitted local changes**. This cutover does not itself bump a version or publish a release. Until a native version is available there, use the current checkout or local catalog above.
 
-Restart Claude after installation and confirm the plugin is enabled in `/plugin`. Workspace trust, safe/bare mode, disabled hooks, and organizational mod policy can prevent loading; see [Claude's mod troubleshooting](https://code.claude.com/docs/en/plugins/mods/troubleshoot). The plugin registers an immediate `/usage-dashboard` command and opens a native Pane where the surface supports it. It does not install a personal skill, shell wrapper, or OMP extension.
-
-### Migrating the legacy Claude integration
-
-Migration is **manual and never runs on plugin load**. Use the same `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, and shell-startup environment as the old installation. First preview from the native checkout:
-
-```sh
-python3 claude_migrate.py
-```
-
-Review every proposed path. **Close all Claude sessions using the old integration before applying**, then remove only the recorded owned integration:
-
-```sh
-python3 claude_migrate.py --apply
-```
-
-If an old `claude-usage` wrapper was installed in a custom directory, pass its original `--bin-dir PATH` to both commands. Open a **new shell after applying**, then load the native plugin.
-
-The ownership record is `${CLAUDE_CONFIG_DIR:-~/.claude}/usage-dashboard/installation.json`. Migration verifies recorded paths, digests, and exact startup-block ownership before removing managed shell files, startup blocks, the old personal skill, a proven-owned wrapper, and finally the record. Both preview and apply refuse modified, foreign, malformed, missing-required, symlinked, or unsafe-ownership/permission paths. Shared writable custom config or bin directories can let another user redirect a checked path: every existing ancestor must be owned by the current user or root and not group/world-writable. Root-owned sticky ancestors such as `/tmp` are allowed, but not as a target's immediate parent. Files must be current-user-owned and not group/world-writable; ordinary `644` startup files, `755` wrappers, and read-only owned files remain eligible. Migration never adopts, creates, or changes directory permissions to make unsafe paths eligible, and rechecks all targets before applying. This does not protect against hostile same-user or root processes. No ownership record grants no permission to delete familiar-looking files. The ledger, preferences, checkout, unrelated startup text, and user files are preserved.
-
-**Existing source users:** the source cutover removes the old launcher, but an already-loaded `claude` shell function can still point to it, and the old personal skill can still point to this checkout. Until manual migration and a new shell, use `command claude` to bypass that loaded function when invoking the actual CLI. This bypass does not complete migration or enable native capture while the old ownership record remains. Do not run the removed installer or old skill to repair the cutover, and do not delete foreign files to force migration.
+Restart Claude after installation and confirm the plugin is enabled in `/plugin`. Workspace trust, safe/bare mode, disabled hooks, and organizational mod policy can prevent loading; see [Claude's mod troubleshooting](https://code.claude.com/docs/en/plugins/mods/troubleshoot). The plugin registers an immediate `/useful-sidebar` command and opens a native Pane where the surface supports it. It does not install a personal skill, shell wrapper, or OMP extension.
 
 ### Migrating a source installation to the marketplace
 
@@ -192,19 +170,6 @@ The ownership record is `${CLAUDE_CONFIG_DIR:-~/.claude}/usage-dashboard/install
 3. Open a new shell to discard the old loaded function, then run `omp`.
 
 Uninstalling the source integration preserves your preferences, credentials, and checkout. Do not delete your OMP agent directory.
-
-### Remove the previous extension
-
-Exit OMP sessions using `oh-my-pi-usage-dashboard`. For a user-scope marketplace installation, remove its shell hook **before** uninstalling the old plugin:
-
-```sh
-python3 ~/.omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py --native --uninstall &&
-omp plugin uninstall oh-my-pi-usage-dashboard@omp-usage-dashboard --scope user
-```
-
-For a project-scope installation, run from the project root, use `<project>/.omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py` and `--scope project`. With an XDG data layout, use `"$XDG_DATA_HOME/omp/plugins/node_modules/oh-my-pi-usage-dashboard/install.py"`. Remove the old registration with `omp plugin marketplace remove omp-usage-dashboard` only when no other installations need it; coordinate their removal first if the registration is shared.
-
-If the old extension was installed from a source checkout instead, run `python3 install.py --uninstall` from that original checkout (and repeat with the original `--agent-dir PATH` for any custom agent directories). Do not delete the OMP agent directory: uninstall preserves preferences, recorded usage, and credentials. Open a new shell to discard the old loaded hook, then follow [Installation](#installation) for `harness-usage-dashboard`.
 
 <details>
 <summary>Shell selection and manual activation</summary>
@@ -220,10 +185,10 @@ If needed, activate the hook manually using only the command for your shell:
 source ~/.config/fish/functions/omp.fish
 
 # Bash
-source ~/.config/omp-usage-dashboard/bash.sh
+source ~/.config/harness-useful-sidebar/bash.sh
 
 # Zsh
-source ~/.config/omp-usage-dashboard/zsh.sh
+source ~/.config/harness-useful-sidebar/zsh.sh
 ```
 
 These paths follow `XDG_CONFIG_HOME` when set. Existing aliases, functions, abbreviations, or unowned destination files can block installation rather than being overwritten. Resolve those conflicts deliberately. Bash login shells must load `.bashrc`; custom startup arrangements may require manual sourcing. Symlinked rc files are not rewritten.
@@ -234,7 +199,7 @@ These paths follow `XDG_CONFIG_HOME` when set. Existing aliases, functions, abbr
 
 ### Claude Code usage
 
-Start Claude with the native plugin installed/enabled, or with `command claude --plugin-dir /absolute/path/to/harness-usage-dashboard` for development. `--continue` and resume use Claude's normal session handling. Bare `/usage-dashboard` opens a focused **Dashboard Settings** pane, not model-mediated personal skill guidance. It lists one picker per setting in the order the dashboard draws them: **Dashboard** (on/off), **View**, **Theme**, then under **Sections**: **Token rate** with its **Chart style**, **Current session**, **Previous session**, **History other sessions**, **History total**, **Claude** with its **5h limit** and **7d limit** windows, and **Commands**. Arrow keys move, Enter picks, and Esc closes it. Each pick saves immediately through the same validation as the direct command. Opening settings does not open or enable the dashboard Pane, which stays read-only.
+Start Claude with the native plugin installed/enabled, or with `command claude --plugin-dir /absolute/path/to/harness-useful-sidebar` for development. `--continue` and resume use Claude's normal session handling. Bare `/useful-sidebar` opens a focused **Dashboard Settings** pane, not model-mediated personal skill guidance. It lists one picker per setting in the order the dashboard draws them: **Dashboard** (on/off), **View**, **Theme**, then under **Sections**: **Token rate** with its **Chart style**, **Current session**, **Previous session**, **History other sessions**, **History total**, **Claude** with its **5h limit** and **7d limit** windows, and **Commands**. Arrow keys move, Enter picks, and Esc closes it. Each pick saves immediately through the same validation as the direct command. Opening settings does not open or enable the dashboard Pane, which stays read-only.
 
 Fresh native preferences select `anthropic`, Compact mode, bars, the green theme, and an enabled Pane. Existing Claude preferences and token history are retained separately from OMP.
 
@@ -243,31 +208,31 @@ The settings pane replaces the earlier popup menus, whose two-to-four-choice lim
 Use one command at a time:
 
 ```text
-/usage-dashboard
-/usage-dashboard help
-/usage-dashboard view list
-/usage-dashboard view compact
-/usage-dashboard view details
-/usage-dashboard chart bars
-/usage-dashboard chart dots
-/usage-dashboard chart trace
-/usage-dashboard previous hide
-/usage-dashboard previous show
-/usage-dashboard commands hide
-/usage-dashboard commands show
-/usage-dashboard history-other hide
-/usage-dashboard history-other show
-/usage-dashboard history-total hide
-/usage-dashboard history-total show
-/usage-dashboard window on
-/usage-dashboard window off
-/usage-dashboard window focus
-/usage-dashboard window refresh
+/useful-sidebar
+/useful-sidebar help
+/useful-sidebar view list
+/useful-sidebar view compact
+/useful-sidebar view details
+/useful-sidebar chart bars
+/useful-sidebar chart dots
+/useful-sidebar chart trace
+/useful-sidebar previous hide
+/useful-sidebar previous show
+/useful-sidebar commands hide
+/useful-sidebar commands show
+/useful-sidebar history-other hide
+/useful-sidebar history-other show
+/useful-sidebar history-total hide
+/useful-sidebar history-total show
+/useful-sidebar window on
+/useful-sidebar window off
+/useful-sidebar window focus
+/useful-sidebar window refresh
 ```
 
 The Pane is a **read-only usage display**: usage rows and required capture/storage warnings, without the permanent token-qualification banner. Allowance and token-capture status share one **CLAUDE** section but remain independent: account allowance can be known while token coverage is unknown or incomplete, and accepted token reports do not establish account allowance. Hiding/removing Anthropic hides its allowance, not required capture warnings or recorded tokens. There are no permanent View, Chart, Theme, visibility, Setting, Refresh, or Close controls, and no dashboard `r`/`x` buttons. Optional **COMMANDS** help remains controlled by `commands hide` / `commands show`.
 
-Use the menu's **Window** actions or their direct equivalents: `/usage-dashboard window on` enables and reopens the Pane; `window focus` opens/focuses it without changing its saved enabled preference; `window refresh` reads the local snapshot. `window off` and a user-initiated close save the disabled preference. Escape can close a focused Pane. Bare `/usage-dashboard` opens only the menu, so use **Window → On** or the explicit command to enable a disabled Pane again.
+Use the menu's **Window** actions or their direct equivalents: `/useful-sidebar window on` enables and reopens the Pane; `window focus` opens/focuses it without changing its saved enabled preference; `window refresh` reads the local snapshot. `window off` and a user-initiated close save the disabled preference. Escape can close a focused Pane. Bare `/useful-sidebar` opens only the menu, so use **Window → On** or the explicit command to enable a disabled Pane again.
 
 Routine interactive commands return confirmations, settings/help, and any required diagnostics without copying the chart into the transcript—even when the Pane is hidden or disabled. Full snapshot text is reserved for nonrendering/headless sessions and explicit `window on` / `window focus` placement refusal. `window off` stays concise in either mode.
 
@@ -278,18 +243,18 @@ Claude also owns the outer Pane background. The plugin sets foreground colors on
 All nine palettes are available:
 
 ```text
-/usage-dashboard theme green
-/usage-dashboard theme blue
-/usage-dashboard theme brown
-/usage-dashboard theme yellow
-/usage-dashboard theme cyan
-/usage-dashboard theme magenta
-/usage-dashboard theme orange
-/usage-dashboard theme red
-/usage-dashboard theme claude
-/usage-dashboard theme custom accent #58a66a
-/usage-dashboard theme custom chart #58a66a
-/usage-dashboard theme reset
+/useful-sidebar theme green
+/useful-sidebar theme blue
+/useful-sidebar theme brown
+/useful-sidebar theme yellow
+/useful-sidebar theme cyan
+/useful-sidebar theme magenta
+/useful-sidebar theme orange
+/useful-sidebar theme red
+/useful-sidebar theme claude
+/useful-sidebar theme custom accent #58a66a
+/useful-sidebar theme custom chart #58a66a
+/useful-sidebar theme reset
 ```
 
 Choosing a named theme keeps custom overrides. `theme reset` restores green **and clears all overrides**. Supported custom tokens are `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`.
@@ -297,14 +262,14 @@ Choosing a named theme keeps custom overrides. `theme reset` restores green **an
 Claude supports only the Anthropic provider view. These are alternatives, not a sequence:
 
 ```text
-/usage-dashboard providers add anthropic
-/usage-dashboard providers remove anthropic
-/usage-dashboard providers hide anthropic
-/usage-dashboard providers show anthropic
-/usage-dashboard window hide anthropic five_hour
-/usage-dashboard window show anthropic five_hour
-/usage-dashboard window hide anthropic seven_day
-/usage-dashboard window show anthropic seven_day
+/useful-sidebar providers add anthropic
+/useful-sidebar providers remove anthropic
+/useful-sidebar providers hide anthropic
+/useful-sidebar providers show anthropic
+/useful-sidebar window hide anthropic five_hour
+/useful-sidebar window show anthropic five_hour
+/useful-sidebar window hide anthropic seven_day
+/useful-sidebar window show anthropic seven_day
 ```
 
 Provider removal also removes its window filters; hiding retains settings. Window filters match reported labels or IDs, and cannot manufacture missing allowance data. Use a filter matching the actual native report if its window IDs differ.
@@ -324,38 +289,38 @@ Allowance windows come from Claude's native rate-limit readings for the current 
 
 ### OMP usage
 
-Run `omp` normally, including `omp --resume` or `omp --continue`. Fresh installs start with **no providers selected**, on the right, in compact mode, polling every 60 seconds. The sidebar prompts you to add at least one provider: run `/usage-dashboard providers`, choose **add**, then select a provider you use. Existing saved provider selections are preserved.
+Run `omp` normally, including `omp --resume` or `omp --continue`. Fresh installs start with **no providers selected**, on the right, in compact mode, polling every 60 seconds. The sidebar prompts you to add at least one provider: run `/useful-sidebar providers`, choose **add**, then select a provider you use. Existing saved provider selections are preserved.
 
 ### OMP commands and settings
 
-The following slash commands and provider-management guidance apply **only inside OMP**. Claude Code has its own immediate native `/usage-dashboard` command and Pane; shared rendering descriptions below do not make OMP's per-provider measurements into Claude session accounting.
+The following slash commands and provider-management guidance apply **only inside OMP**. Claude Code has its own immediate native `/useful-sidebar` command and Pane; shared rendering descriptions below do not make OMP's per-provider measurements into Claude session accounting.
 
 Inside OMP, enter:
 
 ```text
-/usage-dashboard
+/useful-sidebar
 ```
-The menu has eight sections, including **Chart**: select Chart, then choose Bars (default), Dots, or Trace. Use the **Left Arrow** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/usage-dashboard chart` or `/usage-dashboard providers`, opens its submenu.
+The menu has eight sections, including **Chart**: select Chart, then choose Bars (default), Dots, or Trace. Use the **Left Arrow** to return to the section list, or **Esc** to cancel. Entering a section directly, such as `/useful-sidebar chart` or `/useful-sidebar providers`, opens its submenu.
 
-Dashboard command results, help, warnings, and errors use a bold **Usage Dashboard** heading and readable body text in the active OMP theme. Warning and error headings retain their severity colors. Update check/install notifications keep their native presentation.
+Dashboard command results, help, warnings, and errors use a bold **Useful Sidebar** heading and readable body text in the active OMP theme. Warning and error headings retain their severity colors. Update check/install notifications keep their native presentation.
 
 | Section | Purpose | Example |
 | --- | --- | --- |
-| **View** | Switch between provider and model-level display; use `view list` directly to inspect settings | `/usage-dashboard view details` |
-| **Chart** | Select the saved token-rate visualization without changing recorded usage | `/usage-dashboard chart trace` |
-| **Section Visibility** | Show or hide Token Rate, Current, Previous, History Other Sessions, History Total, or Commands | `/usage-dashboard history-other hide` |
-| **Position** | Move the sidebar left or right | `/usage-dashboard position left` |
-| **Theme** | Choose a named palette or customize individual color tokens | `/usage-dashboard theme blue` |
-| **Providers** | Add, remove, hide, or restore provider views | `/usage-dashboard providers add claude` |
-| **Window** | Control the sidebar, polling, and usage-window filters | `/usage-dashboard window interval 60` |
-| **Update** | Check for or install a dashboard release | `/usage-dashboard update check` |
+| **View** | Switch between provider and model-level display; use `view list` directly to inspect settings | `/useful-sidebar view details` |
+| **Chart** | Select the saved token-rate visualization without changing recorded usage | `/useful-sidebar chart trace` |
+| **Section Visibility** | Show or hide Token Rate, Current, Previous, History Other Sessions, History Total, or Commands | `/useful-sidebar history-other hide` |
+| **Position** | Move the sidebar left or right | `/useful-sidebar position left` |
+| **Theme** | Choose a named palette or customize individual color tokens | `/useful-sidebar theme blue` |
+| **Providers** | Add, remove, hide, or restore provider views | `/useful-sidebar providers add claude` |
+| **Window** | Control the sidebar, polling, and usage-window filters | `/useful-sidebar window interval 60` |
+| **Update** | Check for or install a dashboard release | `/useful-sidebar update check` |
 
 To select a chart without opening the menu, enter one of these commands in OMP (one at a time):
 
 ```text
-/usage-dashboard chart bars
-/usage-dashboard chart dots
-/usage-dashboard chart trace
+/useful-sidebar chart bars
+/useful-sidebar chart dots
+/useful-sidebar chart trace
 ```
 
 **Section Visibility** controls each section independently in Compact and Details (`token-rate`, `current`, `previous`, `history-other`, `history-total`, `commands`, each `hide|show`). All are visible by default when applicable. Hiding Previous removes the previous-session section; History Other Sessions and History Total can each be hidden without hiding the other. These settings only affect presentation: recording continues, stored usage is preserved, and Show restores the accumulated data. The former `history hide|show` command is replaced by `history-other hide|show` and `history-total hide|show`. Existing saved History visibility initializes both new settings, so previously hidden history stays hidden.
@@ -363,21 +328,21 @@ To select a chart without opening the menu, enter one of these commands in OMP (
 ### Common tasks
 
 ```text
-/usage-dashboard providers add claude
-/usage-dashboard providers add copilot
-/usage-dashboard window hide codex spark
-/usage-dashboard theme blue
-/usage-dashboard theme custom accent #58a66a
-/usage-dashboard view compact
-/usage-dashboard chart trace
+/useful-sidebar providers add claude
+/useful-sidebar providers add copilot
+/useful-sidebar window hide codex spark
+/useful-sidebar theme blue
+/useful-sidebar theme custom accent #58a66a
+/useful-sidebar view compact
+/useful-sidebar chart trace
 ```
 
 **Provider visibility and usage-window filters are separate:**
 
-- `/usage-dashboard providers hide codex` hides the whole Codex view but retains its selection and filters.
-- `/usage-dashboard window hide codex spark` hides only Codex rows whose label or ID contains `spark`.
+- `/useful-sidebar providers hide codex` hides the whole Codex view but retains its selection and filters.
+- `/useful-sidebar window hide codex spark` hides only Codex rows whose label or ID contains `spark`.
 - Replace `hide` with `show` to undo the corresponding action. Showing a usage window does not unhide its provider.
-- `/usage-dashboard providers remove codex` removes that view and its saved filters. It does not log you out of OMP.
+- `/useful-sidebar providers remove codex` removes that view and its saved filters. It does not log you out of OMP.
 
 Window filters are case-insensitive substrings of provider usage-window labels or IDs, **not tmux windows**.
 
@@ -387,14 +352,14 @@ Window filters are case-insensitive substrings of provider usage-window labels o
 
 *Mock-data excerpts of the original eight palettes showing the bars style, not a preview of the Claude palette or other chart styles. Each uses the same values to compare accents, darker rules, and chart colors. The blue tile is historical: it shows the former dark blue, not the current bright cyan-blue `#00b4ff` accent and chart with `#007fae` rules. Exact shades and dimming depend on your terminal palette and color support. Click to enlarge.*
 
-Choose a palette from `/usage-dashboard theme`, or enter a command directly:
+Choose a palette from `/useful-sidebar theme`, or enter a command directly:
 
 ```text
-/usage-dashboard theme cyan
-/usage-dashboard theme claude
-/usage-dashboard theme custom accent #58a66a
-/usage-dashboard theme custom chart #58a66a
-/usage-dashboard theme reset
+/useful-sidebar theme cyan
+/useful-sidebar theme claude
+/useful-sidebar theme custom accent #58a66a
+/useful-sidebar theme custom chart #58a66a
+/useful-sidebar theme reset
 ```
 
 `accent` changes section headings; `chart` changes the chart marks; `secondary` changes rules and axes. The original eight palettes use neutral body text and darker secondary rules; Claude instead uses warm light body text and a mid-gray secondary token. All built-in palettes keep allowance colors semantic: green for healthy, orange at 40% remaining or below (or a reported warning/unknown status), and red at 20% or below (or exhausted). Custom overrides can change those tokens too. `reset` restores green and clears all overrides. Preferences persist across launches.
@@ -406,36 +371,36 @@ All commands below are entered inside OMP.
 
 | Command | Effect |
 | --- | --- |
-| `/usage-dashboard view list` | Show the current configuration. |
-| `/usage-dashboard view compact` | Show the token chart, concise session/provider totals, measured quota changes, and dense allowance rows. |
-| `/usage-dashboard view details` | Enable model-and-thinking-level rows for current/previous sessions and both history totals, including input/output and cache-read/write counts. |
-| `/usage-dashboard chart bars|dots|trace` | Select the chart style (bars by default) using the same token-rate buckets. For example, `/usage-dashboard chart trace`; omit the style to open the Chart submenu. |
-| `/usage-dashboard commands hide` | Hide the Commands footer and use its space for dashboard content. Keyboard shortcuts and scrolling remain available. |
-| `/usage-dashboard commands show` | Restore the Commands footer (visible by default). |
-| `/usage-dashboard previous hide` | Hide the Previous session section without changing recorded usage. |
-| `/usage-dashboard previous show` | Restore the Previous session section (visible by default when available). |
-| `/usage-dashboard history-other hide` | Hide History Other Sessions without changing History Total or recorded usage. |
-| `/usage-dashboard history-other show` | Restore History Other Sessions (visible by default when available). |
-| `/usage-dashboard history-total hide` | Hide History Total without changing History Other Sessions or recorded usage. |
-| `/usage-dashboard history-total show` | Restore History Total (visible by default when available). |
-| `/usage-dashboard position left` | Place the sidebar on the left. |
-| `/usage-dashboard position right` | Place the sidebar on the right. |
-| `/usage-dashboard theme green|blue|brown|yellow|cyan|magenta|orange|red|claude` | Choose one of nine named design-token palettes; `claude` opts into Anthropic brand-inspired colors. |
-| `/usage-dashboard theme custom TOKEN COLOR` | Override one token on the selected palette. Tokens are `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`; colors can be terminal names, `gray`, `brown`, `orange`, or `#RRGGBB`. Example: `/usage-dashboard theme custom accent #58a66a`. |
-| `/usage-dashboard theme reset` | Restore the green palette and remove custom token overrides. |
-| `/usage-dashboard providers add ID` | Add a provider view. |
-| `/usage-dashboard providers remove ID` | Remove a provider view and its filters. |
-| `/usage-dashboard providers hide ID` | Hide a whole provider while retaining its settings. |
-| `/usage-dashboard providers show ID` | Show a provider view. |
-| `/usage-dashboard window on` | Open the sidebar and remember it as enabled. |
-| `/usage-dashboard window off` | Close the sidebar and remember it as disabled. |
-| `/usage-dashboard window focus` | Move keyboard focus to the sidebar. |
-| `/usage-dashboard window refresh` | Request a fresh usage poll. |
-| `/usage-dashboard window interval SECONDS` | Set the polling interval; minimum 15 seconds. |
-| `/usage-dashboard window hide ID FILTER` | Hide matching usage-window rows. |
-| `/usage-dashboard window show ID FILTER` | Remove a matching usage-window filter. |
-| `/usage-dashboard update check` | Check for the latest stable dashboard release. |
-| `/usage-dashboard update install` | Upgrade this registered marketplace installation through OMP. |
+| `/useful-sidebar view list` | Show the current configuration. |
+| `/useful-sidebar view compact` | Show the token chart, concise session/provider totals, measured quota changes, and dense allowance rows. |
+| `/useful-sidebar view details` | Enable model-and-thinking-level rows for current/previous sessions and both history totals, including input/output and cache-read/write counts. |
+| `/useful-sidebar chart bars|dots|trace` | Select the chart style (bars by default) using the same token-rate buckets. For example, `/useful-sidebar chart trace`; omit the style to open the Chart submenu. |
+| `/useful-sidebar commands hide` | Hide the Commands footer and use its space for dashboard content. Keyboard shortcuts and scrolling remain available. |
+| `/useful-sidebar commands show` | Restore the Commands footer (visible by default). |
+| `/useful-sidebar previous hide` | Hide the Previous session section without changing recorded usage. |
+| `/useful-sidebar previous show` | Restore the Previous session section (visible by default when available). |
+| `/useful-sidebar history-other hide` | Hide History Other Sessions without changing History Total or recorded usage. |
+| `/useful-sidebar history-other show` | Restore History Other Sessions (visible by default when available). |
+| `/useful-sidebar history-total hide` | Hide History Total without changing History Other Sessions or recorded usage. |
+| `/useful-sidebar history-total show` | Restore History Total (visible by default when available). |
+| `/useful-sidebar position left` | Place the sidebar on the left. |
+| `/useful-sidebar position right` | Place the sidebar on the right. |
+| `/useful-sidebar theme green|blue|brown|yellow|cyan|magenta|orange|red|claude` | Choose one of nine named design-token palettes; `claude` opts into Anthropic brand-inspired colors. |
+| `/useful-sidebar theme custom TOKEN COLOR` | Override one token on the selected palette. Tokens are `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`; colors can be terminal names, `gray`, `brown`, `orange`, or `#RRGGBB`. Example: `/useful-sidebar theme custom accent #58a66a`. |
+| `/useful-sidebar theme reset` | Restore the green palette and remove custom token overrides. |
+| `/useful-sidebar providers add ID` | Add a provider view. |
+| `/useful-sidebar providers remove ID` | Remove a provider view and its filters. |
+| `/useful-sidebar providers hide ID` | Hide a whole provider while retaining its settings. |
+| `/useful-sidebar providers show ID` | Show a provider view. |
+| `/useful-sidebar window on` | Open the sidebar and remember it as enabled. |
+| `/useful-sidebar window off` | Close the sidebar and remember it as disabled. |
+| `/useful-sidebar window focus` | Move keyboard focus to the sidebar. |
+| `/useful-sidebar window refresh` | Request a fresh usage poll. |
+| `/useful-sidebar window interval SECONDS` | Set the polling interval; minimum 15 seconds. |
+| `/useful-sidebar window hide ID FILTER` | Hide matching usage-window rows. |
+| `/useful-sidebar window show ID FILTER` | Remove a matching usage-window filter. |
+| `/useful-sidebar update check` | Check for the latest stable dashboard release. |
+| `/useful-sidebar update install` | Upgrade this registered marketplace installation through OMP. |
 
 </details>
 
@@ -467,7 +432,7 @@ The **Token rate** chart shows reported tokens per minute across all models in 2
 | `dots` | Sparse markers for active minutes across six plot rows, without connecting segments; even the smallest positive minute occupies the bottom plot row. |
 | `trace` | A six-row connected linear per-minute Braille rate line. Rising from zero and falling back to zero touch the plot's lowest subpixel row beside the axis, while long zero-only stretches remain unpainted. Tiny positive samples remain visible at that lowest subpixel; there is no extra horizontal zero line. ASCII-only terminals use readable line characters instead of Braille. |
 
-In OMP choose **Chart** from `/usage-dashboard` or run `/usage-dashboard chart TYPE`; inside Claude Code use its immediate native `/usage-dashboard chart TYPE` command. Replace `TYPE` with `bars`, `dots`, or `trace`. Chart style is a saved preference for each host, independent of Compact/Details mode and of the other host's settings. Previously saved `line`, `area`, `heatmap`, or `lollipop` values fall back to bars and are normalized to bars on the next save.
+In OMP choose **Chart** from `/useful-sidebar` or run `/useful-sidebar chart TYPE`; inside Claude Code use its immediate native `/useful-sidebar chart TYPE` command. Replace `TYPE` with `bars`, `dots`, or `trace`. Chart style is a saved preference for each host, independent of Compact/Details mode and of the other host's settings. Previously saved `line`, `area`, `heatmap`, or `lollipop` values fall back to bars and are normalized to bars on the next save.
 
 All three styles have one blank row above six plot rows, then an immediately adjacent open bottom axis and aligned `-20m`/`now` time labels. The existing blank row after the labels separates the chart from the session summary, including for trace; no extra caption or idle-only message occupies either margin. The peak appears at the top only when usage is present, and a single `0` labels the baseline, including when idle. In a narrow sidebar, bars and dots may max-pool adjacent minutes into a visible column so peaks remain visible; trace plots the connected linear samples of all 20 minutes without a right rail or midpoint tick. With no recent usage, the plot stays empty while its axes and time labels remain visible. Small panels scroll to show additional rows. ASCII-only terminals use readable fallback characters for all three styles. Token records update on completed usage events, with a one-second check for auxiliary model usage even while the parent is idle.
 
@@ -475,7 +440,7 @@ Claude keeps the current session's chart frame visible before any native usage r
 
 The one-second auxiliary-usage check above belongs to OMP. Claude captures usage only from native completed-step and compaction reports. While its native pane is shown and placed on a rendering surface, a local presentation timer checks every 500 ms: snapshots refresh at minute boundaries for the rolling chart, every second for reset countdowns below one hour, and at the earliest allowance reset or 300-second observation expiry. Hidden, unplaced and nonrendering panes do not launch timer-driven helpers. Refreshes are serialized with at most one pending timer refresh; a busy helper can delay the display. This reads only local history and the existing allowance observation: it neither polls a provider nor makes an observation fresh. Reset windows disappear independently, and observations older than 300 seconds become unknown.
 
-**Current session** and **Previous session** show cumulative reported token totals. Compact mode groups them by provider; `/usage-dashboard view details` separates each model by thinking level, for example `Luna - Max tokens` and `Luna - xHigh tokens`. Each row includes input/output and cache-read/write counts. Switching models or thinking levels never reassigns earlier usage. Cached tokens remain part of the provider's reported total, not an extra amount added on top of it.
+**Current session** and **Previous session** show cumulative reported token totals. Compact mode groups them by provider; `/useful-sidebar view details` separates each model by thinking level, for example `Luna - Max tokens` and `Luna - xHigh tokens`. Each row includes input/output and cache-read/write counts. Switching models or thinking levels never reassigns earlier usage. Cached tokens remain part of the provider's reported total, not an extra amount added on top of it.
 
 Cache-write counts are reported values, not estimates of how much input might be cached. `w 0` can mean zero writes or that the upstream provider/runtime did not report a separate write count; it does not imply cache reads are broken. OMP's [Codex adapter](https://github.com/can1357/oh-my-pi/blob/main/packages/ai/src/providers/openai-codex-responses.ts) reads the optional `input_tokens_details.cache_write_tokens` field, and its [shared usage accounting](https://github.com/can1357/oh-my-pi/blob/main/packages/ai/src/providers/openai-shared.ts) defaults an absent write count to zero. The dashboard preserves the normalized `cacheWrite` value across current, previous, and project history; it cannot reconstruct an unreported count.
 
@@ -528,15 +493,15 @@ Other provider IDs are accepted when OMP can supply a compatible report. Live cr
 
 ### Local usage databases
 
-OMP session token records and observed account-quota changes are stored in **`usage-dashboard.sqlite3`**, a local SQLite database. There is one database per OMP profile, with project-scoped records inside it—not a separate database file for every project.
+OMP session token records and observed account-quota changes are stored in **`useful-sidebar.sqlite3`**, a local SQLite database. There is one database per OMP profile, with project-scoped records inside it—not a separate database file for every project.
 
 | Configuration | Usage database |
 | --- | --- |
-| Default | `~/.omp/agent/usage-dashboard.sqlite3` |
-| Custom default agent directory | `$PI_CODING_AGENT_DIR/usage-dashboard.sqlite3` |
-| Named profile | `~/.omp/profiles/NAME/agent/usage-dashboard.sqlite3` |
+| Default | `~/.omp/agent/useful-sidebar.sqlite3` |
+| Custom default agent directory | `$PI_CODING_AGENT_DIR/useful-sidebar.sqlite3` |
+| Named profile | `~/.omp/profiles/NAME/agent/useful-sidebar.sqlite3` |
 
-Claude Code instead uses **`~/.claude/usage-dashboard/usage-dashboard.sqlite3`**, or **`$CLAUDE_CONFIG_DIR/usage-dashboard/usage-dashboard.sqlite3`** if `CLAUDE_CONFIG_DIR` is set. Its project-scoped request ledger is physically separate from all OMP profile databases; neither host reads or merges the other's session tokens. Claude Code does not store account-specific quota-change history.
+Claude Code instead uses **`~/.claude/useful-sidebar/useful-sidebar.sqlite3`**, or **`$CLAUDE_CONFIG_DIR/useful-sidebar/useful-sidebar.sqlite3`** if `CLAUDE_CONFIG_DIR` is set. Its project-scoped request ledger is physically separate from all OMP profile databases; neither host reads or merges the other's session tokens. Claude Code does not store account-specific quota-change history.
 
 The OMP database is created with owner-only permissions and updated transactionally as usage arrives, not just at shutdown. It stores hashed project scopes, session/request identifiers, timestamps, provider/model/thinking-level identities, numeric token counters, hashed task-group associations and original aggregate counters for deduplication, and quota observation summaries with hashed account/window identities. Charts and session/project totals are derived from those local records.
 
@@ -554,19 +519,19 @@ OMP provider order, hidden providers, window filters, position, display mode, Co
 
 | Configuration | Preferences file |
 | --- | --- |
-| Default | `~/.omp/agent/usage-dashboard.json` |
-| Custom default agent directory | `$PI_CODING_AGENT_DIR/usage-dashboard.json` |
-| Named profile | `~/.omp/profiles/NAME/agent/usage-dashboard.json` |
+| Default | `~/.omp/agent/useful-sidebar.json` |
+| Custom default agent directory | `$PI_CODING_AGENT_DIR/useful-sidebar.json` |
+| Named profile | `~/.omp/profiles/NAME/agent/useful-sidebar.json` |
 
-Claude Code preferences are stored separately in **`~/.claude/usage-dashboard/usage-dashboard.json`**, or **`$CLAUDE_CONFIG_DIR/usage-dashboard/usage-dashboard.json`** when configured. Its storage does not use `PI_CODING_AGENT_DIR`, OMP named profiles, or the OMP settings file. The native cutover preserves this location and existing token records; migration removes integration ownership, not usage data. Native preferences retain charts, palettes/custom tokens, view/filter/section visibility, and enabled state. Saved legacy side/interval fields are preserved but ignored by native placement/event observation.
+Claude Code preferences are stored separately in **`~/.claude/useful-sidebar/useful-sidebar.json`**, or **`$CLAUDE_CONFIG_DIR/useful-sidebar/useful-sidebar.json`** when configured. Its storage does not use `PI_CODING_AGENT_DIR`, OMP named profiles, or the OMP settings file. Native preferences retain charts, palettes/custom tokens, view/filter/section visibility, and enabled state. Saved legacy side/interval fields are preserved but ignored by native placement/event observation.
 
 Use `omp --profile NAME` to select a profile. Keep a custom `PI_CODING_AGENT_DIR` in your launching environment. Source-checkout installations must also register the extension in each custom agent directory using `python3 install.py --agent-dir PATH`.
 
-Changes affect the current dashboard and subsequent launches, not all other already-running instances. Preferences use locked, atomic transforms so concurrent changes to different settings are retained; malformed settings produce an error rather than being silently reset. OMP release-check metadata is stored separately in `usage-dashboard-update.json` beside its preferences file; Claude updates belong to its plugin manager.
+Changes affect the current dashboard and subsequent launches, not all other already-running instances. Preferences use locked, atomic transforms so concurrent changes to different settings are retained; malformed settings produce an error rather than being silently reset. OMP release-check metadata is stored separately in `useful-sidebar-update.json` beside its preferences file; Claude updates belong to its plugin manager.
 
 The nine named palettes use design tokens: `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default. The original eight palettes—green, blue, brown, yellow, cyan, magenta, orange, and red—keep neutral body and muted text while varying headings, darker secondary rules, and chart color; only those eight appear in the [theme preview](#theme-preview). Blue uses bright cyan-blue `#00b4ff` for `accent` and `chart` with medium-bright `#007fae` secondary rules; the preview's blue tile predates these shades.
 
-Opt into `claude` with `/usage-dashboard theme claude` in either host's own command. Inspired by [Anthropic's published brand colors](https://raw.githubusercontent.com/anthropics/skills/main/skills/brand-guidelines/SKILL.md), it sets `text` to warm light `#faf9f5`, `muted` and `secondary` to mid-gray `#b0aea5`, and `accent` and `chart` to orange `#d97757`. This is a dashboard palette for an assumed dark terminal, not a verified match for Claude Code's built-in terminal theme. It does not set a background: OMP inherits the terminal background, while native Claude owns its Pane background. Muted text also uses terminal dimming. Hex colors are mapped to the nearest xterm color on 256-color terminals and the nearest basic color on basic-color terminals, so terminal settings can shift the result.
+Opt into `claude` with `/useful-sidebar theme claude` in either host's own command. Inspired by [Anthropic's published brand colors](https://raw.githubusercontent.com/anthropics/skills/main/skills/brand-guidelines/SKILL.md), it sets `text` to warm light `#faf9f5`, `muted` and `secondary` to mid-gray `#b0aea5`, and `accent` and `chart` to orange `#d97757`. This is a dashboard palette for an assumed dark terminal, not a verified match for Claude Code's built-in terminal theme. It does not set a background: OMP inherits the terminal background, while native Claude owns its Pane background. Muted text also uses terminal dimming. Hex colors are mapped to the nearest xterm color on 256-color terminals and the nearest basic color on basic-color terminals, so terminal settings can shift the result.
 
 All built-in palettes preserve allowance semantics: `good` is green, `warn` is orange, and `error` is red; orange falls back to yellow without 256-color support. Custom token values override one token on the selected palette and accept basic terminal color names, `gray`, `brown`, `orange`, or a six-digit hexadecimal value. Use the `custom` menu option to enter a token and color, such as `accent #58a66a`; repeat it for additional tokens, or use `reset` to restore green and remove overrides.
 
@@ -576,17 +541,17 @@ All built-in palettes preserve allowance semantics: `good` is green, `warn` is o
 
 ### Marketplace installations
 
-Routine updates require a marketplace registration whose source is `MSpiechowicz/harness-usage-dashboard` and the new plugin identity. If the previous plugin is still installed, follow [Remove the previous extension](#remove-the-previous-extension) before installing this one.
+Routine updates require a marketplace registration whose source is `MSpiechowicz/harness-useful-sidebar`.
 Inside OMP:
 
 ```text
-/usage-dashboard update check
-/usage-dashboard update install
+/useful-sidebar update check
+/useful-sidebar update install
 ```
 
 **Restart OMP after installation** to load the updated extension and sidebar. Your saved preferences and credentials are retained.
 
-Every interactive OMP startup requests a fresh release check in the background, so a previously cached “up to date” result does not hide a newly published version. For marketplace installations, a newer version produces a visible warning; use `/usage-dashboard update install` to install it. Checks do not block the prompt or automatically install code. Startup network failures remain quiet; explicit `update check` commands also request fresh release data and report errors.
+Every interactive OMP startup requests a fresh release check in the background, so a previously cached “up to date” result does not hide a newly published version. For marketplace installations, a newer version produces a visible warning; use `/useful-sidebar update install` to install it. Checks do not block the prompt or automatically install code. Startup network failures remain quiet; explicit `update check` commands also request fresh release data and report errors.
 
 Source-checkout installations do not offer native marketplace upgrades. Their explicit update check reports the manual `git pull --ff-only` and `python3 install.py` path instead; use the marketplace installation if you want updates managed through OMP.
 
@@ -595,15 +560,15 @@ Installation uses OMP's **native marketplace manager** and preserves the current
 You can also use OMP's built-in commands directly:
 
 ```text
-/marketplace update harness-usage-dashboard
-/marketplace upgrade harness-usage-dashboard@harness-usage-dashboard --scope user
+/marketplace update harness-useful-sidebar
+/marketplace upgrade harness-useful-sidebar@harness-useful-sidebar --scope user
 ```
 
 Or, from your shell:
 
 ```sh
-omp plugin marketplace update harness-usage-dashboard
-omp plugin upgrade harness-usage-dashboard@harness-usage-dashboard --scope user
+omp plugin marketplace update harness-useful-sidebar
+omp plugin upgrade harness-useful-sidebar@harness-useful-sidebar --scope user
 ```
 
 Use `--scope project` for a project-scoped installation. **`omp update` updates OMP itself, not this dashboard.**
@@ -624,10 +589,10 @@ Restart OMP afterward. If Git reports a conflict or divergent history, resolve i
 For a marketplace installation, use Claude's `/plugin` manager or its CLI:
 
 ```sh
-command claude plugin update harness-usage-dashboard@harness-usage-dashboard
+command claude plugin update harness-useful-sidebar@harness-useful-sidebar
 ```
 
-This updates the dashboard from that registered marketplace when a newer published plugin version exists. It does not upgrade the globally installed Claude runtime. Restart Claude to load the installed update. The old `/usage-dashboard update check|install` commands and source-checkout updater are removed; OMP's update commands remain OMP-only.
+This updates the dashboard from that registered marketplace when a newer published plugin version exists. It does not upgrade the globally installed Claude runtime. Restart Claude to load the installed update. Claude has no `/useful-sidebar update` command or source-checkout updater; OMP's update commands remain OMP-only.
 
 For development, exit Claude, review local changes, update your checkout manually with `git pull --ff-only` when appropriate, then restart with `--plugin-dir` pointing at it. Resolve conflicts/divergence without discarding your work. A marketplace copy cached at the same version is not a substitute for testing local edits, and unpublished edits are not available through GitHub plugin updates.
 
@@ -642,14 +607,14 @@ Exit sessions using the relevant dashboard before removing that host's integrati
 Remove the shell hook **before** uninstalling the plugin, while its installer still exists:
 
 ```sh
-python3 ~/.omp/plugins/node_modules/harness-usage-dashboard/install.py --native --uninstall &&
-omp plugin uninstall harness-usage-dashboard@harness-usage-dashboard --scope user
+python3 ~/.omp/plugins/node_modules/harness-useful-sidebar/install.py --native --uninstall &&
+omp plugin uninstall harness-useful-sidebar@harness-useful-sidebar --scope user
 ```
 
 Use the corresponding XDG or project package path, and `--scope project` where applicable. If you no longer use this marketplace, you can also remove its catalog registration:
 
 ```sh
-omp plugin marketplace remove harness-usage-dashboard
+omp plugin marketplace remove harness-useful-sidebar
 ```
 
 ### OMP source-checkout installation
@@ -660,7 +625,7 @@ From the original checkout:
 python3 install.py --uninstall
 ```
 
-Repeat with the original `--agent-dir PATH` for custom agent directories. Use the original `--bin-dir` if you previously installed a legacy launcher link elsewhere.
+Repeat with the original `--agent-dir PATH` for custom agent directories.
 
 **Open a new shell afterward** to discard the loaded `omp` function. Uninstallation removes only this installation's owned integration. It preserves your dashboard preferences, provider credentials, OMP binary, and separately installed tmux. Source-checkout removal also preserves the checkout; delete it separately only after checking for your own changes. Do not delete your OMP agent directory or profiles to remove the dashboard.
 
@@ -669,27 +634,26 @@ Repeat with the original `--agent-dir PATH` for custom agent directories. Use th
 Exit Claude sessions using the plugin. For a marketplace installation:
 
 ```sh
-command claude plugin uninstall harness-usage-dashboard@harness-usage-dashboard --scope user
+command claude plugin uninstall harness-useful-sidebar@harness-useful-sidebar --scope user
 ```
 
-Use the scope in which you installed it. If no other installation uses the catalog, you can also run `command claude plugin marketplace remove harness-usage-dashboard`. For a development session, stop passing `--plugin-dir`; do not delete the checkout before checking for your own changes.
+Use the scope in which you installed it. If no other installation uses the catalog, you can also run `command claude plugin marketplace remove harness-useful-sidebar`. For a development session, stop passing `--plugin-dir`; do not delete the checkout before checking for your own changes.
 
-Native uninstall leaves Claude CLI, authentication, dashboard preferences, and `${CLAUDE_CONFIG_DIR:-~/.claude}/usage-dashboard/usage-dashboard.sqlite3` intact. It does not manage OMP. If an old shell hook/personal skill remains, use the explicit [legacy migration](#migrating-the-legacy-claude-integration) dry-run and `--apply` sequence, then start a new shell; native uninstall does not silently remove legacy or foreign files.
+Native uninstall leaves Claude CLI, authentication, dashboard preferences, and `${CLAUDE_CONFIG_DIR:-~/.claude}/useful-sidebar/useful-sidebar.sqlite3` intact. It does not manage OMP.
 
 ## Troubleshooting
 
 | Symptom | What to check |
 | --- | --- |
-| `omp` starts without a sidebar | Widen the terminal to at least 96 columns, then try `/usage-dashboard window on`. Confirm the correct shell hook is loaded and restart an OMP process opened before installation. |
-| `claude plugin ...` reports a missing `claude_launcher.py` | A legacy `claude` shell function intercepted the command before the CLI ran. Use `command claude` to reach the real CLI, preview and apply [legacy migration](#migrating-the-legacy-claude-integration) after closing old Claude sessions, then open a new shell. Native capture remains blocked while the legacy ownership record exists. |
-| `claude` starts without a Pane | Check CLI 2.1.287+, `/plugin` enablement, workspace trust, mod policy, and the actual `--plugin-dir` path for development. Run `/usage-dashboard window on` to enable/reopen it, or `window focus` to open/focus without changing the saved enabled preference. Bare `/usage-dashboard` opens the settings pane, not the dashboard Pane. Claude owns docked/inline placement; tmux and a shell hook are not required. A remaining legacy ownership record requires manual migration. |
+| `omp` starts without a sidebar | Widen the terminal to at least 96 columns, then try `/useful-sidebar window on`. Confirm the correct shell hook is loaded and restart an OMP process opened before installation. |
+| `claude` starts without a Pane | Check CLI 2.1.287+, `/plugin` enablement, workspace trust, mod policy, and the actual `--plugin-dir` path for development. Run `/useful-sidebar window on` to enable/reopen it, or `window focus` to open/focus without changing the saved enabled preference. Bare `/useful-sidebar` opens the settings pane, not the dashboard Pane. Claude owns docked/inline placement; tmux and a shell hook are not required. |
 | The shell still runs a custom `omp` command | An existing function or alias can take precedence over the installed hook. Inspect `type omp`; do not overwrite your customization blindly. |
 | OMP provider usage is unavailable | Confirm the provider login in OMP and try `omp usage --provider openai-codex` in your shell, substituting the appropriate provider ID. Chat access alone does not guarantee a usage API. |
 | Claude token counts are unavailable or incomplete | Check native mod loading and whether the host reported a completed request with all four counters. Helper errors remain visible and saved history is preserved. A live request here returned 401 because the OAuth access token expired; resolve authentication through Claude itself. Unknown coverage is not zero, and OMP's `claude` view cannot fill it in. |
 | Claude allowance windows are unavailable | A fresh native rate-limit event for the current activation may not have arrived, may be omitted by the host, or may have expired. Refresh and resize do not refresh its timestamp. No Claude account-specific quota-change history is available. |
 | OMP values look old | Inspect `view details`, then request `window refresh`. The provider may still return cached data. |
-| Update reports an unmanaged or unsafe installation | For OMP, use its source-checkout update instructions or migrate to the OMP marketplace. For Claude, use `/plugin` or `command claude plugin update` for an installed marketplace copy, and `--plugin-dir` for local development; `/usage-dashboard update` is not supported. |
-| Claude cannot find `/usage-dashboard` | Confirm the native plugin is loaded/enabled and restart Claude. The command is registered by the mod, not a personal skill. If an old shell function still targets the deleted launcher, use `command claude` for the CLI until manual migration and a new shell. |
+| Update reports an unmanaged or unsafe installation | For OMP, use its source-checkout update instructions or migrate to the OMP marketplace. For Claude, use `/plugin` or `command claude plugin update` for an installed marketplace copy, and `--plugin-dir` for local development; `/useful-sidebar update` is not supported. |
+| Claude cannot find `/useful-sidebar` | Confirm the native plugin is loaded/enabled and restart Claude. The command is registered by the mod, not a personal skill. |
 | Marketplace installation cannot find a release tag | Check the Releases page and wait for a successful release workflow, or use the OMP source-checkout method. |
 | Mouse selection behaves differently | tmux owns mouse input inside the session; try your terminal's selection override, often Shift. Native SIXEL images may disappear in tmux copy mode and return when it closes. |
 | OMP images remain placeholders | Relaunch OMP through the shell hook with a SIXEL-capable client attached. Both the tmux build and every attached client must report SIXEL support; tmux 3.3+ alone is insufficient. Explicit `PI_FORCE_IMAGE_PROTOCOL` and `PI_ALLOW_SIXEL_PASSTHROUGH` values take precedence; unset them to use automatic selection. Do not enable raw tmux passthrough to fix missing previews. Other protocols and macOS display have not been verified here. |
@@ -723,9 +687,9 @@ Tests use isolated fixtures, not live account credentials. Interactive verificat
 Session accounting has also been exercised with the installed OMP runtime using isolated saved sessions: multiple models/providers, `/new`, and previous-session persistence. Curses rendering and scrolling were checked in a 34-column tmux pane. Quota-reset/account-attribution checks use offline fixtures; they do not establish live quota reporting support for additional providers.
 Image-regression verification used tmux 3.7c in an isolated Linux PTY. A real-client regression failed before the fix when a wrapped Kitty placement escaped the pane, then passed with containment during sidebar resize, side changes, and hiding. A smoke run launched the installed OMP image component through the fresh-pane launcher helper: native SIXEL reached the client with raw passthrough off, and the component rendered new frames at 105, 90, and 95 pane columns as the sidebar and terminal resized. tmux re-emitted the image on redraw and after leaving copy mode. The existing-pane launcher path also selected the SIXEL environment against the isolated server. These checks verify transport and lifecycle behavior, not visual correctness in every graphical terminal or on macOS.
 
-Latest combined checks passed **210 Python tests**, **10 OMP Node tests**, and syntax checks for `extension.js`, `hooks/register.js`, and `hooks/claude-view.js`. Earlier, an actual **OMP 18.4.10** process launched through `launcher.py` with a disposable `PI_CODING_AGENT_DIR` and its own tmux socket; the app setup UI and real 34-column sidebar painted. Chart Trace, theme Cyan, and Details controls applied, and explicit `--providers openai-codex` control succeeded after the shared-view extraction repair. These OMP checks supplement the historical session and image verification above.
+Latest combined checks passed **192 Python tests**, **10 OMP Node tests**, and syntax checks for `extension.js`, `hooks/register.js`, and `hooks/claude-view.js`. Earlier, an actual **OMP 18.4.10** process launched through `launcher.py` with a disposable `PI_CODING_AGENT_DIR` and its own tmux socket; the app setup UI and real 34-column sidebar painted. Chart Trace, theme Cyan, and Details controls applied, and explicit `--providers openai-codex` control succeeded after the shared-view extraction repair. These OMP checks supplement the historical session and image verification above.
 
-Latest native Claude verification used an isolated **2.1.288** runtime and disposable homes/configuration. Strict validation of the plugin metadata, marketplace metadata, and marketplace root passed; `claude plugin test` passed **15 native cases**, including accounting/lifecycle safety and the popup/reply regressions above. These are offline native regressions, not authenticated service accounting.
+Latest native Claude verification used Claude Code **2.1.289**. Strict validation of the plugin metadata, marketplace metadata, and marketplace root passed; `claude plugin test` passed **13 native cases**, including accounting/lifecycle safety and the popup/reply regressions above. These are offline native regressions, not authenticated service accounting.
 
 Earlier cutover verification rendered a real terminal Pane with **TMUX unset** and exercised the former in-Pane Compact/Details controls, all three charts, all nine themes, docked-to-inline resize, focus, Refresh/Close hotkeys, and reopen. Those in-Pane controls have since been removed. Clear/branch/resume retained the correct isolated owner and created a new activation without recounting 175 seeded tokens. Backend smoke checks retained 185 historical tokens, deduplicated 25 new tokens, accepted a reported zero without adding tokens, retained both concurrent preference changes, and rejected stale/wrong-session allowance observations as unknown. The helper also ran with curses imports blocked.
 
@@ -741,15 +705,9 @@ Storage-safety verification deterministically injected first-use directory races
 
 An explicit `/reload-plugins` reported **nine mod hooks reloaded**. The active owner/session/activation tuple and single 175-token fixture record stayed unchanged, and reopening the real Pane retained those tokens and selected settings. Unsupported `providers codex`, `window provider`, position, and interval inputs returned normal guidance without changing preference bytes or showing a false storage warning; the `claude` provider alias saved `anthropic`.
 
-A native local-catalog lifecycle used a completely disposable HOME/configuration: catalog add, plugin install at **1.0.63**, an **up-to-date update check**, a cold installed `/usage-dashboard chart dots` command, and uninstall all succeeded. The installed cache contained the Python helper and production state types, with no legacy launcher. Uninstall preserved history and preference bytes. This verifies an up-to-date check, **not an upgrade to a newer plugin version**.
+A native local-catalog lifecycle used a completely disposable HOME/configuration: catalog add, plugin install at **1.0.63**, an **up-to-date update check**, a cold installed `/useful-sidebar chart dots` command, and uninstall all succeeded. The installed cache contained the Python helper and production state types. Uninstall preserved history and preference bytes. This verifies an up-to-date check, **not an upgrade to a newer plugin version**.
 
-Legacy install/migration was exercised **only in disposable homes**: default dry-run left files unchanged, explicit `--apply` removed owned integration, a new shell no longer used the old function, modified files were refused, and database bytes were preserved. The real user's installation record, shell setup, authentication, global CLI, and ledger were not migrated or upgraded.
-
-Eight additional migration regressions cover directory-ownership and replacement boundaries. In a deterministic disposable fixture, the pre-repair `--apply` exited successfully after a late symlink redirected removal into a foreign target. After root-to-leaf directory validation was added, the same unsafe shared-parent setup exited with status 1 before injection, preserving the foreign file, ownership record, all managed bytes and modes, wrapper, and shared directory's `0777` mode. This is fixture evidence, **not a cross-UID exploit**; same-UID and root attackers are outside this protection's threat model.
-
-A separate normal CLI smoke covering all three supported shells passed: dry-run made no changes, apply removed owned integration and its record, and repeat apply made no changes. Ledger, preferences, unrelated settings, and surrounding startup-file bytes, including CRLF, were preserved.
-
-The final strict native manifest/catalog validations and all four native SDK cases also passed. The native live request returned **401, expired OAuth access token**, and capture became incomplete without fabricated usage. Successful live main/subagent/retry/compaction accounting, Claude Desktop painting, and macOS behavior remain **unverified**. The previous legacy 403 observation does not describe this native path. Offline passing cases do not establish coverage for a Claude account or plan. All new installation/migration checks used disposable state; no real-user migration or installation, global CLI upgrade, version bump, or release was performed.
+The final strict native manifest/catalog validations and all four native SDK cases also passed. The native live request returned **401, expired OAuth access token**, and capture became incomplete without fabricated usage. Successful live main/subagent/retry/compaction accounting, Claude Desktop painting, and macOS behavior remain **unverified**. Offline passing cases do not establish coverage for a Claude account or plan. All new installation checks used disposable state; no real-user installation, global CLI upgrade, version bump, or release was performed.
 
 Release-conflict reconciliation preserves the already-released **1.0.64** in `package.json`, the native plugin manifest, and the OMP plugin version/source ref (`v1.0.64`). The fresh Python run passed **208 tests**. Against a disposable local bare origin, `release.py` rejected a mismatched native **1.0.63** fixture with exit 1 before making changes; the aligned metadata preview succeeded with exit 0 and planned a future **1.0.65** / `v1.0.65`. That preview changed neither checkout/source bytes nor remote heads/tags; it did **not** bump the current version to 1.0.65 or perform a release or real-base push. The historical 1.0.63 install and native SDK evidence above is unchanged; this reconciliation does not claim a fresh SDK run.
 

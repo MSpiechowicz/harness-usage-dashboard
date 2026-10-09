@@ -31,11 +31,11 @@ class HostAdapterTests(unittest.TestCase):
         with patch.dict(os.environ, {'PI_CODING_AGENT_DIR': str(self.home / 'agent-a'),
                                       'CLAUDE_CONFIG_DIR': str(self.home / 'claude-a')}):
             self.assertEqual(agent_dir(host='omp'), self.home / 'agent-a')
-            self.assertEqual(agent_dir(host='claude'), self.home / 'claude-a/usage-dashboard')
+            self.assertEqual(agent_dir(host='claude'), self.home / 'claude-a/useful-sidebar')
         with patch.dict(os.environ, {'PI_CODING_AGENT_DIR': str(self.home / 'agent-b'),
                                       'CLAUDE_CONFIG_DIR': str(self.home / 'claude-b')}):
             self.assertEqual(omp.data_root(), self.home / 'agent-b')
-            self.assertEqual(claude.data_root(), self.home / 'claude-b/usage-dashboard')
+            self.assertEqual(claude.data_root(), self.home / 'claude-b/useful-sidebar')
             self.assertEqual(omp.data_root('work'), self.home / '.omp/profiles/work/agent')
             self.assertEqual(claude.normalize_profile('../ignored'), None)
 
@@ -92,7 +92,7 @@ class HostAdapterTests(unittest.TestCase):
             self.assertEqual(load_preferences('personal', host='synthetic')['side'], 'right')
             self.assertEqual(load_preferences('work')['side'], 'right')
             self.assertEqual(preferences_path('work', host='synthetic'),
-                             self.home / 'synthetic/work/usage-dashboard.json')
+                             self.home / 'synthetic/work/useful-sidebar.json')
 
             def event(total):
                 return {'session': 'shared-session', 'activation': 'activation',
@@ -110,7 +110,7 @@ class HostAdapterTests(unittest.TestCase):
             self.assertEqual(second['current']['providers'][0]['total'], 23)
             with database('work', host='synthetic') as db:
                 self.assertEqual(db.execute('SELECT count(*) FROM tokens').fetchone()[0], 2)
-            self.assertFalse((self.home / '.omp/agent/usage-dashboard.sqlite3').exists())
+            self.assertFalse((self.home / '.omp/agent/useful-sidebar.sqlite3').exists())
         with self.assertRaisesRegex(ValueError, 'Unknown dashboard host'):
             load_preferences('work', host='synthetic')
 

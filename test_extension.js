@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
-import usageDashboard from "./extension.js";
+import usefulSidebar from "./extension.js";
 
 const execute = promisify(execFile);
 const theme = { fg: (_color, text) => text, bold: text => text };
@@ -22,7 +22,7 @@ test("Commands menu and direct commands independently persist footer visibility 
   let command;
   const choices = ["Section Visibility", "Commands", "Hide"];
   try {
-    usageDashboard({
+    usefulSidebar({
       setLabel() {}, on() {},
       registerCommand(_name, definition) { command = definition; },
       async exec(binary, args, options) {
@@ -51,7 +51,7 @@ test("Commands menu and direct commands independently persist footer visibility 
         },
       },
     };
-    const settings = async () => JSON.parse(await readFile(join(home, "agent/usage-dashboard.json"), "utf8"));
+    const settings = async () => JSON.parse(await readFile(join(home, "agent/useful-sidebar.json"), "utf8"));
     await command.handler("", ctx);
     assert.equal((await settings()).commands_visible, false);
     assert.equal((await settings()).enabled, true);
@@ -115,7 +115,7 @@ test("startup reports a new release despite a fresh no-update cache", async () =
     const scheduled = [];
     const notices = [];
     let updateReport;
-    usageDashboard({
+    usefulSidebar({
       setLabel() {}, registerCommand() {},
       on(event, handler) { handlers.set(event, handler); },
       async exec(binary, args, options) {
@@ -173,7 +173,7 @@ test("records the effective thinking level for model usage", async () => {
   delete process.env.TMUX_PANE;
   try {
     const handlers = new Map();
-    usageDashboard({
+    usefulSidebar({
       setLabel() {},
       registerCommand() {},
       on(event, handler) { handlers.set(event, handler); },
@@ -245,7 +245,7 @@ test("auxiliary usage keeps its own thinking variants while the parent stays Low
   delete process.env.TMUX_PANE;
   try {
     const handlers = new Map();
-    usageDashboard({
+    usefulSidebar({
       setLabel() {}, registerCommand() {},
       on(event, handler) { handlers.set(event, handler); },
       async exec() { return { code: 0, stdout: "", stderr: "" }; },
@@ -329,7 +329,7 @@ test("native child requests retain serving models and completion buckets across 
     let session = "native-parent";
     let entries = [];
     const usage = { input: 100, output: 20, cacheRead: 30, cacheWrite: 10, totalTokens: 160 };
-    usageDashboard({
+    usefulSidebar({
       setLabel() {}, registerCommand() {},
       on(event, handler) { handlers.set(event, handler); },
       events: { on(event, handler) { events.set(event, handler); return () => events.delete(event); } },
@@ -449,7 +449,7 @@ test("periodic sync records idle-parent bursts and entries appended during a wri
   try {
     const handlers = new Map();
     let tick;
-    usageDashboard({
+    usefulSidebar({
       setLabel() {}, registerCommand() {},
       on(event, handler) { handlers.set(event, handler); },
       async exec() { return { code: 0, stdout: "", stderr: "" }; },
@@ -527,7 +527,7 @@ test("command menu uses native bordered selectors and left arrow navigation", as
   let execArgs;
   let selectIndex = 0;
   const calls = [];
-  usageDashboard({
+  usefulSidebar({
     setLabel() {},
     on() {},
     registerCommand(_name, definition) { command = definition; },
@@ -583,7 +583,7 @@ test("Claude theme menu and direct command persist selection with custom reset",
   const selections = ["Claude", "Custom"];
 
   try {
-    usageDashboard({
+    usefulSidebar({
       setLabel() {}, on() {},
       registerCommand(_name, definition) { command = definition; },
       async exec(binary, args, options) {
@@ -610,7 +610,7 @@ test("Claude theme menu and direct command persist selection with custom reset",
         },
       },
     };
-    const settings = async () => JSON.parse(await readFile(join(home, "agent/usage-dashboard.json"), "utf8"));
+    const settings = async () => JSON.parse(await readFile(join(home, "agent/useful-sidebar.json"), "utf8"));
 
     await command.handler("theme", ctx);
     assert.equal((await settings()).theme, "claude");
@@ -650,7 +650,7 @@ test("chart menu and direct commands persist bars, dots, and trace and reject un
   let command;
 
   try {
-    usageDashboard({
+    usefulSidebar({
       setLabel() {}, on() {},
       registerCommand(_name, definition) { command = definition; },
       async exec(binary, args, options) {
@@ -663,7 +663,7 @@ test("chart menu and direct commands persist bars, dots, and trace and reject un
       ui: {
         theme,
         async select(_title, options, dialogOptions) {
-          if (_title === "Usage Dashboard / Chart") {
+          if (_title === "Useful Sidebar / Chart") {
             assert.deepEqual(options.map(option => option.toLowerCase().split(/\s/)[0]), modes);
           }
           const choice = selections.shift();
@@ -683,7 +683,7 @@ test("chart menu and direct commands persist bars, dots, and trace and reject un
         },
       },
     };
-    const settings = async () => JSON.parse(await readFile(join(home, "agent/usage-dashboard.json"), "utf8"));
+    const settings = async () => JSON.parse(await readFile(join(home, "agent/useful-sidebar.json"), "utf8"));
     const assertStatus = mode => assert.match(notices.at(-1), new RegExp(`\\bchart ${mode}\\b`));
 
     await command.handler("view list", ctx);
@@ -743,7 +743,7 @@ test("detaches the dashboard before waiting for shutdown recording", async () =>
   try {
     const handlers = new Map();
     const calls = [];
-    usageDashboard({
+    usefulSidebar({
       setLabel() {},
       registerCommand() {},
       on(event, handler) { handlers.set(event, handler); },

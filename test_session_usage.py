@@ -127,10 +127,10 @@ class SessionAccountingTests(unittest.TestCase):
         self.assertEqual(report['current']['providers'][0]['total'], 160)
         self.assertEqual(report['history'][0]['total'], 160)
         # Closing and reopening connections on every call exercises actual persistence.
-        self.assertEqual((self.home / 'agent/usage-dashboard.sqlite3').stat().st_mode & 0o777, 0o600)
+        self.assertEqual((self.home / 'agent/useful-sidebar.sqlite3').stat().st_mode & 0o777, 0o600)
 
     def test_rejects_exposed_existing_ledger_without_modifying_it(self):
-        path = self.home / 'agent' / 'usage-dashboard.sqlite3'
+        path = self.home / 'agent' / 'useful-sidebar.sqlite3'
         path.parent.mkdir()
         for mode in (0o644, 0o660):
             with self.subTest(mode=oct(mode)):
@@ -143,7 +143,7 @@ class SessionAccountingTests(unittest.TestCase):
                 self.assertEqual(path.stat().st_mode & 0o777, mode)
 
     def test_rejects_ledger_symlink_without_modifying_target(self):
-        path = self.home / 'agent' / 'usage-dashboard.sqlite3'
+        path = self.home / 'agent' / 'useful-sidebar.sqlite3'
         path.parent.mkdir()
         target = self.home / 'target.sqlite3'
         target.write_bytes(b'private existing ledger')
@@ -160,7 +160,7 @@ class SessionAccountingTests(unittest.TestCase):
         directory.chmod(0o777)
         with self.assertRaises(PermissionError):
             self.save()
-        self.assertFalse((directory / 'usage-dashboard.sqlite3').exists())
+        self.assertFalse((directory / 'useful-sidebar.sqlite3').exists())
 
     def test_rejects_symlinked_parent(self):
         directory = self.home / 'agent'
@@ -169,16 +169,16 @@ class SessionAccountingTests(unittest.TestCase):
         directory.symlink_to(target, target_is_directory=True)
         with self.assertRaises(PermissionError):
             self.save()
-        self.assertFalse((target / 'usage-dashboard.sqlite3').exists())
+        self.assertFalse((target / 'useful-sidebar.sqlite3').exists())
 
     def test_first_use_directory_race_cannot_redirect_native_records_into_omp(self):
         for kind in ('symlink', 'writable'):
             with self.subTest(kind=kind):
                 target = self.home / f'victim-{kind}'
-                storage = target / 'nested' / 'usage-dashboard'
+                storage = target / 'nested' / 'useful-sidebar'
                 with patch.dict(os.environ, {'PI_CODING_AGENT_DIR': str(storage)}):
                     self.save(session='victim-session', entries=[self.entry()])
-                original = (storage / 'usage-dashboard.sqlite3').read_bytes()
+                original = (storage / 'useful-sidebar.sqlite3').read_bytes()
                 directory = self.home / f'first-use-{kind}'
                 injected = False
                 mkdir = Path.mkdir
@@ -201,7 +201,7 @@ class SessionAccountingTests(unittest.TestCase):
                                     'action': 'start', 'entries': [self.entry('native-request')]},
                                    host='claude', now=70)
                 observed = target if kind == 'symlink' else directory
-                ledger = observed / 'nested' / 'usage-dashboard' / 'usage-dashboard.sqlite3'
+                ledger = observed / 'nested' / 'useful-sidebar' / 'useful-sidebar.sqlite3'
                 self.assertEqual(ledger.read_bytes(), original)
                 with closing(sqlite3.connect(f'file:{ledger}?mode=ro', uri=True)) as db:
                     self.assertEqual(db.execute('SELECT id FROM sessions').fetchall(),
@@ -249,7 +249,7 @@ class SessionAccountingTests(unittest.TestCase):
         self.assertEqual(trusted.stat().st_mode & 0o777, original_mode)
 
     def test_existing_ledger_migrates_thinking_level_without_losing_tokens(self):
-        path = self.home / 'agent' / 'usage-dashboard.sqlite3'
+        path = self.home / 'agent' / 'useful-sidebar.sqlite3'
         path.parent.mkdir(parents=True)
         connection = sqlite3.connect(path)
         connection.execute('''CREATE TABLE tokens (
@@ -330,7 +330,7 @@ class SessionAccountingTests(unittest.TestCase):
             self.assertEqual(summary(cwd=second, owner='same-owner', host='claude')['history'], [])
             self.assertEqual(active_session(cwd=first, owner='same-owner', host='claude')
                              ['session'], 'same')
-            self.assertTrue((claude_root / 'usage-dashboard/usage-dashboard.sqlite3').exists())
+            self.assertTrue((claude_root / 'useful-sidebar/useful-sidebar.sqlite3').exists())
 
             sample = self.sample(75, .3)
             record_quota('work', 'same-owner', 'same', [sample], cwd=first, host='claude')
@@ -435,7 +435,7 @@ class SessionAccountingTests(unittest.TestCase):
         self.assertEqual(quota_samples(data), [])
         data['reports'][0]['limits'][0]['scope'] = {'accountId': 'private-account'}
         record_quota(None, None, 'a', quota_samples(data))
-        self.assertNotIn(b'private-account', (self.home / 'agent/usage-dashboard.sqlite3').read_bytes())
+        self.assertNotIn(b'private-account', (self.home / 'agent/useful-sidebar.sqlite3').read_bytes())
 
     def test_chart_has_empty_minutes_and_excludes_future_and_previous_usage(self):
         self.save(entries=[self.entry('old', 59), self.entry('now', 121), self.entry('future', 181)])

@@ -59,7 +59,7 @@ def agent_dir(profile: str | None = None, *, host: str = 'omp') -> Path:
 
 
 def preferences_path(profile: str | None = None, *, host: str = 'omp') -> Path:
-    return agent_dir(profile, host=host) / 'usage-dashboard.json'
+    return agent_dir(profile, host=host) / 'useful-sidebar.json'
 
 
 def _valid_string(value):
@@ -238,7 +238,7 @@ def transform_preferences(profile, transform, *, host='omp'):
         if patched == current:
             return current
         current = patched
-        descriptor, temporary = tempfile.mkstemp(prefix='.usage-dashboard-', suffix='.json', dir=path.parent)
+        descriptor, temporary = tempfile.mkstemp(prefix='.useful-sidebar-', suffix='.json', dir=path.parent)
         try:
             with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
                 json.dump(current, stream, ensure_ascii=True, allow_nan=False, indent=2)

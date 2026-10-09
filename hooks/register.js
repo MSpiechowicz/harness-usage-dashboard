@@ -1,7 +1,7 @@
 import { HELP, PANE, renderDashboard, renderSettings, snapshotText } from "./claude-view.js";
 
-const INSTANCE = { plugin: "harness-usage-dashboard", key: "instance" };
-const SNAPSHOT = { plugin: "harness-usage-dashboard", key: "snapshot" };
+const INSTANCE = { plugin: "harness-useful-sidebar", key: "instance" };
+const SNAPSHOT = { plugin: "harness-useful-sidebar", key: "snapshot" };
 const LEVELS = ["low", "medium", "high", "xhigh", "max"];
 const label = value => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:/ +()-]{0,199}$/.test(value);
 const count = value => Number.isSafeInteger(value) && value >= 0;
@@ -68,8 +68,8 @@ function validPreference(words) {
   return false;
 }
 
-const MENU_STALE = "Usage Dashboard: the session changed or the command ended; no settings changed. Run /usage-dashboard again.";
-const SETTINGS = "usage-dashboard-settings";
+const MENU_STALE = "Useful Sidebar: the session changed or the command ended; no settings changed. Run /useful-sidebar again.";
+const SETTINGS = "useful-sidebar-settings";
 
 async function menuContext($, state, context, signal) {
   if (signal?.aborted || state.active !== context) return false;
@@ -92,9 +92,9 @@ async function choose($, state, words) {
       await refresh($, state, context);
     });
     if (words[0] === "window" && words[1] === "off") await $.ui.close({ id: PANE });
-    if (words[0] === "window" && words[1] === "on") await $.ui.open({ id: PANE, title: "Usage Dashboard" });
+    if (words[0] === "window" && words[1] === "on") await $.ui.open({ id: PANE, title: "Useful Sidebar" });
   } catch (error) {
-    $.ui.toast(`Usage Dashboard: ${error?.message ?? "setting not saved"}`);
+    $.ui.toast(`Useful Sidebar: ${error?.message ?? "setting not saved"}`);
   }
 }
 
@@ -109,8 +109,8 @@ async function openSettings($, state, context) {
   await serial(state, () => refresh($, state, context));
   const opened = await $.ui.open({ id: SETTINGS, title: "Dashboard Settings", focus: true, closeOnEscape: true });
   return commandReply($, state, opened.isPlaced
-    ? "Usage Dashboard: settings open. Arrows move, Enter picks, Esc closes."
-    : "Usage Dashboard: this surface cannot place the settings pane yet; use a direct command.\n" + HELP, false, context);
+    ? "Useful Sidebar: settings open. Arrows move, Enter picks, Esc closes."
+    : "Useful Sidebar: this surface cannot place the settings pane yet; use a direct command.\n" + HELP, false, context);
 }
 
 // Functions receiving $ must be top-level: the runtime inventories literal APIs.
@@ -132,10 +132,6 @@ async function helper($, payload) {
       && response.error?.code === "unsupported_command") {
       error.code = "unsupported_command";
     }
-    if (response?.error?.code === "migration_required") {
-      error.message = "Stop old Claude sessions and explicitly migrate the owned legacy installation before native capture.";
-      error.code = "migration_required";
-    }
     throw error;
   }
   return response;
@@ -149,13 +145,11 @@ async function publish($, state, context, nextSnapshot) {
 }
 
 async function failed($, state, context, error, transient = false) {
-  if (error?.code === "migration_required") state.blocked = true;
-  const message = error?.code === "migration_required" ? error.message
-    : "Local dashboard helper failed; capture or history may be incomplete. Refresh to retry the local snapshot.";
+  const message = "Local dashboard helper failed; capture or history may be incomplete. Refresh to retry the local snapshot.";
   if (transient) state.readFailure = message;
   else state.failure = message;
   if (!transient && state.instance) {
-    state.instance = { ...state.instance, failure: state.failure, blocked: state.blocked };
+    state.instance = { ...state.instance, failure: state.failure };
     await $.state.set(INSTANCE, state.instance).catch(() => {});
   }
   if (state.active === context) await publish($, state, context,
@@ -163,7 +157,7 @@ async function failed($, state, context, error, transient = false) {
 }
 
 async function capture($, state, context, action, entries = [], incomplete = false) {
-  if (!context || state.blocked) return;
+  if (!context) return;
   try {
     await helper($, { op: "capture", cwd: context.cwd, owner: context.owner,
       session: context.session, activation: context.activation, action, entries, incomplete });
@@ -245,7 +239,6 @@ async function ensure($, state, session, cwd) {
     const held = await $.state.get(INSTANCE);
     state.instance = held.value ?? { owner: crypto.randomUUID(), context: null };
     state.failure = state.instance.failure ?? "";
-    state.blocked = state.instance.blocked === true;
     if (!held.value) await $.state.set(INSTANCE, state.instance);
   }
   if (!state.active && state.instance.context?.session === session) state.active = state.instance.context;
@@ -297,7 +290,7 @@ async function commandReply($, state, text, allowSnapshot = true, context) {
   let presentationFailure = "";
   try { headless = !(await $.session.surfaces()).length; }
   catch {
-    presentationFailure = "Usage Dashboard: presentation unavailable; could not determine session surfaces.";
+    presentationFailure = "Useful Sidebar: presentation unavailable; could not determine session surfaces.";
   }
   // An aborted command can still report its own diagnostics, but a replaced
   // session must not expose either the obsolete snapshot or its successor.
@@ -309,7 +302,7 @@ async function commandReply($, state, text, allowSnapshot = true, context) {
   }
   const diagnostics = [
     presentationFailure,
-    snapshot?.failure ? `Usage Dashboard: ${snapshot.failure}` : "",
+    snapshot?.failure ? `Useful Sidebar: ${snapshot.failure}` : "",
     snapshot?.capture && snapshot.capture.state !== "available"
       ? `Token capture ${snapshot.capture.state}: ${snapshot.capture.reason}` : "",
   ];
@@ -336,16 +329,16 @@ async function control($, state, words, context, signal) {
       await refresh($, state, context);
       if (action === "off") {
         await $.ui.close({ id: PANE });
-        return commandReply($, state, "Usage Dashboard: window off.", false, context);
+        return commandReply($, state, "Useful Sidebar: window off.", false, context);
       }
       if (["on", "focus"].includes(action) && (await $.session.surfaces()).length) {
-        const opened = await $.ui.open({ id: PANE, title: "Usage Dashboard", focus: true, closeOnEscape: true });
+        const opened = await $.ui.open({ id: PANE, title: "Useful Sidebar", focus: true, closeOnEscape: true });
         if (!opened.isPlaced) return `${snapshotText(state.snapshot)}\nThe dashboard is open but this surface cannot place it yet.`;
       }
       if (!text) {
         text = action === "focus"
-          ? "Usage Dashboard: window focus requested."
-          : "Usage Dashboard: refreshed.";
+          ? "Useful Sidebar: window focus requested."
+          : "Useful Sidebar: refreshed.";
       }
       return commandReply($, state, text, true, context);
     });
@@ -361,15 +354,15 @@ async function control($, state, words, context, signal) {
 /** @type {import('claude-code').Register} */
 export const register = on => {
   const state = { pending: Promise.resolve(), active: null, instance: null, snapshot: null,
-    failure: "", readFailure: "", blocked: false, allowance: null, width: 64, cachedWidth: 64,
+    failure: "", readFailure: "", allowance: null, width: 64, cachedWidth: 64,
     refreshAt: 0, presentationPending: false, wasShown: false, presentationTimer: null };
 
   on("session.start", async ($, e, next) => {
     try {
       const context = await origin($, state);
-      await $.command.register({ name: "usage-dashboard", description: "Local token history, limits, charts and dashboard settings", immediate: true });
+      await $.command.register({ name: "useful-sidebar", description: "Local token history, limits, charts and dashboard settings", immediate: true });
       await serial(state, () => refresh($, state, context));
-      if (e.surface && state.snapshot?.preferences?.enabled !== false) await $.ui.open({ id: PANE, title: "Usage Dashboard" });
+      if (e.surface && state.snapshot?.preferences?.enabled !== false) await $.ui.open({ id: PANE, title: "Useful Sidebar" });
       startPresentationTimer($, state);
     } catch (error) { await failed($, state, state.active, error); }
     return next(e);
@@ -452,7 +445,7 @@ export const register = on => {
     return next(e);
   });
 
-  on("command.run", { command: "usage-dashboard" }, async ($, e, next) => {
+  on("command.run", { command: "useful-sidebar" }, async ($, e, next) => {
     const words = e.args.trim().split(/\s+/).filter(Boolean);
     let context;
     try { context = await origin($, state); }

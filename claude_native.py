@@ -2,14 +2,13 @@
 """Private JSON accounting and presentation boundary for the native Claude mod."""
 import math
 import json
-import os
 import re
 import sqlite3
 import sys
 import time
 
 import dashboard_view as view
-from preferences import agent_dir, load_preferences, transform_preferences
+from preferences import load_preferences, transform_preferences
 from session_usage import database, finite, ingest, owner_key, project_id, summary
 
 VERSION = 1
@@ -49,10 +48,6 @@ def _capture_schema(db):
         PRIMARY KEY (project, owner, activation))''')
 
 
-def _migration_pending():
-    return os.path.lexists(agent_dir(host='claude') / 'installation.json')
-
-
 def _entries(values):
     if not isinstance(values, list) or len(values) > 2000:
         raise RequestError('Invalid native usage entries.')
@@ -87,9 +82,6 @@ def _entries(values):
 
 def capture(request, now):
     cwd, owner, session, activation = _context(request)
-    if _migration_pending():
-        raise RequestError('Legacy Claude installation remains. Run claude_migrate.py dry-run, then --apply explicitly before native capture.',
-                           'migration_required')
     action = request.get('action')
     if action not in ('start', 'record', 'stop') or type(request.get('incomplete')) is not bool:
         raise RequestError('Invalid native capture action or gap state.')
@@ -131,9 +123,6 @@ def capture(request, now):
 
 
 def _health(db, cwd, owner, session, activation):
-    if _migration_pending():
-        return {'state': 'unknown', 'reason': 'Legacy installation remains; run claude_migrate.py before native capture.',
-                'lastEventAt': None}
     row = db.execute('''SELECT * FROM claude_capture
                         WHERE project=? AND owner=? AND session=? AND activation=?''',
                      (project_id(cwd), owner_key(owner, socket=''), session, activation)).fetchone()
@@ -252,9 +241,9 @@ def snapshot(request, now):
         rows.append(('', 'dim'))
     if preferences['commands_visible']:
         rows.extend([view.section_heading('COMMANDS', width),
-                     ('/usage-dashboard window on|off|focus|refresh', 'dim'),
-                     ('/usage-dashboard view compact|details', 'dim'),
-                     ('/usage-dashboard chart bars|dots|trace', 'dim')])
+                     ('/useful-sidebar window on|off|focus|refresh', 'dim'),
+                     ('/useful-sidebar view compact|details', 'dim'),
+                     ('/useful-sidebar chart bars|dots|trace', 'dim')])
     return {'history': history, 'reports': reports, 'preferences': preferences, 'capture': health,
             'tokens': view.resolve_tokens(preferences), 'rows': _styled_rows(rows, width),
             'session': session, 'activation': activation}

@@ -14,13 +14,13 @@ VERSION = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)')
 CATALOG = '.omp-plugin/marketplace.json'
 CLAUDE_MANIFEST = '.claude-plugin/plugin.json'
 CLAUDE_CATALOG = '.claude-plugin/marketplace.json'
-PLUGIN_NAME = 'harness-usage-dashboard'
+PLUGIN_NAME = 'harness-useful-sidebar'
 
 
 def release_catalog(repo, source, current_version, version):
     catalog = json.loads(git(repo, 'show', f'{source}:{CATALOG}'))
     plugins = [plugin for plugin in catalog['plugins']
-               if plugin['name'] == 'harness-usage-dashboard']
+               if plugin['name'] == PLUGIN_NAME]
     if len(plugins) != 1:
         raise ValueError('Marketplace must contain exactly one dashboard plugin')
     plugin = plugins[0]
@@ -171,7 +171,7 @@ def publish_release(repository, tag):
         'Authorization': f'Bearer {token}',
         'Accept': 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'harness-usage-dashboard-release',
+        'User-Agent': 'harness-useful-sidebar-release',
     }
     request = urllib.request.Request(f'{base}/tags/{tag}', headers=headers)
     try:

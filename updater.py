@@ -19,11 +19,11 @@ import urllib.request
 from preferences import agent_dir, resolve_profile
 
 ROOT = Path(__file__).resolve().parent
-REPOSITORY = 'MSpiechowicz/harness-usage-dashboard'
+REPOSITORY = 'MSpiechowicz/harness-useful-sidebar'
 RELEASE_API = f'https://api.github.com/repos/{REPOSITORY}/releases/latest'
 RELEASE_BASE = f'https://github.com/{REPOSITORY}/releases/tag/'
-MARKETPLACE = 'harness-usage-dashboard'
-PLUGIN_ID = 'harness-usage-dashboard@' + MARKETPLACE
+MARKETPLACE = 'harness-useful-sidebar'
+PLUGIN_ID = 'harness-useful-sidebar@' + MARKETPLACE
 CACHE_SECONDS = 24 * 60 * 60
 VERSION = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', re.ASCII)
 
@@ -76,7 +76,7 @@ def latest_release():
     request = urllib.request.Request(RELEASE_API, headers={
         'Accept': 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'harness-usage-dashboard-updater',
+        'User-Agent': 'harness-useful-sidebar-updater',
     })
     try:
         with opener.open(request, timeout=5) as response:
@@ -103,7 +103,7 @@ def latest_release():
 
 
 def cache_path(profile):
-    return agent_dir(profile) / 'usage-dashboard-update.json'
+    return agent_dir(profile) / 'useful-sidebar-update.json'
 
 
 def read_cache(profile):
@@ -137,7 +137,7 @@ def write_cache(profile, release):
         if path.is_symlink():
             return
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
-                                         prefix='.usage-dashboard-update-', delete=False) as stream:
+                                         prefix='.useful-sidebar-update-', delete=False) as stream:
             temporary = Path(stream.name)
             json.dump({'repository': REPOSITORY, 'checkedAt': time.time(), 'release': release}, stream)
             stream.write('\n')

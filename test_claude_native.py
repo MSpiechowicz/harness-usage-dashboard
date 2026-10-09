@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from claude_native import RequestError, handle_request
-from preferences import agent_dir, load_preferences, preferences_path, update_preferences
+from preferences import load_preferences, preferences_path, update_preferences
 from session_usage import active_session, database, ingest, summary
 
 ROOT = Path(__file__).resolve().parent
@@ -423,19 +423,6 @@ class NativeHelperTests(unittest.TestCase):
         refreshed = self.snapshot(session='new', activation='new-activation', allowance=allowance)
         self.assertEqual(refreshed['history']['current']['id'], 'new')
         self.assertEqual(refreshed['reports'], [])
-
-    def test_old_record_blocks_only_capture_without_changing_saved_history(self):
-        self.capture(entries=[self.entry()])
-        record = agent_dir(host='claude') / 'installation.json'
-        record.write_text('{"private":"unchanged-old-record"}')
-        before = record.read_bytes()
-        with self.assertRaises(RequestError) as error:
-            self.capture('record', [self.entry('blocked')])
-        self.assertEqual(error.exception.code, 'migration_required')
-        result = self.snapshot()
-        self.assertEqual(result['capture']['state'], 'unknown')
-        self.assertEqual(result['history']['current']['providers'][0]['total'], 25)
-        self.assertEqual(record.read_bytes(), before)
 
     def test_unsupported_controls_preserve_saved_layout_and_interval(self):
         update_preferences(None, {'side': 'left', 'interval': 180}, host='claude')

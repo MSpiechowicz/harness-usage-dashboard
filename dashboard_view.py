@@ -58,14 +58,14 @@ COMMANDS = {
 }
 THEME_OPTIONS = '|'.join(THEME_NAMES)
 CHART_OPTIONS = '|'.join(CHART_TYPES)
-HELP = (f'/usage-dashboard: view list|compact|details; chart {CHART_OPTIONS}; '
+HELP = (f'/useful-sidebar: view list|compact|details; chart {CHART_OPTIONS}; '
         f'position left|right; providers add|remove|hide|show PROVIDER; '
         f'theme {THEME_OPTIONS} (claude: Anthropic brand-inspired); '
         'theme custom TOKEN COLOR; theme reset; window on|off|focus|refresh; '
         'window interval SECONDS; window hide|show PROVIDER FILTER; commands hide|show; '
         'token-rate hide|show; current hide|show; '
         'previous hide|show; history-other hide|show; history-total hide|show')
-NATIVE_HELP = (f'/usage-dashboard: view list|compact|details; chart {CHART_OPTIONS}; '
+NATIVE_HELP = (f'/useful-sidebar: view list|compact|details; chart {CHART_OPTIONS}; '
                'providers add|remove|hide|show anthropic; '
                f'theme {THEME_OPTIONS}; theme custom TOKEN COLOR; theme reset; '
                'window on|off|focus|refresh; window hide|show anthropic FILTER; '
@@ -182,7 +182,7 @@ def describe(config, *, native=False):
              f"history other sessions {'shown' if config['history_other_visible'] else 'hidden'} / "
              f"history total {'shown' if config['history_total_visible'] else 'hidden'}"]
     if not config['providers']:
-        lines.extend(['Add at least one provider.', '/usage-dashboard providers add PROVIDER'])
+        lines.extend(['Add at least one provider.', '/useful-sidebar providers add PROVIDER'])
     for provider in config['providers']:
         lines.append(provider + (' [hidden]' if provider in config['hidden'] else ' [visible]'))
         for pattern in config['windows'].get(provider, []):

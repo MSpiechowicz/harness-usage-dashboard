@@ -1,12 +1,12 @@
 {
-  "name": "harness-usage-dashboard",
+  "name": "harness-useful-sidebar",
   "version": "1.0.70",
-  "description": "Persistent native Claude Code usage pane with local token history and dashboard controls",
+  "description": "Persistent native Claude Code usage pane with local token history and sidebar controls",
   "author": {
     "name": "MSpiechowicz"
   },
-  "homepage": "https://github.com/MSpiechowicz/harness-usage-dashboard",
-  "repository": "https://github.com/MSpiechowicz/harness-usage-dashboard",
+  "homepage": "https://github.com/MSpiechowicz/harness-useful-sidebar",
+  "repository": "https://github.com/MSpiechowicz/harness-useful-sidebar",
   "license": "GPL-3.0",
   "types": "./types/index.d.ts"
 }
