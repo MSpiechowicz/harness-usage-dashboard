@@ -1,8 +1,20 @@
-# Harness Useful Sidebar
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo/lockup-dark.svg">
+    <img alt="harness sidebar" src="docs/assets/logo/lockup-light.svg" width="420">
+  </picture>
+</p>
+
+# Harness Sidebar
 
 Live token charts and persistent session history for [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi) in a tmux sidebar and for Claude Code in a native Pane.
 
 For OMP, see how quickly your current session is using tokens, what your previous session consumed, and how much account allowance remains—without leaving the terminal. Token usage stays attributed to the provider and model that handled each request, even when you switch models. Session history and dashboard preferences persist across restarts. The independent Claude Code mod records native reported request usage and displays fresh native rate-limit observations when available; it does not use OMP's provider accounting or provide account-specific quota-change history.
+
+https://github.com/user-attachments/assets/2de5b96e-36c1-4069-aaba-6179654fa602
+
+<sub>A 40-second tour with sound: the live token rate, this session against the last, per-model details, plan limits,
+the nine themes, and both hosts. Made with demo data. [Download the full-quality 4K video](docs/video/harness-useful-sidebar-tour.mp4?raw=true) (21 MB).</sub>
 
 **Your recorded usage history stays on your machine.** Session token records and OMP's observed quota changes are saved in local SQLite databases, not a hosted dashboard service. OMP and Claude Code use physically separate data directories and JSON settings. See [Settings and privacy](#settings-and-privacy) for file locations and exactly what is stored.
 
@@ -21,6 +33,10 @@ Inside either host, use `/useful-sidebar view compact` for the overview or `/use
 - **Local storage:** recorded usage lives in host-separated SQLite databases. OMP records are scoped by project within each OMP profile; Claude Code records are scoped by project in Claude's own storage. Preferences persist in separate local JSON files.
 - **Design-token theming:** choose from nine named palettes: green, blue, brown, yellow, cyan, magenta, orange, red, and the opt-in Claude palette inspired by Anthropic's brand colors. Rules, chart marks, and body text follow each palette's tokens; healthy, warning, and critical values stay green, orange, and red for clear allowance semantics.
 - **Host-specific updates:** each host uses its own native plugin manager for marketplace installations; source checkouts remain a manual development path.
+
+[![Compact view in the green theme next to Details view in the claude theme, drawn by the current renderer from demo data](docs/assets/views.png)](docs/assets/views.png)
+
+*Compact (green) and Details (claude) side by side, drawn by the current renderer from demo data. Click to enlarge.*
 
 ### When it is useful
 
@@ -348,9 +364,9 @@ Window filters are case-insensitive substrings of provider usage-window labels o
 
 ### Theme preview
 
-[![Preview of the original eight palettes—green, blue, brown, yellow, cyan, magenta, orange, and red—with bar-chart samples and green, orange, and red allowance indicators; Claude and other chart styles are not shown](docs/assets/themes.png)](docs/assets/themes.png)
+[![All nine palettes—green, blue, brown, yellow, cyan, magenta, orange, red, and claude—each with the same bar chart and green and orange allowance values](docs/assets/themes.png)](docs/assets/themes.png)
 
-*Mock-data excerpts of the original eight palettes showing the bars style, not a preview of the Claude palette or other chart styles. Each uses the same values to compare accents, darker rules, and chart colors. The blue tile is historical: it shows the former dark blue, not the current bright cyan-blue `#00b4ff` accent and chart with `#007fae` rules. Exact shades and dimming depend on your terminal palette and color support. Click to enlarge.*
+*Demo-data excerpts of all nine palettes in the bars style, drawn by the current renderer. Each uses the same values to compare headings, rules, and chart colors; allowance colors stay green, orange, and red in every palette. Exact shades and dimming depend on your terminal palette and color support. Click to enlarge.*
 
 Choose a palette from `/useful-sidebar theme`, or enter a command directly:
 
@@ -431,6 +447,8 @@ The **Token rate** chart shows reported tokens per minute across all models in 2
 | `bars` | Solid vertical columns with fractional terminal cells across six plot rows. |
 | `dots` | Sparse markers for active minutes across six plot rows, without connecting segments; even the smallest positive minute occupies the bottom plot row. |
 | `trace` | A six-row connected linear per-minute Braille rate line. Rising from zero and falling back to zero touch the plot's lowest subpixel row beside the axis, while long zero-only stretches remain unpainted. Tiny positive samples remain visible at that lowest subpixel; there is no extra horizontal zero line. ASCII-only terminals use readable line characters instead of Braille. |
+
+[![The same 20 minutes of usage as bars, dots, and trace](docs/assets/chart-styles.png)](docs/assets/chart-styles.png)
 
 In OMP choose **Chart** from `/useful-sidebar` or run `/useful-sidebar chart TYPE`; inside Claude Code use its immediate native `/useful-sidebar chart TYPE` command. Replace `TYPE` with `bars`, `dots`, or `trace`. Chart style is a saved preference for each host, independent of Compact/Details mode and of the other host's settings. Previously saved `line`, `area`, `heatmap`, or `lollipop` values fall back to bars and are normalized to bars on the next save.
 
@@ -529,7 +547,7 @@ Use `omp --profile NAME` to select a profile. Keep a custom `PI_CODING_AGENT_DIR
 
 Changes affect the current dashboard and subsequent launches, not all other already-running instances. Preferences use locked, atomic transforms so concurrent changes to different settings are retained; malformed settings produce an error rather than being silently reset. OMP release-check metadata is stored separately in `useful-sidebar-update.json` beside its preferences file; Claude updates belong to its plugin manager.
 
-The nine named palettes use design tokens: `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default. The original eight palettes—green, blue, brown, yellow, cyan, magenta, orange, and red—keep neutral body and muted text while varying headings, darker secondary rules, and chart color; only those eight appear in the [theme preview](#theme-preview). Blue uses bright cyan-blue `#00b4ff` for `accent` and `chart` with medium-bright `#007fae` secondary rules; the preview's blue tile predates these shades.
+The nine named palettes use design tokens: `text`, `muted`, `secondary`, `accent`, `chart`, `good`, `warn`, and `error`. Green is the default. The original eight palettes—green, blue, brown, yellow, cyan, magenta, orange, and red—keep neutral body and muted text while varying headings, darker secondary rules, and chart color. All nine appear in the [theme preview](#theme-preview). Blue uses bright cyan-blue `#00b4ff` for `accent` and `chart` with medium-bright `#007fae` secondary rules.
 
 Opt into `claude` with `/useful-sidebar theme claude` in either host's own command. Inspired by [Anthropic's published brand colors](https://raw.githubusercontent.com/anthropics/skills/main/skills/brand-guidelines/SKILL.md), it sets `text` to warm light `#faf9f5`, `muted` and `secondary` to mid-gray `#b0aea5`, and `accent` and `chart` to orange `#d97757`. This is a dashboard palette for an assumed dark terminal, not a verified match for Claude Code's built-in terminal theme. It does not set a background: OMP inherits the terminal background, while native Claude owns its Pane background. Muted text also uses terminal dimming. Hex colors are mapped to the nearest xterm color on 256-color terminals and the nearest basic color on basic-color terminals, so terminal settings can shift the result.
 
