@@ -11,10 +11,10 @@ Live token charts and persistent session history for [Oh My Pi (OMP)](https://gi
 
 For OMP, see how quickly your current session is using tokens, what your previous session consumed, and how much account allowance remains—without leaving the terminal. Token usage stays attributed to the provider and model that handled each request, even when you switch models. Session history and dashboard preferences persist across restarts. The independent Claude Code mod records native reported request usage and displays fresh native rate-limit observations when available; it does not use OMP's provider accounting or provide account-specific quota-change history.
 
-[![A 40-second tour of Harness Sidebar](docs/video/harness-useful-sidebar-tour.jpg)](docs/video/harness-useful-sidebar-tour-github.mp4?raw=true)
+https://github.com/user-attachments/assets/2de5b96e-36c1-4069-aaba-6179654fa602
 
 <sub>A 40-second tour with sound: the live token rate, this session against the last, per-model details, plan limits,
-the nine themes, and both hosts. Made with demo data. [Download the full-quality video](docs/video/harness-useful-sidebar-tour.mp4?raw=true) (21 MB).</sub>
+the nine themes, and both hosts. Made with demo data. [Download the full-quality 4K video](docs/video/harness-useful-sidebar-tour.mp4?raw=true) (21 MB).</sub>
 
 **Your recorded usage history stays on your machine.** Session token records and OMP's observed quota changes are saved in local SQLite databases, not a hosted dashboard service. OMP and Claude Code use physically separate data directories and JSON settings. See [Settings and privacy](#settings-and-privacy) for file locations and exactly what is stored.
 
