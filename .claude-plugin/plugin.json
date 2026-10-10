@@ -1,6 +1,6 @@
 {
   "name": "harness-useful-sidebar",
-  "version": "1.0.72",
+  "version": "1.0.73",
   "description": "Persistent native Claude Code usage pane with local token history and sidebar controls",
   "author": {
     "name": "MSpiechowicz"

@@ -10,11 +10,11 @@
     {
       "name": "harness-useful-sidebar",
       "description": "Persistent OMP usage sidebar and native Claude Code usage pane",
-      "version": "1.0.72",
+      "version": "1.0.73",
       "source": {
         "source": "github",
         "repo": "MSpiechowicz/harness-useful-sidebar",
-        "ref": "v1.0.72"
+        "ref": "v1.0.73"
       },
       "homepage": "https://github.com/MSpiechowicz/harness-useful-sidebar"
     }
