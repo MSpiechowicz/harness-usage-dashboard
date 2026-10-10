@@ -1,3 +1,6 @@
 __pycache__/
 *.py[cod]
 .claude-plugin/types/
+
+# HyperFrames project of the README video (the rendered MP4 lives in docs/video)
+videos/
